@@ -3,5 +3,7 @@
 //! the example and the golden tests render the exact same tree.
 
 mod specimen;
+mod type_specimen;
 
 pub use specimen::specimen;
+pub use type_specimen::type_specimen;

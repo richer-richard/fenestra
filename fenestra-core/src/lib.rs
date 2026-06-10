@@ -10,6 +10,7 @@ mod id;
 mod layout;
 mod painter;
 mod style;
+mod text;
 mod theme;
 mod tokens;
 
@@ -17,6 +18,7 @@ pub use element::{Cursor, Element, Kind, col, div, divider, row, spacer, stack, 
 pub use frame::build_scene;
 pub use id::WidgetId;
 pub use style::*;
+pub use text::Fonts;
 pub use theme::{Mode, Ramp, StatusColors, Theme};
 pub use tokens::*;
 

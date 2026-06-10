@@ -315,6 +315,12 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Align children on their first text baseline (rows only).
+    pub fn items_baseline(mut self) -> Self {
+        self.style = self.style.items_baseline();
+        self
+    }
+
     /// Pack children toward the main-axis start.
     pub fn justify_start(mut self) -> Self {
         self.style = self.style.justify_start();

@@ -97,3 +97,32 @@ vello 0.9 is the classic compute-shader renderer (`vello_encoding` +
   `FENESTRA_UPDATE_SNAPSHOTS=1` regenerates; failures write `*.actual.png`
   next to the golden. A process-wide shared `Headless` renderer keeps test
   suites fast (vello shader compilation happens once).
+
+## M2 decisions
+
+- **Embedded Inter.** Inter 4.1 statics (Regular/Medium/SemiBold, OFL — see
+  `fenestra-core/assets/inter/LICENSE.txt`) are `include_bytes!`-embedded and
+  registered with fontique. Inter heads the `sans-serif` generic; the mono
+  role resolves `monospace` through SF Mono / Cascadia Code / JetBrains Mono
+  when installed, with Inter appended as the last resort so mono text never
+  vanishes in embedded-only collections (which have no system generic
+  mappings at all).
+- **Two font modes.** `Fonts::embedded()` (no system fonts; deterministic,
+  used by headless rendering) and `Fonts::with_system()` (windowed runner).
+- **Color-free layout cache.** Parley layouts are cached keyed by (text,
+  size, weight, line-height, letter-spacing, family role, align, max-lines,
+  quarter-px-quantized wrap width). The parley brush is the default `[u8;4]`
+  and is never set; text color is applied at draw time via
+  `DrawGlyphs::brush`, so recolors (hover, theme flips) hit the cache.
+- **Measure/paint width agreement.** Taffy measures text via
+  `compute_layout_with_measure`; measured sizes are `ceil()`ed so the paint
+  pass (which re-wraps at the final box width) reproduces the same line
+  breaks.
+- **Ellipsis truncation.** Parley has no built-in max-lines; fenestra binary
+  searches the longest prefix whose layout plus `…` fits, over char
+  boundaries, and caches the result.
+- **True baseline alignment.** Taffy hardcodes `first_baselines: NONE` for
+  measured leaves, so `items_baseline()` rows are laid out flex-start and the
+  frame pipeline shifts each in-flow child down by `max_baseline - baseline`,
+  using parley's first-line baseline for text and the bottom edge for boxes
+  (CSS synthesized baseline). The same offsets will feed hit testing in M4.

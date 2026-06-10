@@ -17,13 +17,18 @@ fn card<Msg>(theme: &Theme) -> Element<Msg> {
 fn main() {
     let theme = Theme::light();
     let bg = theme.bg;
+    let mut fonts = Fonts::with_system();
     run_scene(
         WindowOptions::titled("fenestra hello").with_size(800.0, 600.0),
         bg,
         move |scene, width, height, _bg| {
             #[expect(clippy::cast_possible_truncation, reason = "window sizes fit in f32")]
-            let built =
-                fenestra::build_scene(&card::<()>(&theme), &theme, (width as f32, height as f32));
+            let built = fenestra::build_scene(
+                &card::<()>(&theme),
+                &theme,
+                &mut fonts,
+                (width as f32, height as f32),
+            );
             scene.append(&built, None);
         },
     )

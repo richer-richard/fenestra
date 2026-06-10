@@ -1,10 +1,7 @@
 //! Maps the fenestra `Style` layout group 1:1 onto `taffy::Style` and runs
 //! layout. Text measurement is wired in M2; grid/scroll complete in M3.
 
-use taffy::prelude::{
-    AvailableSpace, Line, NodeId, Size, TaffyGridLine, TaffyGridSpan, TaffyTree, auto, fr, length,
-    percent,
-};
+use taffy::prelude::{Line, Size, TaffyGridLine, TaffyGridSpan, auto, fr, length, percent};
 use taffy::style::GridPlacement;
 
 use crate::style::{
@@ -115,6 +112,10 @@ fn align_items(v: AlignItems) -> taffy::style::AlignItems {
         AlignItems::Start => taffy::style::AlignItems::FlexStart,
         AlignItems::Center => taffy::style::AlignItems::Center,
         AlignItems::End => taffy::style::AlignItems::FlexEnd,
+        // taffy never reports baselines for measured leaves (it would
+        // synthesize bottom edges), so the frame pipeline lays baseline rows
+        // out flex-start and shifts children by their true text baselines.
+        AlignItems::Baseline => taffy::style::AlignItems::FlexStart,
     }
 }
 
@@ -161,16 +162,4 @@ fn grid_line(p: GridPlace) -> Line<GridPlacement> {
             end: GridPlacement::from_span(n),
         },
     }
-}
-
-/// Runs layout with the canvas as definite available space.
-pub(crate) fn compute(tree: &mut TaffyTree<()>, root: NodeId, width: f32, height: f32) {
-    tree.compute_layout(
-        root,
-        Size {
-            width: AvailableSpace::Definite(width),
-            height: AvailableSpace::Definite(height),
-        },
-    )
-    .expect("taffy compute_layout");
 }

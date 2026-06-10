@@ -51,6 +51,9 @@ pub enum AlignItems {
     Center,
     /// Pack toward the end.
     End,
+    /// Align children on their first text baseline (rows only). Boxes
+    /// without text use their bottom edge, like CSS synthesized baselines.
+    Baseline,
 }
 
 /// Main-axis distribution of children.
@@ -251,7 +254,7 @@ pub struct Shadow {
 }
 
 /// Horizontal text alignment.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TextAlign {
     /// Align to the start (left in LTR).
     #[default]
@@ -656,6 +659,12 @@ impl Style {
     /// Align children to the cross-axis end.
     pub fn items_end(mut self) -> Self {
         self.align_items = AlignItems::End;
+        self
+    }
+
+    /// Align children on their first text baseline (rows only).
+    pub fn items_baseline(mut self) -> Self {
+        self.align_items = AlignItems::Baseline;
         self
     }
 
