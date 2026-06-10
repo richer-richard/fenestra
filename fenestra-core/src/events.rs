@@ -2,7 +2,7 @@
 //! hover/active/focus bookkeeping with active capture, keyboard focus
 //! cycling, and message extraction from element handlers.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use kurbo::Point;
 
@@ -169,31 +169,54 @@ fn update_hover<Msg: Clone>(
     out: &mut Dispatch<Msg>,
 ) {
     let chain = frame.hit_chain(point);
-    let hovered: HashSet<WidgetId> = chain
+    let now = state.now();
+    let hovered: HashMap<WidgetId, f64> = chain
         .iter()
         .copied()
         .filter(|id| {
             handlers.get(*id).is_some_and(|el| {
                 !el.disabled
-                    && (el.hover_style.is_some() || el.on_click.is_some() || el.on_hover.is_some())
+                    && (el.hover_style.is_some()
+                        || el.on_click.is_some()
+                        || el.on_hover.is_some()
+                        || frame.toggle_overlay_of(*id).is_some()
+                        || has_hover_overlay(el))
             })
         })
+        // Elements still hovered keep their original enter time.
+        .map(|id| (id, state.hovered.get(&id).copied().unwrap_or(now)))
         .collect();
     // Hover-enter messages, in deterministic root-to-deepest order.
     for id in &chain {
-        if hovered.contains(id)
-            && !state.hovered.contains(id)
+        if hovered.contains_key(id)
+            && !state.hovered.contains_key(id)
             && let Some(el) = handlers.get(*id)
             && let Some(msg) = &el.on_hover
         {
             out.msgs.push(msg.clone());
         }
     }
-    if hovered != state.hovered {
+    let changed = hovered.len() != state.hovered.len()
+        || hovered.keys().any(|id| !state.hovered.contains_key(id));
+    if changed {
         state.hovered = hovered;
         out.redraw = true;
     }
     out.cursor = Some(cursor_of(handlers, &chain));
+}
+
+/// Whether any direct child is a hover overlay (tooltip): hovering the
+/// anchor must be tracked even without hover styling.
+fn has_hover_overlay<Msg>(el: &Element<Msg>) -> bool {
+    el.children.iter().any(|c| {
+        matches!(
+            c.overlay,
+            Some(crate::element::Overlay {
+                mode: crate::element::OverlayMode::Hover { .. },
+                ..
+            })
+        )
+    })
 }
 
 /// Recomputes the hover set against a freshly-built frame without emitting
@@ -205,17 +228,25 @@ pub fn refresh_hover<Msg>(root: &Element<Msg>, frame: &Frame, state: &mut FrameS
     };
     let handlers = Handlers::collect(root);
     let chain = frame.hit_chain(Point::new(f64::from(x), f64::from(y)));
-    let hovered: HashSet<WidgetId> = chain
+    let now = state.now();
+    let hovered: HashMap<WidgetId, f64> = chain
         .iter()
         .copied()
         .filter(|id| {
             handlers.get(*id).is_some_and(|el| {
                 !el.disabled
-                    && (el.hover_style.is_some() || el.on_click.is_some() || el.on_hover.is_some())
+                    && (el.hover_style.is_some()
+                        || el.on_click.is_some()
+                        || el.on_hover.is_some()
+                        || frame.toggle_overlay_of(*id).is_some()
+                        || has_hover_overlay(el))
             })
         })
+        .map(|id| (id, state.hovered.get(&id).copied().unwrap_or(now)))
         .collect();
-    if hovered != state.hovered {
+    let changed = hovered.len() != state.hovered.len()
+        || hovered.keys().any(|id| !state.hovered.contains_key(id));
+    if changed {
         state.hovered = hovered;
         true
     } else {
@@ -283,10 +314,50 @@ pub fn dispatch<Msg: Clone>(
             };
             let point = Point::new(f64::from(px), f64::from(py));
             let chain = frame.hit_chain(point);
+
+            // Outside-click handling for open overlays: clicking outside an
+            // open toggle (menu) closes it and swallows the press; clicking
+            // a modal backdrop asks the app to close via on_close.
+            let hit_overlay = chain
+                .first()
+                .and_then(|deepest| frame.overlay_containing(*deepest));
+            let mut closed_any = false;
+            for (overlay_id, mode) in frame.open_overlays_top_down() {
+                if matches!(mode, crate::element::OverlayMode::Toggle)
+                    && hit_overlay != Some(overlay_id)
+                    && !chain
+                        .iter()
+                        .any(|id| frame.toggle_overlay_of(*id) == Some(overlay_id))
+                {
+                    state.close_overlay(overlay_id);
+                    closed_any = true;
+                }
+            }
+            if closed_any {
+                out.redraw = true;
+                out.cursor = Some(cursor_of(&handlers, &chain));
+                return out;
+            }
+            if chain.is_empty()
+                && let Some(modal) = frame.top_overlay_is_modal()
+            {
+                // The backdrop swallowed the press.
+                if let Some(el) = handlers.get(modal)
+                    && let Some(msg) = &el.on_close
+                {
+                    out.msgs.push(msg.clone());
+                }
+                out.redraw = true;
+                return out;
+            }
             // Deepest interactive node wins the press.
             let target = chain.iter().rev().copied().find(|id| {
                 handlers.get(*id).is_some_and(|el| {
-                    !el.disabled && (el.on_click.is_some() || el.on_drag.is_some() || el.focusable)
+                    !el.disabled
+                        && (el.on_click.is_some()
+                            || el.on_drag.is_some()
+                            || el.focusable
+                            || frame.toggle_overlay_of(*id).is_some())
                 })
             });
             if let Some(id) = target {
@@ -297,6 +368,14 @@ pub fn dispatch<Msg: Clone>(
                         state.focus_visible = false;
                     } else if el.focusable {
                         state.focus_visible = false;
+                    }
+                    // Clicking a toggle-overlay anchor opens/closes its menu.
+                    if let Some(overlay_id) = frame.toggle_overlay_of(id) {
+                        if state.overlay_open(overlay_id) {
+                            state.close_overlay(overlay_id);
+                        } else {
+                            state.open_overlay(overlay_id);
+                        }
                     }
                     if matches!(el.kind, Kind::Input(_)) {
                         let now = state.now();
@@ -334,6 +413,10 @@ pub fn dispatch<Msg: Clone>(
                     && let Some(msg) = &el.on_click
                 {
                     out.msgs.push(msg.clone());
+                    // Menus close when something inside them is chosen.
+                    if let Some(overlay_id) = frame.overlay_containing(active) {
+                        state.close_overlay(overlay_id);
+                    }
                 }
                 out.redraw = true;
             }
@@ -405,12 +488,41 @@ pub fn dispatch<Msg: Clone>(
                     out.msgs.push(msg);
                     out.redraw = true;
                 }
-                // Enter/Space activate clickables.
-                if matches!(key.key, Key::Enter | Key::Space)
-                    && let Some(msg) = &el.on_click
-                {
-                    out.msgs.push(msg.clone());
-                    out.redraw = true;
+                // Enter/Space activate clickables and toggle anchored menus.
+                if matches!(key.key, Key::Enter | Key::Space) {
+                    if let Some(msg) = &el.on_click {
+                        out.msgs.push(msg.clone());
+                        out.redraw = true;
+                    }
+                    if let Some(overlay_id) = frame.toggle_overlay_of(focus) {
+                        if state.overlay_open(overlay_id) {
+                            state.close_overlay(overlay_id);
+                        } else {
+                            state.open_overlay(overlay_id);
+                        }
+                        out.redraw = true;
+                    }
+                }
+            }
+            // Esc closes the top overlay: toggles close directly, app-driven
+            // overlays are asked via on_close.
+            if matches!(key.key, Key::Escape)
+                && let Some((overlay_id, mode)) = frame.open_overlays_top_down().first().copied()
+            {
+                match mode {
+                    crate::element::OverlayMode::Toggle => {
+                        state.close_overlay(overlay_id);
+                        out.redraw = true;
+                    }
+                    crate::element::OverlayMode::Open => {
+                        if let Some(el) = handlers.get(overlay_id)
+                            && let Some(msg) = &el.on_close
+                        {
+                            out.msgs.push(msg.clone());
+                            out.redraw = true;
+                        }
+                    }
+                    crate::element::OverlayMode::Hover { .. } => {}
                 }
             }
         }

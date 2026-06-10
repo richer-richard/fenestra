@@ -265,13 +265,29 @@ pub(crate) fn focus_ring(scene: &mut Scene, rect: Rect, corners: CornerRadius, c
 /// Paints a vector path scaled from its viewbox into `rect`, optionally
 /// trimmed to the first `trim` fraction of its arc length (check marks
 /// draw on with this).
-pub(crate) fn draw_path(scene: &mut Scene, data: &PathData, trim: f32, color: Color, rect: Rect) {
+/// Paints a vector path scaled from its viewbox into `rect`, optionally
+/// trimmed to the first `trim` fraction of its arc length and rotated
+/// (radians) around the rect center (spinners).
+pub(crate) fn draw_path_rotated(
+    scene: &mut Scene,
+    data: &PathData,
+    trim: f32,
+    color: Color,
+    rect: Rect,
+    rotation: f64,
+) {
     if trim <= 0.0 {
         return;
     }
     let sx = rect.width() / data.viewbox.0.max(1e-6);
     let sy = rect.height() / data.viewbox.1.max(1e-6);
-    let transform = Affine::translate((rect.x0, rect.y0)) * Affine::scale_non_uniform(sx, sy);
+    let rotate = if rotation == 0.0 {
+        Affine::IDENTITY
+    } else {
+        Affine::rotate_about(rotation, rect.center())
+    };
+    let transform =
+        rotate * Affine::translate((rect.x0, rect.y0)) * Affine::scale_non_uniform(sx, sy);
     let trimmed;
     let path: &BezPath = if trim >= 1.0 {
         &data.path

@@ -234,3 +234,33 @@ vello 0.9 is the classic compute-shader renderer (`vello_encoding` +
 - **Single line by construction.** Editor wrap width is `None`; the text
   scrolls horizontally inside the clip, caret kept in view with a
   follow-scroll that clamps to the layout width.
+
+## M6 decisions
+
+- **Declarative overlays.** An overlay is an element marked `.overlay(def)`
+  as a child of its anchor: it leaves normal flow, lays out against the
+  canvas in a second pass, positions relative to the anchor rect (Below /
+  BelowCenter, flipping above when out of room) or centered, paints after
+  the root, and hit-tests first. Three modes: `Open` (present-in-tree =
+  open; app-driven; outside click/Esc emit `on_close`), `Toggle` (clicking
+  the anchor toggles; retained in `FrameState.overlays`; closes on outside
+  click, Esc, or choosing any clickable inside), and `Hover { delay_ms }`
+  (tooltips; never hit-tested). Nested overlays work (a select inside a
+  modal): overlay subtrees are processed as a queue with paths rebased onto
+  the root element tree.
+- **Modality.** A backdrop overlay dims with black 0.4 x enter-progress and
+  swallows hits outside the overlay; `focusables()` returns only the top
+  focus-trapping overlay's subtree, which is the entire focus trap. Enter
+  animation: 200ms standard-eased fade plus an 8px slide for centered
+  overlays; `reduced_motion` snaps it, keeping headless renders stable.
+- **Select without retained highlight.** The listbox highlight IS the
+  selected value (Elm-pure): closed-or-open, arrows step the value via
+  `on_change`, Enter/Space toggles the menu, first-letter type-ahead scans
+  forward with wrap. No separate highlight state to reconcile.
+- **Tabs deviation.** The 2px accent indicator cross-fades between tabs
+  (200ms) instead of sliding: a real slide between variable-width tabs
+  needs measured-position (shared-element) animation, which the per-element
+  transition engine deliberately does not do in v1.
+- **Spinner rotation.** `.spin(period_ms)` rotates a path element's paint
+  transform from the frame clock (no per-frame view rebuild tricks);
+  `reduced_motion` freezes it for deterministic goldens.

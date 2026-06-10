@@ -2,7 +2,7 @@
 //! offsets today; hover/focus/caret/animation clocks in M4+. Everything else
 //! in the pipeline is a pure function of `(tree, theme, size, scale)`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use crate::anim::Anim;
 use crate::clipboard::{Clipboard, MemoryClipboard};
@@ -27,8 +27,9 @@ pub struct FrameState {
     scroll: HashMap<WidgetId, Scroll>,
     /// Snaps every animation to its final value. Headless rendering sets it.
     pub reduced_motion: bool,
-    /// Elements currently hovered (with hover styling or handlers).
-    pub(crate) hovered: HashSet<WidgetId>,
+    /// Elements currently hovered (with hover styling or handlers), with
+    /// the clock time the hover began (tooltips key off it).
+    pub(crate) hovered: HashMap<WidgetId, f64>,
     /// The pressed element; it captures the pointer until release.
     pub(crate) active: Option<WidgetId>,
     /// The focused element.
@@ -41,6 +42,10 @@ pub struct FrameState {
     pub(crate) anims: HashMap<WidgetId, Anim>,
     /// Text editor state per input widget.
     pub(crate) editors: HashMap<WidgetId, EditorState>,
+    /// Open overlay ids, bottom to top.
+    pub(crate) overlays: Vec<WidgetId>,
+    /// First-build time of each open overlay (drives enter animations).
+    pub(crate) overlay_opened: HashMap<WidgetId, f64>,
     /// The clipboard; the shell injects the OS clipboard, headless keeps
     /// the in-memory default.
     pub(crate) clipboard: Box<dyn Clipboard>,
@@ -54,13 +59,15 @@ impl Default for FrameState {
             now: 0.0,
             scroll: HashMap::new(),
             reduced_motion: false,
-            hovered: HashSet::new(),
+            hovered: HashMap::new(),
             active: None,
             focus: None,
             focus_visible: false,
             pointer: None,
             anims: HashMap::new(),
             editors: HashMap::new(),
+            overlays: Vec::new(),
+            overlay_opened: HashMap::new(),
             clipboard: Box::new(MemoryClipboard::default()),
             frame_no: 0,
         }
@@ -85,7 +92,31 @@ impl FrameState {
 
     /// Whether the id is hovered.
     pub fn is_hovered(&self, id: WidgetId) -> bool {
-        self.hovered.contains(&id)
+        self.hovered.contains_key(&id)
+    }
+
+    /// How long the id has been hovered, in seconds.
+    pub(crate) fn hovered_for(&self, id: WidgetId) -> Option<f64> {
+        self.hovered.get(&id).map(|t| self.now - t)
+    }
+
+    /// Whether the overlay id is open.
+    pub fn overlay_open(&self, id: WidgetId) -> bool {
+        self.overlays.contains(&id)
+    }
+
+    /// Opens an overlay (pushes onto the stack).
+    pub(crate) fn open_overlay(&mut self, id: WidgetId) {
+        if !self.overlays.contains(&id) {
+            self.overlays.push(id);
+            self.overlay_opened.insert(id, self.now);
+        }
+    }
+
+    /// Closes an overlay.
+    pub(crate) fn close_overlay(&mut self, id: WidgetId) {
+        self.overlays.retain(|o| *o != id);
+        self.overlay_opened.remove(&id);
     }
 
     /// Whether the id is pressed.

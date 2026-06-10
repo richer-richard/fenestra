@@ -53,6 +53,87 @@ pub struct PathData {
     pub stroke: Option<f64>,
 }
 
+/// How an overlay child opens and closes.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OverlayMode {
+    /// Open while present in the tree; the app controls it (modals).
+    /// Outside clicks and Esc emit the overlay's `on_close` message.
+    Open,
+    /// Clicking the anchor (parent) toggles it; outside clicks and Esc
+    /// close it, and a click on any clickable inside closes it (menus).
+    Toggle,
+    /// Shows after hovering the anchor for the delay; never hit-tested.
+    Hover {
+        /// Hover delay in milliseconds.
+        delay_ms: f32,
+    },
+}
+
+/// Where an overlay is positioned.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum OverlayPlacement {
+    /// Below the anchor, left edges aligned, with a vertical gap. Flips
+    /// above when there is no room below.
+    Below {
+        /// Gap in logical px.
+        gap: f32,
+    },
+    /// Below the anchor, horizontally centered on it.
+    BelowCenter {
+        /// Gap in logical px.
+        gap: f32,
+    },
+    /// Centered in the canvas.
+    Center,
+}
+
+/// Marks an element as an overlay child of its parent (the anchor):
+/// excluded from normal layout, laid out against the canvas, painted after
+/// the root, and hit-tested first.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Overlay {
+    /// Open/close behavior.
+    pub mode: OverlayMode,
+    /// Positioning relative to the anchor or canvas.
+    pub placement: OverlayPlacement,
+    /// Dim everything beneath with black at 0.4 alpha.
+    pub backdrop: bool,
+    /// Tab cycles only inside this overlay while it is open.
+    pub trap_focus: bool,
+}
+
+impl Overlay {
+    /// A click-toggled menu below its anchor (select listboxes).
+    pub fn menu() -> Self {
+        Self {
+            mode: OverlayMode::Toggle,
+            placement: OverlayPlacement::Below { gap: 4.0 },
+            backdrop: false,
+            trap_focus: false,
+        }
+    }
+
+    /// A hover tooltip: 400ms delay, 6px below, centered, untouchable.
+    pub fn tooltip() -> Self {
+        Self {
+            mode: OverlayMode::Hover { delay_ms: 400.0 },
+            placement: OverlayPlacement::BelowCenter { gap: 6.0 },
+            backdrop: false,
+            trap_focus: false,
+        }
+    }
+
+    /// An app-driven centered modal with backdrop and focus trap.
+    pub fn modal() -> Self {
+        Self {
+            mode: OverlayMode::Open,
+            placement: OverlayPlacement::Center,
+            backdrop: true,
+            trap_focus: true,
+        }
+    }
+}
+
 /// Mouse cursor shown while hovering an element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cursor {
@@ -84,6 +165,10 @@ pub struct Element<Msg> {
     pub(crate) on_key: Option<KeyFn<Msg>>,
     pub(crate) on_drag: Option<DragFn<Msg>>,
     pub(crate) on_input: Option<InputFn<Msg>>,
+    pub(crate) on_close: Option<Msg>,
+    pub(crate) overlay: Option<Overlay>,
+    /// Continuous rotation period in ms (spinners); paint-time, clock-driven.
+    pub(crate) spin: Option<f32>,
     pub(crate) themed: Option<ThemedFn>,
     pub(crate) hover_style: Option<ThemedFn>,
     pub(crate) active_style: Option<ThemedFn>,
@@ -107,6 +192,9 @@ impl<Msg> Element<Msg> {
             on_key: None,
             on_drag: None,
             on_input: None,
+            on_close: None,
+            overlay: None,
+            spin: None,
             themed: None,
             hover_style: None,
             active_style: None,
@@ -224,6 +312,25 @@ impl<Msg> Element<Msg> {
     /// Maps each text edit of an input element to a message.
     pub fn on_input(mut self, f: impl Fn(&str) -> Msg + 'static) -> Self {
         self.on_input = Some(Box::new(f));
+        self
+    }
+
+    /// Marks this element as an overlay child of its parent (the anchor).
+    pub fn overlay(mut self, overlay: Overlay) -> Self {
+        self.overlay = Some(overlay);
+        self
+    }
+
+    /// Emitted when an app-driven overlay is dismissed (outside click, Esc).
+    pub fn on_close(mut self, msg: Msg) -> Self {
+        self.on_close = Some(msg);
+        self
+    }
+
+    /// Rotates the element's painted content continuously (one turn per
+    /// `period_ms`). Only path elements rotate; used by spinners.
+    pub fn spin(mut self, period_ms: f32) -> Self {
+        self.spin = Some(period_ms);
         self
     }
 

@@ -3,12 +3,14 @@
 //! the example and the golden tests render the exact same tree.
 
 mod demo;
+mod gallery;
 pub mod icons;
 mod specimen;
 mod type_specimen;
 mod widgets;
 
 pub use demo::{holy_grail, scroll_demo};
+pub use gallery::{gallery_controls, gallery_display};
 pub use specimen::specimen;
 pub use type_specimen::type_specimen;
 pub use widgets::*;

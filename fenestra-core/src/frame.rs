@@ -8,7 +8,7 @@ use serde::Serialize;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use vello::Scene;
 
-use crate::element::{Element, Kind, PathData};
+use crate::element::{Element, Kind, Overlay, OverlayMode, OverlayPlacement, PathData};
 use crate::frame_state::FrameState;
 use crate::id::WidgetId;
 use crate::input::{EditorState, InputPaint};
@@ -68,19 +68,37 @@ struct FrameNode {
     visible: Option<Rect>,
     scroll: Option<ScrollInfo>,
     meta: NodeMeta,
+    /// Continuous rotation period (ms) for spinner paths.
+    spin: Option<f32>,
     children: Vec<FrameNode>,
+}
+
+/// One realized overlay, painted above the root in stack order.
+struct OverlayFrame {
+    id: WidgetId,
+    mode: OverlayMode,
+    node: FrameNode,
+    /// Enter progress 0..=1 (drives backdrop fade and slide-up).
+    progress: f32,
+    backdrop: bool,
+    trap_focus: bool,
+    hittable: bool,
 }
 
 /// A laid-out frame: resolved styles and absolute rects for every element.
 /// Paint, input routing, and debug dumps all read from this one structure.
 pub struct Frame {
     root: FrameNode,
+    overlays: Vec<OverlayFrame>,
+    /// Anchor id -> (overlay id, mode) for every overlay child present in
+    /// the tree (open or not); dispatch uses it for toggling.
+    overlay_anchors: std::collections::HashMap<WidgetId, (WidgetId, OverlayMode)>,
     canvas: Rect,
     scale: f64,
     thumb_color: crate::Color,
     ring_color: crate::Color,
-    /// `true` while any scrollbar fade or style transition is running; the
-    /// runner keeps scheduling frames.
+    /// `true` while any scrollbar fade, style transition, caret blink, or
+    /// overlay animation is running; the runner keeps scheduling frames.
     pub animating: bool,
 }
 
@@ -93,6 +111,7 @@ struct BuiltNode {
     style: Style,
     focusable: bool,
     disabled: bool,
+    spin: Option<f32>,
     children: Vec<BuiltNode>,
 }
 
@@ -156,6 +175,19 @@ fn resolve<Msg>(
     (style, animating)
 }
 
+/// An overlay child discovered during the main build pass: the path
+/// navigates from the root element to the overlay element.
+struct PendingOverlay {
+    anchor: WidgetId,
+    id: WidgetId,
+    def: Overlay,
+    path: Vec<usize>,
+}
+
+#[expect(
+    clippy::too_many_arguments,
+    reason = "internal recursion carries build context"
+)]
 fn build<Msg>(
     el: &Element<Msg>,
     theme: &Theme,
@@ -164,6 +196,8 @@ fn build<Msg>(
     animating: &mut bool,
     id: WidgetId,
     in_stack: bool,
+    path: &mut Vec<usize>,
+    pending: &mut Vec<PendingOverlay>,
 ) -> BuiltNode {
     let (style, anim) = resolve(el, theme, state, id);
     *animating |= anim;
@@ -171,16 +205,27 @@ fn build<Msg>(
         .children
         .iter()
         .enumerate()
-        .map(|(i, c)| {
-            build(
-                c,
-                theme,
-                tree,
-                state,
-                animating,
-                id.child(i, c.key.as_deref()),
-                el.stack,
-            )
+        .filter_map(|(i, c)| {
+            let child_id = id.child(i, c.key.as_deref());
+            if let Some(def) = c.overlay {
+                // Overlay children leave normal flow entirely; they are
+                // built separately once openness is known.
+                let mut overlay_path = path.clone();
+                overlay_path.push(i);
+                pending.push(PendingOverlay {
+                    anchor: id,
+                    id: child_id,
+                    def,
+                    path: overlay_path,
+                });
+                return None;
+            }
+            path.push(i);
+            let node = build(
+                c, theme, tree, state, animating, child_id, el.stack, path, pending,
+            );
+            path.pop();
+            Some(node)
         })
         .collect();
     let taffy_style = layout::to_taffy(&style, in_stack);
@@ -245,6 +290,10 @@ fn build<Msg>(
             (node, PaintKind::Box)
         }
     };
+    if el.spin.is_some() && !state.reduced_motion {
+        // Spinners rotate continuously.
+        *animating = true;
+    }
     BuiltNode {
         taffy,
         id,
@@ -252,6 +301,7 @@ fn build<Msg>(
         style,
         focusable: el.focusable,
         disabled: el.disabled,
+        spin: el.spin,
         children,
     }
 }
@@ -406,6 +456,7 @@ impl Realize<'_> {
             visible,
             scroll,
             meta,
+            spin: node.spin,
             children,
         }
     }
@@ -424,6 +475,8 @@ pub fn build_frame<Msg>(
     let mut tree: TaffyTree<MeasureCtx> = TaffyTree::new();
     state.frame_no += 1;
     let mut transitions_running = false;
+    let mut path = Vec::new();
+    let mut pending = Vec::new();
     let mut node = build(
         root,
         theme,
@@ -432,6 +485,8 @@ pub fn build_frame<Msg>(
         &mut transitions_running,
         WidgetId::ROOT,
         false,
+        &mut path,
+        &mut pending,
     );
     if root.style.width == crate::style::Length::Auto {
         node.style.width = crate::style::Length::Px(size.0);
@@ -473,19 +528,211 @@ pub fn build_frame<Msg>(
         animating: false,
     };
     let root_node = realize.realize(node, Point::ORIGIN, None);
-    let animating = realize.animating || transitions_running;
+    let mut animating = realize.animating || transitions_running;
+    let canvas = Rect::new(0.0, 0.0, f64::from(size.0), f64::from(size.1));
+
+    // ---- overlay passes: openness, layout against the canvas, placement.
+    let mut overlay_anchors = std::collections::HashMap::new();
+    let mut overlays: Vec<OverlayFrame> = Vec::new();
+    let mut queue = pending;
+    let mut present: Vec<WidgetId> = Vec::new();
+    while !queue.is_empty() {
+        let batch = std::mem::take(&mut queue);
+        for p in batch {
+            present.push(p.id);
+            overlay_anchors.insert(p.anchor, (p.id, p.def.mode));
+            let open = match p.def.mode {
+                OverlayMode::Open => {
+                    state.open_overlay(p.id);
+                    true
+                }
+                OverlayMode::Toggle => state.overlay_open(p.id),
+                OverlayMode::Hover { delay_ms } => {
+                    match state.hovered_for(p.anchor) {
+                        Some(t) if t >= f64::from(delay_ms) / 1000.0 => true,
+                        Some(_) => {
+                            // Waiting out the delay: keep frames coming.
+                            animating = true;
+                            false
+                        }
+                        None => false,
+                    }
+                }
+            };
+            if !open {
+                continue;
+            }
+            let Some(el) = element_at(root, &p.path) else {
+                continue;
+            };
+            // Anchor rect from the realized main tree or earlier overlays.
+            let anchor_rect = rect_in(&root_node, p.anchor)
+                .or_else(|| overlays.iter().find_map(|o| rect_in(&o.node, p.anchor)))
+                .unwrap_or(canvas);
+
+            let mut opath = Vec::new();
+            let mut nested = Vec::new();
+            let built = build(
+                el,
+                theme,
+                &mut tree,
+                state,
+                &mut animating,
+                p.id,
+                false,
+                &mut opath,
+                &mut nested,
+            );
+            // Nested overlay paths are relative to `el`; rebase onto root.
+            for mut q in nested {
+                let mut full = p.path.clone();
+                full.extend(q.path.iter());
+                q.path = full;
+                queue.push(q);
+            }
+            tree.compute_layout_with_measure(
+                built.taffy,
+                Size {
+                    width: AvailableSpace::Definite(size.0),
+                    height: AvailableSpace::Definite(size.1),
+                },
+                |known, available, _id, ctx, _style| match ctx {
+                    Some(MeasureCtx::Text { text, style }) => {
+                        let (w, h) =
+                            fonts.measure(text, style, wrap_width(known.width, available.width));
+                        Size {
+                            width: known.width.unwrap_or(w),
+                            height: known.height.unwrap_or(h),
+                        }
+                    }
+                    Some(MeasureCtx::Input { style }) => Size {
+                        width: known.width.unwrap_or(INPUT_DEFAULT_WIDTH),
+                        height: known
+                            .height
+                            .unwrap_or_else(|| (style.px * style.line_height).ceil()),
+                    },
+                    None => Size::ZERO,
+                },
+            )
+            .expect("taffy compute_layout (overlay)");
+            let measured = tree.layout(built.taffy).expect("overlay layout").size;
+            let (w, h) = (f64::from(measured.width), f64::from(measured.height));
+
+            // Enter animation progress.
+            let progress = if state.reduced_motion {
+                1.0
+            } else {
+                let opened = state.overlay_opened.get(&p.id).copied().unwrap_or(0.0);
+                let t = ((state.now() - opened) / 0.2).clamp(0.0, 1.0);
+                #[expect(clippy::cast_possible_truncation, reason = "progress is 0..=1")]
+                {
+                    crate::tokens::EASE_STANDARD.eval(t as f32)
+                }
+            };
+            if progress < 1.0 {
+                animating = true;
+            }
+
+            let origin = match p.def.placement {
+                OverlayPlacement::Below { gap } => {
+                    let gap = f64::from(gap);
+                    let y = if anchor_rect.y1 + gap + h <= canvas.y1
+                        || anchor_rect.y0 - gap - h < canvas.y0
+                    {
+                        anchor_rect.y1 + gap
+                    } else {
+                        anchor_rect.y0 - gap - h
+                    };
+                    Point::new(anchor_rect.x0.clamp(canvas.x0, (canvas.x1 - w).max(0.0)), y)
+                }
+                OverlayPlacement::BelowCenter { gap } => {
+                    let gap = f64::from(gap);
+                    let x = anchor_rect.x0 + (anchor_rect.width() - w) * 0.5;
+                    Point::new(
+                        x.clamp(canvas.x0, (canvas.x1 - w).max(0.0)),
+                        anchor_rect.y1 + gap,
+                    )
+                }
+                OverlayPlacement::Center => {
+                    // Slide up 8px as the modal enters.
+                    let dy = 8.0 * (1.0 - f64::from(progress));
+                    Point::new(
+                        canvas.x0 + (canvas.width() - w) * 0.5,
+                        canvas.y0 + (canvas.height() - h) * 0.5 + dy,
+                    )
+                }
+            };
+
+            let mut orealize = Realize {
+                tree: &tree,
+                fonts,
+                state,
+                animating: false,
+            };
+            let onode = orealize.realize(built, origin, None);
+            animating |= orealize.animating;
+
+            overlays.push(OverlayFrame {
+                id: p.id,
+                mode: p.def.mode,
+                node: onode,
+                progress,
+                backdrop: p.def.backdrop,
+                trap_focus: p.def.trap_focus,
+                hittable: !matches!(p.def.mode, OverlayMode::Hover { .. }),
+            });
+        }
+    }
+    // Drop stale stack entries for overlays no longer in the tree.
+    let stale: Vec<WidgetId> = state
+        .overlays
+        .iter()
+        .copied()
+        .filter(|id| !present.contains(id))
+        .collect();
+    for id in stale {
+        state.close_overlay(id);
+    }
+    // Stack order: state.overlays is bottom-to-top; sort realized overlays.
+    overlays.sort_by_key(|o| {
+        state
+            .overlays
+            .iter()
+            .position(|id| *id == o.id)
+            .unwrap_or(usize::MAX)
+    });
+
     let frame_no = state.frame_no;
     state.anims.retain(|_, a| a.seen == frame_no);
     state.editors.retain(|_, e| e.seen == frame_no);
 
     Frame {
         root: root_node,
-        canvas: Rect::new(0.0, 0.0, f64::from(size.0), f64::from(size.1)),
+        overlays,
+        overlay_anchors,
+        canvas,
         scale,
         thumb_color: theme.text_subtle,
         ring_color: theme.accent.with_alpha(FOCUS_RING.alpha),
         animating,
     }
+}
+
+/// Navigates the element tree by child indices.
+fn element_at<'a, Msg>(root: &'a Element<Msg>, path: &[usize]) -> Option<&'a Element<Msg>> {
+    let mut el = root;
+    for &i in path {
+        el = el.children.get(i)?;
+    }
+    Some(el)
+}
+
+/// Finds a node's rect within a realized subtree.
+fn rect_in(node: &FrameNode, id: WidgetId) -> Option<Rect> {
+    if node.id == id {
+        return Some(node.rect);
+    }
+    node.children.iter().find_map(|c| rect_in(c, id))
 }
 
 /// Convenience: lays out and paints in one call with throwaway state.
@@ -509,6 +756,32 @@ impl Frame {
     pub fn paint(&self, fonts: &mut Fonts, state: &mut FrameState) -> Scene {
         let mut scene = Scene::new();
         self.paint_node(&mut scene, fonts, state, &self.root);
+        for overlay in &self.overlays {
+            if overlay.backdrop {
+                let alpha = 0.4 * overlay.progress;
+                scene.fill(
+                    peniko::Fill::NonZero,
+                    kurbo::Affine::IDENTITY,
+                    crate::Color::new([0.0, 0.0, 0.0, alpha]),
+                    None,
+                    &self.canvas,
+                );
+            }
+            let faded = overlay.progress < 1.0;
+            if faded {
+                scene.push_layer(
+                    peniko::Fill::NonZero,
+                    peniko::Mix::Normal,
+                    overlay.progress,
+                    kurbo::Affine::IDENTITY,
+                    &self.canvas,
+                );
+            }
+            self.paint_node(&mut scene, fonts, state, &overlay.node);
+            if faded {
+                scene.pop_layer();
+            }
+        }
         scene
     }
 
@@ -530,7 +803,21 @@ impl Frame {
             PaintKind::Text { text, style } => fonts.paint(scene, text, style, node.rect),
             PaintKind::Path(data) => {
                 let color = node.style.text.color.unwrap_or(self.thumb_color);
-                painter::draw_path(scene, data, node.style.path_trim, color, node.rect);
+                let rotation = node
+                    .spin
+                    .filter(|_| !state.reduced_motion)
+                    .map_or(0.0, |p| {
+                        let period = f64::from(p.max(1.0)) / 1000.0;
+                        (state.now() % period) / period * std::f64::consts::TAU
+                    });
+                painter::draw_path_rotated(
+                    scene,
+                    data,
+                    node.style.path_trim,
+                    color,
+                    node.rect,
+                    rotation,
+                );
             }
             PaintKind::Input(data) => {
                 let now = state.now();
@@ -587,49 +874,91 @@ impl Frame {
     /// siblings paint on top and win), ordered root to deepest. Clip-aware:
     /// content scrolled out of a clipped container does not hit.
     pub fn hit_chain(&self, point: Point) -> Vec<WidgetId> {
-        fn walk(node: &FrameNode, point: Point, out: &mut Vec<WidgetId>) -> bool {
-            if node.style.display == Display::None {
-                return false;
+        // Overlays hit-test first, topmost first; a modal backdrop swallows
+        // everything beneath it.
+        for overlay in self.overlays.iter().rev() {
+            if !overlay.hittable {
+                continue;
             }
-            if let Some(v) = node.visible
-                && !v.contains(point)
-            {
-                return false;
+            let mut chain = Vec::new();
+            if Self::walk_hit(&overlay.node, point, &mut chain) {
+                return chain;
             }
-            let inside = node.rect.contains(point);
-            if node.style.clip && !inside {
-                return false;
-            }
-            let mark = out.len();
-            if inside {
-                out.push(node.id);
-            }
-            for child in node.children.iter().rev() {
-                if walk(child, point, out) {
-                    return true;
-                }
-            }
-            if inside {
-                true
-            } else {
-                out.truncate(mark);
-                false
+            if overlay.backdrop {
+                return Vec::new();
             }
         }
         let mut chain = Vec::new();
-        walk(&self.root, point, &mut chain);
+        Self::walk_hit(&self.root, point, &mut chain);
         chain
+    }
+
+    fn walk_hit(node: &FrameNode, point: Point, out: &mut Vec<WidgetId>) -> bool {
+        if node.style.display == Display::None {
+            return false;
+        }
+        if let Some(v) = node.visible
+            && !v.contains(point)
+        {
+            return false;
+        }
+        let inside = node.rect.contains(point);
+        if node.style.clip && !inside {
+            return false;
+        }
+        let mark = out.len();
+        if inside {
+            out.push(node.id);
+        }
+        for child in node.children.iter().rev() {
+            if Self::walk_hit(child, point, out) {
+                return true;
+            }
+        }
+        if inside {
+            true
+        } else {
+            out.truncate(mark);
+            false
+        }
     }
 
     /// The absolute rect of the element with the given id.
     pub fn rect_of(&self, id: WidgetId) -> Option<Rect> {
-        fn find(node: &FrameNode, id: WidgetId) -> Option<Rect> {
-            if node.id == id {
-                return Some(node.rect);
-            }
-            node.children.iter().find_map(|c| find(c, id))
+        rect_in(&self.root, id).or_else(|| self.overlays.iter().find_map(|o| rect_in(&o.node, id)))
+    }
+
+    /// The toggle overlay anchored at `anchor`, if any.
+    pub fn toggle_overlay_of(&self, anchor: WidgetId) -> Option<WidgetId> {
+        match self.overlay_anchors.get(&anchor) {
+            Some((id, OverlayMode::Toggle)) => Some(*id),
+            _ => None,
         }
-        find(&self.root, id)
+    }
+
+    /// The open overlay whose subtree contains `id`.
+    pub fn overlay_containing(&self, id: WidgetId) -> Option<WidgetId> {
+        fn contains(node: &FrameNode, id: WidgetId) -> bool {
+            node.id == id || node.children.iter().any(|c| contains(c, id))
+        }
+        self.overlays
+            .iter()
+            .find(|o| contains(&o.node, id))
+            .map(|o| o.id)
+    }
+
+    /// Open overlays from top of the stack down: `(id, mode)`.
+    pub fn open_overlays_top_down(&self) -> Vec<(WidgetId, OverlayMode)> {
+        self.overlays.iter().rev().map(|o| (o.id, o.mode)).collect()
+    }
+
+    /// Whether the topmost open overlay paints a backdrop (modal).
+    pub fn top_overlay_is_modal(&self) -> Option<WidgetId> {
+        self.overlays
+            .iter()
+            .next_back()
+            .filter(|o| o.backdrop)
+            .map(|o| o.id)
     }
 
     /// The pointer position as fractions (0..=1) of the id's rect.
@@ -646,6 +975,8 @@ impl Frame {
     }
 
     /// Focusable element ids in tree order (disabled elements excluded).
+    /// While a focus-trapping overlay (modal) is open, only its subtree
+    /// participates.
     pub fn focusables(&self) -> Vec<WidgetId> {
         fn walk(node: &FrameNode, out: &mut Vec<WidgetId>) {
             if node.style.display == Display::None {
@@ -659,7 +990,16 @@ impl Frame {
             }
         }
         let mut out = Vec::new();
+        if let Some(trap) = self.overlays.iter().rev().find(|o| o.trap_focus) {
+            walk(&trap.node, &mut out);
+            return out;
+        }
         walk(&self.root, &mut out);
+        for overlay in &self.overlays {
+            if overlay.hittable {
+                walk(&overlay.node, &mut out);
+            }
+        }
         out
     }
 

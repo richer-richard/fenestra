@@ -4,14 +4,22 @@
 
 mod button;
 mod checkbox;
+mod display;
+mod overlay_widgets;
 mod radio;
+mod select;
 mod slider;
 mod switch;
 mod text_input;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
 pub use checkbox::{Checkbox, checkbox};
+pub use display::{
+    StatCard, Status, avatar, badge, callout, card, progress, spinner, stat_card, table, tabs,
+};
+pub use overlay_widgets::{Modal, modal, tooltip};
 pub use radio::{Radio, radio};
+pub use select::{Select, select};
 pub use slider::{Slider, slider};
 pub use switch::{Switch, switch};
 pub use text_input::{TextInput, text_input};
