@@ -1,0 +1,23 @@
+[package]
+name = "fenestra-core"
+description = "Element IR, theme tokens, style resolution, layout, text, and scene building for the fenestra GUI framework"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+vello.workspace = true
+kurbo.workspace = true
+peniko.workspace = true
+parley.workspace = true
+fontique.workspace = true
+taffy.workspace = true
+color.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+insta.workspace = true
+serde_json.workspace = true

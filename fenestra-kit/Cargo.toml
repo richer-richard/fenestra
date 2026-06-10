@@ -1,0 +1,17 @@
+[package]
+name = "fenestra-kit"
+description = "Design-system widget kit for the fenestra GUI framework"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+fenestra-core.workspace = true
+
+[dev-dependencies]
+fenestra-shell.workspace = true
+image.workspace = true
+insta.workspace = true

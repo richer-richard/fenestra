@@ -1,0 +1,37 @@
+[workspace]
+resolver = "3"
+members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/richard01172000/fenestra"
+keywords = ["gui", "ui", "graphics"]
+categories = ["gui"]
+
+[workspace.dependencies]
+fenestra-core = { version = "0.1.0", path = "fenestra-core" }
+fenestra-shell = { version = "0.1.0", path = "fenestra-shell" }
+fenestra-kit = { version = "0.1.0", path = "fenestra-kit" }
+
+winit = "0.30.13"
+wgpu = "29.0.3"
+vello = "0.9.0"
+kurbo = "0.13.1"
+peniko = "0.6.1"
+parley = "0.10.0"
+fontique = "0.10.0"
+taffy = "0.10.1"
+color = "0.3.3"
+arboard = "3.6.1"
+image = { version = "0.25.10", default-features = false, features = ["png"] }
+insta = "1.47.2"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.150"
+pollster = "0.4.0"
+
+# vello and wgpu are unusably slow without optimization; keep our own crates
+# fast to compile but optimize dependencies even in dev builds.
+[profile.dev.package."*"]
+opt-level = 2

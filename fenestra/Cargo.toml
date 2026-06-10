@@ -1,0 +1,17 @@
+[package]
+name = "fenestra"
+description = "A pure-Rust native GUI framework with web-grade aesthetics: OKLCH themes, soft shadows, flexbox/grid, and headless PNG rendering"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+fenestra-core.workspace = true
+fenestra-kit.workspace = true
+fenestra-shell.workspace = true
+
+[dev-dependencies]
+image.workspace = true

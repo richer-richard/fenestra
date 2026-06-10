@@ -1,0 +1,17 @@
+[package]
+name = "fenestra-shell"
+description = "Windowed (winit + wgpu) and headless runners for the fenestra GUI framework"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+fenestra-core.workspace = true
+winit.workspace = true
+wgpu.workspace = true
+vello.workspace = true
+image.workspace = true
+pollster.workspace = true
