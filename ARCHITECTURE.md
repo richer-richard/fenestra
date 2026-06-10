@@ -1,6 +1,52 @@
 # fenestra architecture
 
-Decisions are recorded here as they are made, milestone by milestone.
+## The frame pipeline
+
+Every redraw runs the same pure pipeline over the app's view:
+
+1. **View.** `app.view()` rebuilds the whole `Element<Msg>` tree — plain
+   structs, no diffing, no macros. `WidgetId`s are assigned during the build
+   as `fnv1a(parent_id, child_index | user key)`, so identity is stable
+   across rebuilds and `.id("…")` pins it where children reorder.
+2. **Style resolution.** Per element: the deferred `themed` closure runs
+   (tokens to concrete values — this is how kit widgets color themselves
+   with no theme in scope), hover/active/focus variant overlays apply from
+   `FrameState`, shadow tokens expand against the theme, role defaults fill
+   (text color, divider fill), and the transition engine advances any
+   animated style toward its new target (colors in OKLCH).
+3. **Layout.** The resolved styles map 1:1 onto taffy (flexbox + grid);
+   text and input leaves register parley-backed measure functions. A second
+   pass realizes absolute rects, applying baseline alignment (parley's real
+   first-line baselines), scroll offsets, and clip propagation. Overlay
+   children lay out separately against the canvas and anchor to their
+   parent's rect.
+4. **Input** (between frames). winit events and headless `SyntheticEvent`s
+   both become `InputEvent`s; `events::dispatch` hit-tests the realized
+   frame (topmost branch, clip-aware, overlays first), maintains
+   hover/active capture/focus, drives text editors, and returns the `Msg`s
+   handlers emitted, which the runner feeds to `app.update()`.
+5. **Paint.** The frame walks into a vello scene: shadows (blurred rounded
+   rects, std-dev = CSS blur/2), fills (solid or gradient), borders snapped
+   to the physical pixel grid, clip and alpha layers, glyph runs, carets and
+   selections, then overlays with their backdrops.
+6. **Present.** The window surface (vello renders to an intermediate
+   texture, blitted via `TextureBlitter`), or headless: an offscreen
+   texture read back into an `image::RgbaImage`.
+
+All retained state — scroll offsets, hover times, the pressed/focused
+element, transition clocks, text editors, the overlay stack — lives in one
+`FrameState`, keyed by those stable `WidgetId`s. Rendering is event-driven:
+the runner idles at zero CPU and schedules frames only while something
+animates.
+
+Headless rendering is the product thesis: `render_element` /
+`render_app(app, events, size, theme)` run the identical pipeline at scale
+1.0 with embedded fonts, reduced motion, an in-memory clipboard, and one
+settle frame — deterministic enough for 3/255-tolerance PNG goldens across
+Metal and lavapipe. `Frame::dump()` serializes the resolved layout tree
+(ids, rects, key style props) for text snapshots.
+
+Decisions below are recorded as they were made, milestone by milestone.
 
 ## Workspace
 

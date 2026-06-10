@@ -193,6 +193,8 @@ pub fn spinner<Msg>() -> Element<Msg> {
 pub fn callout<Msg>(status: Status, message: impl Into<String>) -> Element<Msg> {
     let icon =
         crate::icons::circle_dot().themed(move |t: &Theme, s| s.color(status.colors(t).text));
+    // Center the icon against the first line of Sm text (21px line box).
+    let icon = row().h(21.0).items_center().shrink0().children([icon]);
     row()
         .items_start()
         .gap(SP2)

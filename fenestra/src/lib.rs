@@ -1,7 +1,8 @@
 //! fenestra: a pure-Rust native GUI framework with web-grade aesthetics.
 //!
 //! Re-exports the core IR and theme, the widget kit, and the windowed and
-//! headless runners.
+//! headless runners. Start with [`App`], [`run`], and the [`prelude`].
+#![warn(missing_docs)]
 
 pub use fenestra_core::*;
 pub use fenestra_kit as kit;

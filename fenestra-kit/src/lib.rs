@@ -1,6 +1,9 @@
 //! Design-system widgets for fenestra, built only on `fenestra-core`'s
-//! public API. Widgets land in M4-M6; the painting specimen lives here so
-//! the example and the golden tests render the exact same tree.
+//! public API: every color routes through theme tokens, every interactive
+//! widget has hover/active/focus/disabled states, and color changes animate
+//! with Fast transitions. The specimen and gallery trees double as the
+//! golden-test corpus.
+#![warn(missing_docs)]
 
 mod demo;
 mod gallery;
