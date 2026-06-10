@@ -5,7 +5,9 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::anim::Anim;
+use crate::clipboard::{Clipboard, MemoryClipboard};
 use crate::id::WidgetId;
+use crate::input::EditorState;
 
 /// How long the scrollbar stays fully visible after the last scroll.
 const SCROLLBAR_HOLD_SECS: f64 = 0.8;
@@ -19,7 +21,6 @@ struct Scroll {
 }
 
 /// Retained state for one UI surface (window or headless session).
-#[derive(Debug, Default)]
 pub struct FrameState {
     /// Monotonic time in seconds, advanced by the runner via [`Self::tick`].
     now: f64,
@@ -38,8 +39,32 @@ pub struct FrameState {
     pub(crate) pointer: Option<(f32, f32)>,
     /// In-flight style transitions per widget.
     pub(crate) anims: HashMap<WidgetId, Anim>,
+    /// Text editor state per input widget.
+    pub(crate) editors: HashMap<WidgetId, EditorState>,
+    /// The clipboard; the shell injects the OS clipboard, headless keeps
+    /// the in-memory default.
+    pub(crate) clipboard: Box<dyn Clipboard>,
     /// Frame stamp for animation garbage collection.
     pub(crate) frame_no: u64,
+}
+
+impl Default for FrameState {
+    fn default() -> Self {
+        Self {
+            now: 0.0,
+            scroll: HashMap::new(),
+            reduced_motion: false,
+            hovered: HashSet::new(),
+            active: None,
+            focus: None,
+            focus_visible: false,
+            pointer: None,
+            anims: HashMap::new(),
+            editors: HashMap::new(),
+            clipboard: Box::new(MemoryClipboard::default()),
+            frame_no: 0,
+        }
+    }
 }
 
 impl FrameState {
@@ -77,6 +102,11 @@ impl FrameState {
     pub fn set_focus(&mut self, id: Option<WidgetId>) {
         self.focus = id;
         self.focus_visible = id.is_some();
+    }
+
+    /// Replaces the clipboard implementation (the shell injects arboard).
+    pub fn set_clipboard(&mut self, clipboard: Box<dyn Clipboard>) {
+        self.clipboard = clipboard;
     }
 
     /// Adds to a scrollable's offset. The offset is clamped to the content

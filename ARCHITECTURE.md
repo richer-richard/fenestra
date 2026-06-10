@@ -206,3 +206,31 @@ vello 0.9 is the classic compute-shader renderer (`vello_encoding` +
 - **Wheel routing respects overflow.** A scroll container whose content
   fits reports `can_scroll = false` and is skipped by `scrollable_at`, so
   the wheel falls through to an overflowing ancestor.
+
+## M5 decisions
+
+- **The app owns the text; the editor owns the caret.** `Kind::Input` leaves
+  carry the app-provided value (Elm-style: every edit emits `on_input` and
+  the app echoes the new value back). The parley `PlainEditor` — caret,
+  selection, IME composition, follow-scroll — is retained per `WidgetId` in
+  `FrameState` and synced against the app value at every frame build, so a
+  rebuilt view never loses the caret. Editors are GC'd by frame stamp like
+  animations.
+- **Clipboard injection.** Core defines a `Clipboard` trait with an
+  in-memory default, so headless copy/paste tests are deterministic and
+  display-server-free; the windowed runner injects arboard
+  (`fenestra_shell::OsClipboard`).
+- **Key vs Text events.** The winit runner sends printable input as
+  `InputEvent::Text` (taken from `KeyEvent.text`, which handles dead keys
+  and IME commits) and everything else as `Key`. Dispatch routes both to a
+  focused editor first; unconsumed keys fall through to `on_key` and
+  Enter/Space activation. A bare `Text(" ")` still activates focused
+  buttons so Space works for non-editors.
+- **Paint needs state.** `Frame::paint(fonts, state)` gained the state
+  parameter: input painting refreshes the editor layout, updates the
+  horizontal follow-scroll, and computes the caret blink phase (530ms
+  half-period from the last edit; `reduced_motion` pins the caret visible).
+  A focused input marks the frame as animating so blink frames keep coming.
+- **Single line by construction.** Editor wrap width is `None`; the text
+  scrolls horizontally inside the clip, caret kept in view with a
+  follow-scroll that clamps to the layout width.

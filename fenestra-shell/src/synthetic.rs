@@ -72,7 +72,7 @@ pub fn render_app<A: App>(
         for ev in events {
             let view = app.view();
             let frame = build_frame(&view, theme, fonts, &mut state, logical, 1.0);
-            let result = dispatch(&view, &frame, &mut state, ev.into());
+            let result = dispatch(&view, &frame, &mut state, fonts, ev.into());
             for msg in result.msgs {
                 app.update(msg);
             }
@@ -80,7 +80,7 @@ pub fn render_app<A: App>(
         // One settle frame after the last event.
         let view = app.view();
         let frame = build_frame(&view, theme, fonts, &mut state, logical, 1.0);
-        frame.paint(fonts)
+        frame.paint(fonts, &mut state)
     });
     with_headless(|headless| headless.render(&scene, size.0, size.1, theme.bg))
         .expect("headless renderer unavailable")

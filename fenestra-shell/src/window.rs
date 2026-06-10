@@ -390,7 +390,7 @@ impl StaticApp {
             (lw as f32, lh as f32),
             scale,
         );
-        let scene = frame.paint(&mut self.fonts);
+        let scene = frame.paint(&mut self.fonts, &mut self.state);
         self.shell.present(&scene);
         if frame.animating {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
@@ -477,11 +477,13 @@ impl ApplicationHandler for StaticApp {
 pub fn run_app<A: App + 'static>(app: A, options: WindowOptions) -> Result<(), ShellError> {
     let event_loop = EventLoop::new().map_err(ShellError::EventLoop)?;
     let background = app.theme().bg;
+    let mut state = FrameState::new();
+    state.set_clipboard(Box::new(crate::OsClipboard::default()));
     let mut runner = AppRunner {
         shell: WindowShell::new(options, background),
         app,
         fonts: Fonts::with_system(),
-        state: FrameState::new(),
+        state,
         cursor: Point::ORIGIN,
         started: Instant::now(),
         last: None,
@@ -522,7 +524,7 @@ impl<A: App> AppRunner<A> {
             (lw as f32, lh as f32),
             scale,
         );
-        let scene = frame.paint(&mut self.fonts);
+        let scene = frame.paint(&mut self.fonts, &mut self.state);
         self.shell.present(&scene);
         // Content may have moved under a stationary pointer (scroll,
         // layout change): refresh hover and repaint once more if it did.
@@ -545,7 +547,7 @@ impl<A: App> AppRunner<A> {
         let Some((view, frame)) = &self.last else {
             return;
         };
-        let result = dispatch(view, frame, &mut self.state, event);
+        let result = dispatch(view, frame, &mut self.state, &mut self.fonts, event);
         if let Some(cursor) = result.cursor
             && let Some(w) = self.shell.window()
         {
@@ -615,6 +617,9 @@ fn map_key(
 impl<A: App> ApplicationHandler for AppRunner<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.shell.resumed(event_loop);
+        if let Some(w) = self.shell.window() {
+            w.set_ime_allowed(true);
+        }
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
@@ -683,13 +688,37 @@ impl<A: App> ApplicationHandler for AppRunner<A> {
                 #[expect(clippy::cast_possible_truncation, reason = "deltas fit in f32")]
                 self.input(InputEvent::Wheel { dy: dy as f32 });
             }
-            WindowEvent::KeyboardInput { event, .. } => {
-                if event.state == winit::event::ElementState::Pressed
-                    && let Some(input) = map_key(&event, self.modifiers)
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == winit::event::ElementState::Pressed =>
+            {
                 {
-                    self.input(input);
+                    let mods = self.modifiers;
+                    // Printable input arrives as Text (it may be multi-char);
+                    // named keys and shortcuts go through Key.
+                    let printable = !mods.control_key()
+                        && !mods.super_key()
+                        && event
+                            .text
+                            .as_ref()
+                            .is_some_and(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()));
+                    if printable {
+                        if let Some(t) = &event.text {
+                            self.input(InputEvent::Text(t.to_string()));
+                        }
+                    } else if let Some(input) = map_key(&event, mods) {
+                        self.input(input);
+                    }
                 }
             }
+            WindowEvent::Ime(ime) => match ime {
+                winit::event::Ime::Preedit(text, cursor) => {
+                    self.input(InputEvent::ImePreedit { text, cursor });
+                }
+                winit::event::Ime::Commit(text) => {
+                    self.input(InputEvent::Text(text));
+                }
+                winit::event::Ime::Enabled | winit::event::Ime::Disabled => {}
+            },
             WindowEvent::RedrawRequested => self.redraw(event_loop),
             _ => {}
         }

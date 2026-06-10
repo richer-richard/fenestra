@@ -16,3 +16,4 @@ wgpu.workspace = true
 vello.workspace = true
 image.workspace = true
 pollster.workspace = true
+arboard.workspace = true

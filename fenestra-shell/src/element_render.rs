@@ -69,7 +69,7 @@ pub fn render_element_with_state<Msg>(
             (size.0 as f32, size.1 as f32),
             1.0,
         );
-        frame.paint(fonts)
+        frame.paint(fonts, state)
     });
     with_headless(|headless| headless.render(&scene, size.0, size.1, theme.bg))
         .expect("headless renderer unavailable")

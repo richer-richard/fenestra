@@ -11,6 +11,7 @@ use vello::Scene;
 use crate::element::{Element, Kind, PathData};
 use crate::frame_state::FrameState;
 use crate::id::WidgetId;
+use crate::input::{EditorState, InputPaint};
 use crate::layout;
 use crate::painter;
 use crate::style::{AlignItems, Direction, Display, Overflow, Paint, Position, Style};
@@ -24,16 +25,20 @@ const SCROLLBAR_INSET: f64 = 2.0;
 /// Wheel scrolling needs at least this much overflow to engage.
 const MIN_SCROLL_RANGE: f32 = 0.5;
 
-/// Taffy node context for text leaves.
-struct TextCtx {
-    text: String,
-    style: ResolvedText,
+/// Taffy node context for measured leaves.
+enum MeasureCtx {
+    Text { text: String, style: ResolvedText },
+    Input { style: ResolvedText },
 }
+
+/// Intrinsic width of an unconstrained input, logical px.
+const INPUT_DEFAULT_WIDTH: f32 = 220.0;
 
 enum PaintKind {
     Box,
     Text { text: String, style: ResolvedText },
     Path(PathData),
+    Input(InputPaint),
 }
 
 /// Interactivity facts the frame needs for hit/focus queries.
@@ -154,7 +159,7 @@ fn resolve<Msg>(
 fn build<Msg>(
     el: &Element<Msg>,
     theme: &Theme,
-    tree: &mut TaffyTree<TextCtx>,
+    tree: &mut TaffyTree<MeasureCtx>,
     state: &mut FrameState,
     animating: &mut bool,
     id: WidgetId,
@@ -182,7 +187,7 @@ fn build<Msg>(
     let (taffy, kind) = match &el.kind {
         Kind::Text(content) => {
             let resolved = resolve_text(&style.text, theme);
-            let ctx = TextCtx {
+            let ctx = MeasureCtx::Text {
                 text: content.clone(),
                 style: resolved,
             };
@@ -193,6 +198,36 @@ fn build<Msg>(
                     text: content.clone(),
                     style: resolved,
                 },
+            )
+        }
+        Kind::Input(data) => {
+            let resolved = resolve_text(&style.text, theme);
+            // Sync the retained editor with the app-provided value.
+            let now = state.now();
+            let frame_no = state.frame_no;
+            let editor = state
+                .editors
+                .entry(id)
+                .or_insert_with(|| EditorState::new(&resolved, now));
+            editor.sync(&data.value, &resolved);
+            editor.seen = frame_no;
+            let focused = state.focused() == Some(id);
+            if focused && !state.reduced_motion {
+                // Caret blink needs repaints while focused.
+                *animating = true;
+            }
+            (
+                tree.new_leaf_with_context(taffy_style, MeasureCtx::Input { style: resolved })
+                    .expect("taffy new_leaf_with_context"),
+                PaintKind::Input(InputPaint {
+                    placeholder: data.placeholder.clone(),
+                    style: resolved,
+                    placeholder_color: theme.text_subtle,
+                    caret_color: theme.accent,
+                    selection_color: theme.accent.with_alpha(0.25),
+                    focused,
+                    pad_x: f64::from(style.padding.left),
+                }),
             )
         }
         Kind::Path(data) => (
@@ -232,18 +267,18 @@ fn wrap_width(known: Option<f32>, available: AvailableSpace) -> Option<f32> {
 
 /// The baseline of a child for `items_baseline` rows: true first-line
 /// baseline for text, bottom edge for boxes (CSS synthesized baseline).
-fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<TextCtx>, node: &BuiltNode) -> f64 {
+fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<MeasureCtx>, node: &BuiltNode) -> f64 {
     let l = tree.layout(node.taffy).expect("taffy layout");
     match &node.kind {
         PaintKind::Text { text, style } => {
             f64::from(fonts.first_baseline(text, style, Some(l.size.width)))
         }
-        PaintKind::Box | PaintKind::Path(_) => f64::from(l.size.height),
+        PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) => f64::from(l.size.height),
     }
 }
 
 struct Realize<'a> {
-    tree: &'a TaffyTree<TextCtx>,
+    tree: &'a TaffyTree<MeasureCtx>,
     fonts: &'a mut Fonts,
     state: &'a mut FrameState,
     animating: bool,
@@ -386,7 +421,7 @@ pub fn build_frame<Msg>(
     size: (f32, f32),
     scale: f64,
 ) -> Frame {
-    let mut tree: TaffyTree<TextCtx> = TaffyTree::new();
+    let mut tree: TaffyTree<MeasureCtx> = TaffyTree::new();
     state.frame_no += 1;
     let mut transitions_running = false;
     let mut node = build(
@@ -413,17 +448,19 @@ pub fn build_frame<Msg>(
             height: AvailableSpace::Definite(size.1),
         },
         |known, available, _id, ctx, _style| match ctx {
-            Some(ctx) => {
-                let (w, h) = fonts.measure(
-                    &ctx.text,
-                    &ctx.style,
-                    wrap_width(known.width, available.width),
-                );
+            Some(MeasureCtx::Text { text, style }) => {
+                let (w, h) = fonts.measure(text, style, wrap_width(known.width, available.width));
                 Size {
                     width: known.width.unwrap_or(w),
                     height: known.height.unwrap_or(h),
                 }
             }
+            Some(MeasureCtx::Input { style }) => Size {
+                width: known.width.unwrap_or(INPUT_DEFAULT_WIDTH),
+                height: known
+                    .height
+                    .unwrap_or_else(|| (style.px * style.line_height).ceil()),
+            },
             None => Size::ZERO,
         },
     )
@@ -439,6 +476,7 @@ pub fn build_frame<Msg>(
     let animating = realize.animating || transitions_running;
     let frame_no = state.frame_no;
     state.anims.retain(|_, a| a.seen == frame_no);
+    state.editors.retain(|_, e| e.seen == frame_no);
 
     Frame {
         root: root_node,
@@ -459,20 +497,28 @@ pub fn build_scene<Msg>(
 ) -> Scene {
     let mut state = FrameState::new();
     state.reduced_motion = true;
-    build_frame(root, theme, fonts, &mut state, size, 1.0).paint(fonts)
+    let frame = build_frame(root, theme, fonts, &mut state, size, 1.0);
+    frame.paint(fonts, &mut state)
 }
 
 // ---------------------------------------------------------------- painting
 
 impl Frame {
-    /// Paints the frame into a fresh scene (logical coordinates).
-    pub fn paint(&self, fonts: &mut Fonts) -> Scene {
+    /// Paints the frame into a fresh scene (logical coordinates). Needs the
+    /// retained state for editor layouts and caret blink phase.
+    pub fn paint(&self, fonts: &mut Fonts, state: &mut FrameState) -> Scene {
         let mut scene = Scene::new();
-        self.paint_node(&mut scene, fonts, &self.root);
+        self.paint_node(&mut scene, fonts, state, &self.root);
         scene
     }
 
-    fn paint_node(&self, scene: &mut Scene, fonts: &mut Fonts, node: &FrameNode) {
+    fn paint_node(
+        &self,
+        scene: &mut Scene,
+        fonts: &mut Fonts,
+        state: &mut FrameState,
+        node: &FrameNode,
+    ) {
         if node.style.display == Display::None {
             return;
         }
@@ -486,10 +532,17 @@ impl Frame {
                 let color = node.style.text.color.unwrap_or(self.thumb_color);
                 painter::draw_path(scene, data, node.style.path_trim, color, node.rect);
             }
+            PaintKind::Input(data) => {
+                let now = state.now();
+                let reduced = state.reduced_motion;
+                if let Some(editor) = state.editors.get_mut(&node.id) {
+                    crate::input::paint(scene, fonts, editor, data, node.rect, now, reduced);
+                }
+            }
             PaintKind::Box => {}
         }
         for child in &node.children {
-            self.paint_node(scene, fonts, child);
+            self.paint_node(scene, fonts, state, child);
         }
         if let Some(scroll) = &node.scroll
             && let Some(thumb) = scroll.thumb
@@ -568,15 +621,20 @@ impl Frame {
         chain
     }
 
-    /// The pointer position as fractions (0..=1) of the id's rect.
-    pub fn fraction_in(&self, id: WidgetId, point: Point) -> Option<(f32, f32)> {
+    /// The absolute rect of the element with the given id.
+    pub fn rect_of(&self, id: WidgetId) -> Option<Rect> {
         fn find(node: &FrameNode, id: WidgetId) -> Option<Rect> {
             if node.id == id {
                 return Some(node.rect);
             }
             node.children.iter().find_map(|c| find(c, id))
         }
-        let rect = find(&self.root, id)?;
+        find(&self.root, id)
+    }
+
+    /// The pointer position as fractions (0..=1) of the id's rect.
+    pub fn fraction_in(&self, id: WidgetId, point: Point) -> Option<(f32, f32)> {
+        let rect = self.rect_of(id)?;
         if rect.width() <= 0.0 || rect.height() <= 0.0 {
             return None;
         }
@@ -655,11 +713,12 @@ impl NodeDump {
                 PaintKind::Box => "box",
                 PaintKind::Text { .. } => "text",
                 PaintKind::Path(_) => "path",
+                PaintKind::Input(_) => "input",
             },
             rect,
             text: match &node.kind {
                 PaintKind::Text { text, .. } => Some(text.clone()),
-                PaintKind::Box | PaintKind::Path(_) => None,
+                PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) => None,
             },
             fill: node.style.fill.as_ref().map(|f| match f {
                 Paint::Solid(c) => {

@@ -7,12 +7,14 @@ mod checkbox;
 mod radio;
 mod slider;
 mod switch;
+mod text_input;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
 pub use checkbox::{Checkbox, checkbox};
 pub use radio::{Radio, radio};
 pub use slider::{Slider, slider};
 pub use switch::{Switch, switch};
+pub use text_input::{TextInput, text_input};
 
 /// Control heights shared by buttons and inputs, logical px.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

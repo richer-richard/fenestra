@@ -6,11 +6,13 @@
 
 mod anim;
 mod app;
+mod clipboard;
 mod element;
 mod events;
 mod frame;
 mod frame_state;
 mod id;
+mod input;
 mod layout;
 mod painter;
 mod style;
@@ -19,8 +21,10 @@ mod theme;
 mod tokens;
 
 pub use app::App;
+pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
-    Cursor, Element, Kind, PathData, col, div, divider, path, row, spacer, stack, text,
+    Cursor, Element, InputData, Kind, PathData, col, div, divider, path, raw_input, row, spacer,
+    stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, dispatch, refresh_hover};
 pub use frame::{Frame, build_frame, build_scene};

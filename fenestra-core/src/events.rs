@@ -6,10 +6,12 @@ use std::collections::{HashMap, HashSet};
 
 use kurbo::Point;
 
-use crate::element::{Cursor, Element};
+use crate::element::{Cursor, Element, Kind};
 use crate::frame::Frame;
 use crate::frame_state::FrameState;
 use crate::id::WidgetId;
+use crate::input;
+use crate::text::Fonts;
 
 /// A logical keyboard key (expanded for text editing in M5).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,8 +99,15 @@ pub enum InputEvent {
     ShiftTab,
     /// A key press.
     Key(KeyInput),
-    /// Committed text input (M5).
+    /// Committed text input (typing or IME commit).
     Text(String),
+    /// IME preedit update (composition in progress).
+    ImePreedit {
+        /// The composition text ("" clears it).
+        text: String,
+        /// Cursor range within the composition, in bytes.
+        cursor: Option<(usize, usize)>,
+    },
 }
 
 /// The result of dispatching one event.
@@ -220,6 +229,7 @@ pub fn dispatch<Msg: Clone>(
     root: &Element<Msg>,
     frame: &Frame,
     state: &mut FrameState,
+    fonts: &mut Fonts,
     event: InputEvent,
 ) -> Dispatch<Msg> {
     let handlers = Handlers::collect(root);
@@ -234,11 +244,23 @@ pub fn dispatch<Msg: Clone>(
                 // Active capture: the pressed element keeps receiving events.
                 if let Some(el) = handlers.get(active)
                     && !el.disabled
-                    && let Some(f) = &el.on_drag
-                    && let Some((fx, fy)) = frame.fraction_in(active, point)
-                    && let Some(msg) = f(fx, fy)
                 {
-                    out.msgs.push(msg);
+                    if matches!(el.kind, Kind::Input(_)) {
+                        // Drag extends the text selection.
+                        let now = state.now();
+                        if let Some((lx, ly)) = input_local(frame, state, el, active, point) {
+                            if let Some(editor) = state.editors.get_mut(&active) {
+                                input::pointer_drag(editor, fonts, lx, ly);
+                                editor.last_activity = now;
+                            }
+                            out.redraw = true;
+                        }
+                    } else if let Some(f) = &el.on_drag
+                        && let Some((fx, fy)) = frame.fraction_in(active, point)
+                        && let Some(msg) = f(fx, fy)
+                    {
+                        out.msgs.push(msg);
+                    }
                 }
                 out.cursor = Some(cursor_of(&handlers, &[active]));
                 return out;
@@ -276,7 +298,15 @@ pub fn dispatch<Msg: Clone>(
                     } else if el.focusable {
                         state.focus_visible = false;
                     }
-                    if let Some(f) = &el.on_drag
+                    if matches!(el.kind, Kind::Input(_)) {
+                        let now = state.now();
+                        if let Some((lx, ly)) = input_local(frame, state, el, id, point)
+                            && let Some(editor) = state.editors.get_mut(&id)
+                        {
+                            input::pointer_down(editor, fonts, lx, ly, false);
+                            editor.last_activity = now;
+                        }
+                    } else if let Some(f) = &el.on_drag
                         && let Some((fx, fy)) = frame.fraction_in(id, point)
                         && let Some(msg) = f(fx, fy)
                     {
@@ -349,6 +379,26 @@ pub fn dispatch<Msg: Clone>(
                 && let Some(el) = handlers.get(focus)
                 && !el.disabled
             {
+                // Focused inputs consume editing and navigation keys first.
+                if matches!(el.kind, Kind::Input(_)) {
+                    let now = state.now();
+                    let st = &mut *state;
+                    if let Some(editor) = st.editors.get_mut(&focus) {
+                        let outcome = input::handle_key(editor, fonts, st.clipboard.as_mut(), &key);
+                        editor.last_activity = now;
+                        if outcome.changed {
+                            if let Some(f) = &el.on_input {
+                                out.msgs.push(f(editor.editor.raw_text()));
+                            }
+                            out.redraw = true;
+                            return out;
+                        }
+                        if outcome.consumed {
+                            out.redraw = true;
+                            return out;
+                        }
+                    }
+                }
                 if let Some(f) = &el.on_key
                     && let Some(msg) = f(&key)
                 {
@@ -364,8 +414,45 @@ pub fn dispatch<Msg: Clone>(
                 }
             }
         }
-        InputEvent::Text(_) => {
-            // Text input lands in M5.
+        InputEvent::Text(text) => {
+            if let Some(focus) = state.focus
+                && let Some(el) = handlers.get(focus)
+                && !el.disabled
+            {
+                if matches!(el.kind, Kind::Input(_)) {
+                    let now = state.now();
+                    if let Some(editor) = state.editors.get_mut(&focus) {
+                        let outcome = input::handle_text(editor, fonts, &text);
+                        editor.last_activity = now;
+                        if outcome.changed {
+                            if let Some(f) = &el.on_input {
+                                out.msgs.push(f(editor.editor.raw_text()));
+                            }
+                            out.redraw = true;
+                        }
+                    }
+                } else if text == " "
+                    && let Some(msg) = &el.on_click
+                {
+                    // The runner sends printable keys as Text; Space must
+                    // still activate focused buttons.
+                    out.msgs.push(msg.clone());
+                    out.redraw = true;
+                }
+            }
+        }
+        InputEvent::ImePreedit { text, cursor } => {
+            let now = state.now();
+            if let Some(focus) = state.focus
+                && let Some(el) = handlers.get(focus)
+                && !el.disabled
+                && matches!(el.kind, Kind::Input(_))
+                && let Some(editor) = state.editors.get_mut(&focus)
+            {
+                input::handle_preedit(editor, fonts, &text, cursor);
+                editor.last_activity = now;
+                out.redraw = true;
+            }
         }
     }
     out
@@ -386,4 +473,20 @@ fn cursor_of<Msg>(handlers: &Handlers<'_, Msg>, chain: &[WidgetId]) -> Cursor {
             })
         })
         .unwrap_or(Cursor::Default)
+}
+
+/// Maps a screen point into editor-layout coordinates for an input element:
+/// inside the padding box, with the horizontal follow-scroll applied. The y
+/// is the vertical middle (single-line editors clamp to the line anyway).
+fn input_local<Msg>(
+    frame: &Frame,
+    state: &FrameState,
+    el: &Element<Msg>,
+    id: WidgetId,
+    point: Point,
+) -> Option<(f64, f64)> {
+    let rect = frame.rect_of(id)?;
+    let scroll_x = state.editors.get(&id).map_or(0.0, |e| e.scroll_x);
+    let pad = f64::from(el.style().padding.left);
+    Some((point.x - rect.x0 - pad + scroll_x, rect.height() * 0.5))
 }

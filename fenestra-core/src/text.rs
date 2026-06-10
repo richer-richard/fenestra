@@ -27,7 +27,7 @@ const MONO_FAMILIES: &[&str] = &["SF Mono", "Cascadia Code", "JetBrains Mono"];
 
 /// Parley brush type. Colors are applied at draw time via `DrawGlyphs`, so
 /// layouts are color-independent and cache across recolors.
-type LayoutBrush = [u8; 4];
+pub(crate) type LayoutBrush = [u8; 4];
 
 /// A text style with every token resolved to a concrete value.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -154,6 +154,13 @@ impl Fonts {
             layout_cx: LayoutContext::new(),
             cache: HashMap::new(),
         }
+    }
+
+    /// The font and layout contexts, for parley editor drivers.
+    pub(crate) fn editor_contexts(
+        &mut self,
+    ) -> (&mut FontContext, &mut LayoutContext<LayoutBrush>) {
+        (&mut self.font_cx, &mut self.layout_cx)
     }
 
     /// Lays out `text`, wrapped at `max_advance` logical px (`None` =

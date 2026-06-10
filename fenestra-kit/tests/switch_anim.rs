@@ -42,7 +42,7 @@ fn switch_travel_goldens() {
                 frame.animating, expect_anim,
                 "animating flag at t={t} for {name}"
             );
-            frame.paint(fonts)
+            frame.paint(fonts, state)
         });
         let image = with_headless(|h| h.render(&scene, SIZE.0, SIZE.1, theme.bg))
             .expect("headless")

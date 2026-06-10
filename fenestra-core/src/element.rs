@@ -13,6 +13,8 @@ use crate::tokens::{ShadowToken, TextSize, Weight};
 pub(crate) type KeyFn<Msg> = Box<dyn Fn(&KeyInput) -> Option<Msg>>;
 /// Maps a pointer position (as fractions of the element rect) to a message.
 pub(crate) type DragFn<Msg> = Box<dyn Fn(f32, f32) -> Option<Msg>>;
+/// Maps the edited text to a message.
+pub(crate) type InputFn<Msg> = Box<dyn Fn(&str) -> Msg>;
 
 /// What an element fundamentally is.
 #[derive(Debug, Clone, PartialEq)]
@@ -26,6 +28,18 @@ pub enum Kind {
     /// A vector path (icons, check marks), scaled from its viewbox to the
     /// element rect and painted in the resolved text color.
     Path(PathData),
+    /// A single-line editable text field driven by parley's `PlainEditor`.
+    /// The app's value is the source of truth; edits emit `on_input`.
+    Input(InputData),
+}
+
+/// Payload for [`Kind::Input`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InputData {
+    /// The current value (app state).
+    pub value: String,
+    /// Placeholder shown when the value is empty.
+    pub placeholder: String,
 }
 
 /// Path payload for [`Kind::Path`].
@@ -69,6 +83,7 @@ pub struct Element<Msg> {
     pub(crate) on_hover: Option<Msg>,
     pub(crate) on_key: Option<KeyFn<Msg>>,
     pub(crate) on_drag: Option<DragFn<Msg>>,
+    pub(crate) on_input: Option<InputFn<Msg>>,
     pub(crate) themed: Option<ThemedFn>,
     pub(crate) hover_style: Option<ThemedFn>,
     pub(crate) active_style: Option<ThemedFn>,
@@ -91,6 +106,7 @@ impl<Msg> Element<Msg> {
             on_hover: None,
             on_key: None,
             on_drag: None,
+            on_input: None,
             themed: None,
             hover_style: None,
             active_style: None,
@@ -202,6 +218,12 @@ impl<Msg> Element<Msg> {
     /// rect on both axes.
     pub fn on_drag(mut self, f: impl Fn(f32, f32) -> Option<Msg> + 'static) -> Self {
         self.on_drag = Some(Box::new(f));
+        self
+    }
+
+    /// Maps each text edit of an input element to a message.
+    pub fn on_input(mut self, f: impl Fn(&str) -> Msg + 'static) -> Self {
+        self.on_input = Some(Box::new(f));
         self
     }
 
@@ -595,6 +617,18 @@ pub fn spacer<Msg>() -> Element<Msg> {
 /// For a vertical rule, override with `.w(1.0)` and `.h_full()`.
 pub fn divider<Msg>() -> Element<Msg> {
     Element::new(Kind::Divider).w_full().h(1.0).shrink0()
+}
+
+/// A bare single-line text input leaf. Most apps want the styled
+/// `fenestra_kit` `text_input` instead; this is the primitive it wraps.
+/// Focusable, shows the text I-beam, and emits `on_input` per edit.
+pub fn raw_input<Msg>(value: impl Into<String>, placeholder: impl Into<String>) -> Element<Msg> {
+    Element::new(Kind::Input(InputData {
+        value: value.into(),
+        placeholder: placeholder.into(),
+    }))
+    .focusable(true)
+    .cursor(Cursor::Text)
 }
 
 /// A vector path drawn in `viewbox` coordinates and scaled to the element
