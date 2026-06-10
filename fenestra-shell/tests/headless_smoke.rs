@@ -1,20 +1,21 @@
-//! M0 acceptance: the hello scene renders headlessly, with no window or
+//! M0 acceptance: an element tree renders headlessly, with no window or
 //! display server, to a non-uniform image of the requested size.
 
-use fenestra_core::{Theme, paint::paint_hello};
-use fenestra_shell::Headless;
-use vello::Scene;
+use fenestra_core::{R_LG, ShadowToken, Theme, col, div};
+use fenestra_shell::render_element;
 
 #[test]
 fn hello_scene_renders_headless() {
     let theme = Theme::light();
-    let mut scene = Scene::new();
-    paint_hello(&mut scene, &theme, 800.0, 600.0);
+    let card = col().items_center().justify_center().children([div()
+        .w(320.0)
+        .h(200.0)
+        .bg(theme.surface_raised)
+        .border(1.0, theme.border_subtle)
+        .rounded(R_LG)
+        .shadow(ShadowToken::Md)]);
 
-    let mut headless = Headless::new().expect("headless renderer");
-    let image = headless
-        .render(&scene, 800, 600, theme.bg)
-        .expect("headless render");
+    let image = render_element::<()>(card, &theme, (800, 600));
 
     assert_eq!(image.width(), 800);
     assert_eq!(image.height(), 600);

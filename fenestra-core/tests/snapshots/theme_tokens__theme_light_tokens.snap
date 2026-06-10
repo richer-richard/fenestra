@@ -1,0 +1,80 @@
+---
+source: fenestra-core/tests/theme_tokens.rs
+expression: "Theme::light().dump()"
+---
+theme: accent_hue 262 mode light
+
+neutrals:
+  N1: #fcfcfe
+  N2: #f7f8fa
+  N3: #eff0f3
+  N4: #e6e8eb
+  N5: #dde0e4
+  N6: #d3d6db
+  N7: #c4c7cd
+  N8: #a4a8ae
+  N9: #6f737a
+  N10: #62666d
+  N11: #4e5157
+  N12: #1c1e22
+
+accents:
+  A1: #f2f7ff
+  A2: #e6efff
+  A3: #d7e5ff
+  A4: #c3d8ff
+  A5: #accaff
+  A6: #93b9ff
+  A7: #75a5fe
+  A8: #5e8fed
+  A9: #4477d9
+  A10: #3b6bc9
+  A11: #3660af
+  A12: #234077
+
+danger:
+  bg: #ffdbd7
+  border: #f18079
+  solid: #c94c49
+  text: #a23d3a
+
+warning:
+  bg: #fae1b8
+  border: #d49b25
+  solid: #a17200
+  text: #825b00
+
+success:
+  bg: #c9f1d0
+  border: #5dbe76
+  solid: #049544
+  text: #087736
+
+roles:
+  bg: #fcfcfe
+  surface: #f7f8fa
+  surface_raised: #ffffff
+  border_subtle: #dde0e4
+  border: #d3d6db
+  border_strong: #c4c7cd
+  text: #1c1e22
+  text_muted: #4e5157
+  text_subtle: #6f737a
+  text_disabled: #a4a8ae
+  accent: #4477d9
+  accent_hover: #3b6bc9
+  accent_bg: #d7e5ff
+  accent_border: #75a5fe
+  accent_text: #3660af
+  on_accent: #ffffff
+
+elevation:
+  level 0: #f7f8fa
+  level 1: #ffffff
+  level 2: #ffffff
+
+shadows (dx dy blur spread alpha):
+  xs: (0 1 2 0 0.050)
+  sm: (0 1 2 0 0.050) + (0 1 3 0 0.060)
+  md: (0 2 4 0 0.050) + (0 4 12 0 0.080)
+  lg: (0 4 10 0 0.060) + (0 16 32 0 0.120)

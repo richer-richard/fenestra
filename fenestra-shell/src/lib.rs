@@ -4,9 +4,12 @@
 
 use std::fmt;
 
+mod element_render;
 mod headless;
+pub mod testing;
 mod window;
 
+pub use element_render::{render_element, with_headless};
 pub use headless::Headless;
 pub use window::{WindowOptions, run_scene};
 

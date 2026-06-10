@@ -4,7 +4,21 @@
 //! This crate is windowless by design: everything here is a pure function of
 //! `(element tree, theme, size, scale)` plus a single retained `FrameState`.
 
-pub mod paint;
+mod element;
+mod frame;
+mod id;
+mod layout;
+mod painter;
+mod style;
 mod theme;
+mod tokens;
 
-pub use theme::Theme;
+pub use element::{Cursor, Element, Kind, col, div, divider, row, spacer, stack, text};
+pub use frame::build_scene;
+pub use id::WidgetId;
+pub use style::*;
+pub use theme::{Mode, Ramp, StatusColors, Theme};
+pub use tokens::*;
+
+// Re-exported so dependents (kit, apps) never need a direct peniko dep.
+pub use peniko::Color;
