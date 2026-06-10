@@ -36,18 +36,21 @@ danger:
   bg: #ffdbd7
   border: #f18079
   solid: #c94c49
+  solid_hover: #b9423f
   text: #a23d3a
 
 warning:
   bg: #fae1b8
   border: #d49b25
   solid: #a17200
+  solid_hover: #926700
   text: #825b00
 
 success:
   bg: #c9f1d0
   border: #5dbe76
   solid: #049544
+  solid_hover: #00873c
   text: #087736
 
 roles:

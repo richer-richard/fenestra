@@ -7,7 +7,10 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use fenestra_core::{Element, Fonts, FrameState, Theme, build_frame};
+use fenestra_core::{
+    App, Element, Fonts, FrameState, InputEvent, Key, KeyInput, Theme, build_frame, dispatch,
+    refresh_hover,
+};
 use kurbo::Point;
 use vello::peniko::Color;
 use vello::util::{RenderContext, RenderSurface};
@@ -227,7 +230,12 @@ impl WindowShell {
                 window.request_redraw();
                 return;
             }
-            CurrentSurfaceTexture::Occluded | CurrentSurfaceTexture::Timeout => {
+            CurrentSurfaceTexture::Occluded => {
+                // Hidden window: skip the frame; WindowEvent::Occluded(false)
+                // requests the next redraw when it becomes visible again.
+                return;
+            }
+            CurrentSurfaceTexture::Timeout => {
                 window.request_redraw();
                 return;
             }
@@ -304,6 +312,11 @@ impl ApplicationHandler for SceneApp {
             WindowEvent::Resized(size) => self.shell.resized(size.width, size.height),
             WindowEvent::ScaleFactorChanged { .. } => {
                 if let Some(w) = self.shell.window() {
+                    w.request_redraw();
+                }
+            }
+            WindowEvent::Occluded(occluded) => {
+                if !occluded && let Some(w) = self.shell.window() {
                     w.request_redraw();
                 }
             }
@@ -447,6 +460,234 @@ impl ApplicationHandler for StaticApp {
                     if let Some(w) = self.shell.window() {
                         w.request_redraw();
                     }
+                }
+            }
+            WindowEvent::RedrawRequested => self.redraw(event_loop),
+            _ => {}
+        }
+    }
+}
+
+// ------------------------------------------------------------- run_app
+
+/// Runs an [`App`]: the full Elm-shaped loop with hit testing, hover/active/
+/// focus, keyboard navigation, message dispatch, and event-driven repaint
+/// (animation frames only while something animates). Blocks until the
+/// window closes.
+pub fn run_app<A: App + 'static>(app: A, options: WindowOptions) -> Result<(), ShellError> {
+    let event_loop = EventLoop::new().map_err(ShellError::EventLoop)?;
+    let background = app.theme().bg;
+    let mut runner = AppRunner {
+        shell: WindowShell::new(options, background),
+        app,
+        fonts: Fonts::with_system(),
+        state: FrameState::new(),
+        cursor: Point::ORIGIN,
+        started: Instant::now(),
+        last: None,
+        modifiers: winit::keyboard::ModifiersState::empty(),
+    };
+    event_loop
+        .run_app(&mut runner)
+        .map_err(ShellError::EventLoop)
+}
+
+struct AppRunner<A: App> {
+    shell: WindowShell,
+    app: A,
+    fonts: Fonts,
+    state: FrameState,
+    cursor: Point,
+    started: Instant,
+    /// View and frame from the last redraw, for input routing.
+    last: Option<(Element<A::Msg>, fenestra_core::Frame)>,
+    modifiers: winit::keyboard::ModifiersState,
+}
+
+impl<A: App> AppRunner<A> {
+    fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        let Some((lw, lh, scale)) = self.shell.logical_size() else {
+            return;
+        };
+        let theme = self.app.theme();
+        self.shell.background = theme.bg;
+        self.state.tick(self.started.elapsed().as_secs_f64());
+        let view = self.app.view();
+        #[expect(clippy::cast_possible_truncation, reason = "window sizes fit in f32")]
+        let frame = build_frame(
+            &view,
+            &theme,
+            &mut self.fonts,
+            &mut self.state,
+            (lw as f32, lh as f32),
+            scale,
+        );
+        let scene = frame.paint(&mut self.fonts);
+        self.shell.present(&scene);
+        // Content may have moved under a stationary pointer (scroll,
+        // layout change): refresh hover and repaint once more if it did.
+        if refresh_hover(&view, &frame, &mut self.state)
+            && let Some(w) = self.shell.window()
+        {
+            w.request_redraw();
+        }
+        if frame.animating {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(16),
+            ));
+        } else {
+            event_loop.set_control_flow(ControlFlow::Wait);
+        }
+        self.last = Some((view, frame));
+    }
+
+    fn input(&mut self, event: InputEvent) {
+        let Some((view, frame)) = &self.last else {
+            return;
+        };
+        let result = dispatch(view, frame, &mut self.state, event);
+        if let Some(cursor) = result.cursor
+            && let Some(w) = self.shell.window()
+        {
+            w.set_cursor(winit::window::Cursor::Icon(map_cursor(cursor)));
+        }
+        let had_msgs = !result.msgs.is_empty();
+        for msg in result.msgs {
+            self.app.update(msg);
+        }
+        if (result.redraw || had_msgs)
+            && let Some(w) = self.shell.window()
+        {
+            w.request_redraw();
+        }
+    }
+}
+
+fn map_cursor(cursor: fenestra_core::Cursor) -> winit::window::CursorIcon {
+    match cursor {
+        fenestra_core::Cursor::Default => winit::window::CursorIcon::Default,
+        fenestra_core::Cursor::Pointer => winit::window::CursorIcon::Pointer,
+        fenestra_core::Cursor::Text => winit::window::CursorIcon::Text,
+        fenestra_core::Cursor::NotAllowed => winit::window::CursorIcon::NotAllowed,
+    }
+}
+
+/// Translates a winit key event into a fenestra [`InputEvent`].
+fn map_key(
+    event: &winit::event::KeyEvent,
+    mods: winit::keyboard::ModifiersState,
+) -> Option<InputEvent> {
+    use winit::keyboard::{Key as WKey, NamedKey};
+    let key = match &event.logical_key {
+        WKey::Named(NamedKey::Tab) => {
+            return Some(if mods.shift_key() {
+                InputEvent::ShiftTab
+            } else {
+                InputEvent::Tab
+            });
+        }
+        WKey::Named(named) => match named {
+            NamedKey::Enter => Key::Enter,
+            NamedKey::Space => Key::Space,
+            NamedKey::Escape => Key::Escape,
+            NamedKey::ArrowLeft => Key::ArrowLeft,
+            NamedKey::ArrowRight => Key::ArrowRight,
+            NamedKey::ArrowUp => Key::ArrowUp,
+            NamedKey::ArrowDown => Key::ArrowDown,
+            NamedKey::Home => Key::Home,
+            NamedKey::End => Key::End,
+            NamedKey::Backspace => Key::Backspace,
+            NamedKey::Delete => Key::Delete,
+            _ => return None,
+        },
+        WKey::Character(s) => Key::Char(s.chars().next()?),
+        _ => return None,
+    };
+    Some(InputEvent::Key(KeyInput {
+        key,
+        shift: mods.shift_key(),
+        ctrl: mods.control_key(),
+        alt: mods.alt_key(),
+        meta: mods.super_key(),
+    }))
+}
+
+impl<A: App> ApplicationHandler for AppRunner<A> {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.shell.resumed(event_loop);
+    }
+
+    fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
+        self.shell.suspended();
+    }
+
+    fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
+        if matches!(cause, StartCause::ResumeTimeReached { .. })
+            && let Some(w) = self.shell.window()
+        {
+            w.request_redraw();
+        }
+    }
+
+    fn window_event(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        window_id: WindowId,
+        event: WindowEvent,
+    ) {
+        if self.shell.window().is_none_or(|w| w.id() != window_id) {
+            return;
+        }
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => self.shell.resized(size.width, size.height),
+            WindowEvent::ScaleFactorChanged { .. } => {
+                if let Some(w) = self.shell.window() {
+                    w.request_redraw();
+                }
+            }
+            WindowEvent::ModifiersChanged(mods) => self.modifiers = mods.state(),
+            WindowEvent::Occluded(occluded) => {
+                if !occluded && let Some(w) = self.shell.window() {
+                    w.request_redraw();
+                }
+            }
+            WindowEvent::CursorLeft { .. } => self.input(InputEvent::PointerLeave),
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
+                self.cursor = Point::new(position.x / scale, position.y / scale);
+                #[expect(clippy::cast_possible_truncation, reason = "positions fit in f32")]
+                self.input(InputEvent::PointerMove {
+                    x: self.cursor.x as f32,
+                    y: self.cursor.y as f32,
+                });
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: winit::event::MouseButton::Left,
+                ..
+            } => {
+                self.input(match state {
+                    winit::event::ElementState::Pressed => InputEvent::PointerDown,
+                    winit::event::ElementState::Released => InputEvent::PointerUp,
+                });
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let dy = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => f64::from(y) * LINE_SCROLL_PX,
+                    MouseScrollDelta::PixelDelta(pos) => {
+                        let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
+                        pos.y / scale
+                    }
+                };
+                #[expect(clippy::cast_possible_truncation, reason = "deltas fit in f32")]
+                self.input(InputEvent::Wheel { dy: dy as f32 });
+            }
+            WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == winit::event::ElementState::Pressed
+                    && let Some(input) = map_key(&event, self.modifiers)
+                {
+                    self.input(input);
                 }
             }
             WindowEvent::RedrawRequested => self.redraw(event_loop),

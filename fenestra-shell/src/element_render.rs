@@ -10,6 +10,16 @@ use crate::{Headless, ShellError};
 static SHARED: OnceLock<Mutex<Headless>> = OnceLock::new();
 static FONTS: OnceLock<Mutex<Fonts>> = OnceLock::new();
 
+/// Runs `f` with the process-wide embedded-only font system used by all
+/// headless rendering.
+pub fn with_fonts<R>(f: impl FnOnce(&mut Fonts) -> R) -> R {
+    let fonts = FONTS.get_or_init(|| Mutex::new(Fonts::embedded()));
+    let mut guard = fonts
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    f(&mut guard)
+}
+
 /// Runs `f` with a process-wide shared [`Headless`] renderer. Creating a
 /// renderer compiles vello's shaders, so tests share one.
 pub fn with_headless<R>(f: impl FnOnce(&mut Headless) -> R) -> Result<R, ShellError> {
@@ -49,22 +59,18 @@ pub fn render_element_with_state<Msg>(
     size: (u32, u32),
     state: &mut FrameState,
 ) -> RgbaImage {
-    let fonts = FONTS.get_or_init(|| Mutex::new(Fonts::embedded()));
-    let scene = {
-        let mut fonts = fonts
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
+    let scene = with_fonts(|fonts| {
         #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
         let frame = build_frame(
             &el,
             theme,
-            &mut fonts,
+            fonts,
             state,
             (size.0 as f32, size.1 as f32),
             1.0,
         );
-        frame.paint(&mut fonts)
-    };
+        frame.paint(fonts)
+    });
     with_headless(|headless| headless.render(&scene, size.0, size.1, theme.bg))
         .expect("headless renderer unavailable")
         .expect("headless render failed")

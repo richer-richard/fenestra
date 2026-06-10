@@ -161,3 +161,48 @@ vello 0.9 is the classic compute-shader renderer (`vello_encoding` +
   something animates (`ControlFlow::WaitUntil`), idling at zero CPU
   otherwise. The M4 `App` runner extends this skeleton with hit testing and
   message dispatch.
+
+## M4 decisions
+
+- **The `themed` resolution hook.** `App::view(&self)` has no theme
+  parameter, so kit widgets defer all coloring to style resolution:
+  `.themed(|theme, style| ...)` (and `hover_themed`/`active_themed`/
+  `focus_themed`) run during resolve with the live theme. This is the
+  spec's "tokens to concrete values" step; app authors with a theme in
+  scope can keep using concrete colors and the plain one-param variants.
+- **Dispatch is core, runners are thin.** `events::dispatch(tree, frame,
+  state, event)` owns hit testing, hover/active/focus bookkeeping, active
+  capture, Tab cycling, Enter/Space activation, and message extraction.
+  The windowed runner and headless `SyntheticEvent` injection translate
+  into the same `InputEvent`s, so test behavior is window behavior.
+  Handlers are looked up per dispatch by re-deriving WidgetIds over the
+  element tree (same derivation as the frame build).
+- **Hit chain = topmost branch.** `Frame::hit_chain` returns every node
+  containing the point along the branch that paints last (reverse child
+  order wins), clip-aware. Hover applies to all eligible nodes in the
+  chain; clicks go to the deepest interactive node. Hover is recomputed on
+  release (capture freezes it) and cleared by `PointerLeave`
+  (winit `CursorLeft`); `refresh_hover` re-syncs it after scrolling moves
+  content under a stationary pointer.
+- **Transition engine.** Per-WidgetId `Anim { from, to, t0 }` in
+  FrameState, GC'd by frame stamp. Retargeting continues animated
+  properties from their current visual value while non-animated properties
+  snap immediately (lerp at t=0). Colors lerp in OKLCH with CSS powerless-
+  hue handling (an achromatic endpoint adopts the other's hue). A segment
+  with equal endpoints reports settled regardless of elapsed time, so the
+  runner can stop scheduling frames. `Transition.duration_ms` is a raw f32
+  because the Switch travel (160ms) sits between motion tokens.
+- **Path elements.** `Kind::Path` carries a kurbo `BezPath` in viewbox
+  coordinates, scaled to the element rect and painted in the resolved text
+  color (SVG `currentColor` semantics). `Style.path_trim` (0..=1, arclength
+  prefix, animatable under the lengths flag) gives the checkbox its 120ms
+  draw-on stroke; M6 icons reuse the same primitive.
+- **Cursor protocol.** `Dispatch.cursor` is an `Option`: only pointer
+  events set it, so keystrokes and wheel ticks never reset the OS cursor.
+  Disabled elements with a cursor report NotAllowed.
+- **Occluded windows.** vello work happens before the surface texture is
+  acquired, so an Occluded result skips the frame entirely and the runner
+  waits for `WindowEvent::Occluded(false)` instead of spinning redraws.
+- **Wheel routing respects overflow.** A scroll container whose content
+  fits reports `can_scroll = false` and is skipped by `scrollable_at`, so
+  the wheel falls through to an overflowing ancestor.

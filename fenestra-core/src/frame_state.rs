@@ -2,8 +2,9 @@
 //! offsets today; hover/focus/caret/animation clocks in M4+. Everything else
 //! in the pipeline is a pure function of `(tree, theme, size, scale)`.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
+use crate::anim::Anim;
 use crate::id::WidgetId;
 
 /// How long the scrollbar stays fully visible after the last scroll.
@@ -25,6 +26,20 @@ pub struct FrameState {
     scroll: HashMap<WidgetId, Scroll>,
     /// Snaps every animation to its final value. Headless rendering sets it.
     pub reduced_motion: bool,
+    /// Elements currently hovered (with hover styling or handlers).
+    pub(crate) hovered: HashSet<WidgetId>,
+    /// The pressed element; it captures the pointer until release.
+    pub(crate) active: Option<WidgetId>,
+    /// The focused element.
+    pub(crate) focus: Option<WidgetId>,
+    /// Whether focus arrived via keyboard (paints the focus ring).
+    pub(crate) focus_visible: bool,
+    /// Last pointer position in logical coordinates.
+    pub(crate) pointer: Option<(f32, f32)>,
+    /// In-flight style transitions per widget.
+    pub(crate) anims: HashMap<WidgetId, Anim>,
+    /// Frame stamp for animation garbage collection.
+    pub(crate) frame_no: u64,
 }
 
 impl FrameState {
@@ -41,6 +56,27 @@ impl FrameState {
     /// The current clock value.
     pub fn now(&self) -> f64 {
         self.now
+    }
+
+    /// Whether the id is hovered.
+    pub fn is_hovered(&self, id: WidgetId) -> bool {
+        self.hovered.contains(&id)
+    }
+
+    /// Whether the id is pressed.
+    pub fn is_active(&self, id: WidgetId) -> bool {
+        self.active == Some(id)
+    }
+
+    /// The focused widget, if any.
+    pub fn focused(&self) -> Option<WidgetId> {
+        self.focus
+    }
+
+    /// Moves focus programmatically (marks it keyboard-visible).
+    pub fn set_focus(&mut self, id: Option<WidgetId>) {
+        self.focus = id;
+        self.focus_visible = id.is_some();
     }
 
     /// Adds to a scrollable's offset. The offset is clamped to the content

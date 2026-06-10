@@ -362,6 +362,9 @@ pub struct Style {
     pub opacity: f32,
     /// Clip children to the (rounded) bounds.
     pub clip: bool,
+    /// Draw progress of path elements, 0.0..=1.0 (animatable; this is how
+    /// check marks draw on).
+    pub path_trim: f32,
 
     // -- text --
     /// Text properties (used by text elements; inherited defaults elsewhere).
@@ -405,14 +408,15 @@ impl Default for Style {
             shadows: Vec::new(),
             opacity: 1.0,
             clip: false,
+            path_trim: 1.0,
             text: TextStyle::default(),
         }
     }
 }
 
-/// A partial style overlay for interaction variants: receives the resolved
-/// base style and returns the modified one.
-pub type StyleFn = Box<dyn Fn(Style) -> Style>;
+/// A theme-aware partial style overlay: interaction variants and kit
+/// widgets' deferred base styling both use this shape.
+pub type ThemedFn = Box<dyn Fn(&crate::theme::Theme, Style) -> Style>;
 
 /// Declares which properties animate between style states, and how.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -427,8 +431,8 @@ pub struct Transition {
     pub offsets: bool,
     /// Animate shadow alpha.
     pub shadows: bool,
-    /// Duration token.
-    pub duration: crate::tokens::MotionDuration,
+    /// Duration in milliseconds.
+    pub duration_ms: f32,
     /// Easing curve.
     pub easing: crate::tokens::CubicBezier,
 }
@@ -443,7 +447,7 @@ impl Transition {
             lengths: false,
             offsets: false,
             shadows: true,
-            duration: crate::tokens::MotionDuration::Fast,
+            duration_ms: crate::tokens::MotionDuration::Fast.ms(),
             easing: crate::tokens::EASE_STANDARD,
         }
     }
@@ -456,14 +460,38 @@ impl Transition {
             lengths: true,
             offsets: true,
             shadows: true,
-            duration: crate::tokens::MotionDuration::Base,
+            duration_ms: crate::tokens::MotionDuration::Base.ms(),
             easing: crate::tokens::EASE_STANDARD,
         }
     }
 
-    /// Overrides the duration token.
+    /// Overrides the duration with a token.
     pub fn duration(mut self, d: crate::tokens::MotionDuration) -> Self {
-        self.duration = d;
+        self.duration_ms = d.ms();
+        self
+    }
+
+    /// Overrides the duration in milliseconds.
+    pub fn duration_ms(mut self, ms: f32) -> Self {
+        self.duration_ms = ms;
+        self
+    }
+
+    /// Enables or disables length animation (sizes, padding, radii, trim).
+    pub fn lengths(mut self, on: bool) -> Self {
+        self.lengths = on;
+        self
+    }
+
+    /// Enables or disables offset animation (inset).
+    pub fn offsets(mut self, on: bool) -> Self {
+        self.offsets = on;
+        self
+    }
+
+    /// Enables or disables opacity animation.
+    pub fn opacity(mut self, on: bool) -> Self {
+        self.opacity = on;
         self
     }
 
@@ -780,6 +808,12 @@ impl Style {
     /// Subtree opacity 0.0..=1.0.
     pub fn opacity(mut self, v: f32) -> Self {
         self.opacity = v;
+        self
+    }
+
+    /// Draw progress for path elements (0 = nothing, 1 = full path).
+    pub fn trim(mut self, v: f32) -> Self {
+        self.path_trim = v.clamp(0.0, 1.0);
         self
     }
 

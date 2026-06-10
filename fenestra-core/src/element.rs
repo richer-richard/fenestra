@@ -4,11 +4,18 @@
 
 use peniko::Color;
 
-use crate::style::{Length, Paint, Style, StyleFn, TextAlign, Transition};
+use crate::events::KeyInput;
+use crate::style::{Length, Paint, Style, TextAlign, ThemedFn, Transition};
+use crate::theme::Theme;
 use crate::tokens::{ShadowToken, TextSize, Weight};
 
+/// Maps a key press on a focused element to an optional message.
+pub(crate) type KeyFn<Msg> = Box<dyn Fn(&KeyInput) -> Option<Msg>>;
+/// Maps a pointer position (as fractions of the element rect) to a message.
+pub(crate) type DragFn<Msg> = Box<dyn Fn(f32, f32) -> Option<Msg>>;
+
 /// What an element fundamentally is.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Kind {
     /// A container box.
     Box,
@@ -16,6 +23,20 @@ pub enum Kind {
     Text(String),
     /// A themed hairline rule (resolved to `border_subtle`).
     Divider,
+    /// A vector path (icons, check marks), scaled from its viewbox to the
+    /// element rect and painted in the resolved text color.
+    Path(PathData),
+}
+
+/// Path payload for [`Kind::Path`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct PathData {
+    /// The path, in viewbox coordinates.
+    pub path: std::sync::Arc<kurbo::BezPath>,
+    /// Design-space size the path was drawn in.
+    pub viewbox: (f64, f64),
+    /// Stroke width in viewbox units; `None` fills the path instead.
+    pub stroke: Option<f64>,
 }
 
 /// Mouse cursor shown while hovering an element.
@@ -45,9 +66,13 @@ pub struct Element<Msg> {
     pub(crate) cursor: Option<Cursor>,
     pub(crate) disabled: bool,
     pub(crate) on_click: Option<Msg>,
-    pub(crate) hover_style: Option<StyleFn>,
-    pub(crate) active_style: Option<StyleFn>,
-    pub(crate) focus_style: Option<StyleFn>,
+    pub(crate) on_hover: Option<Msg>,
+    pub(crate) on_key: Option<KeyFn<Msg>>,
+    pub(crate) on_drag: Option<DragFn<Msg>>,
+    pub(crate) themed: Option<ThemedFn>,
+    pub(crate) hover_style: Option<ThemedFn>,
+    pub(crate) active_style: Option<ThemedFn>,
+    pub(crate) focus_style: Option<ThemedFn>,
     pub(crate) transition: Option<Transition>,
 }
 
@@ -63,6 +88,10 @@ impl<Msg> Element<Msg> {
             cursor: None,
             disabled: false,
             on_click: None,
+            on_hover: None,
+            on_key: None,
+            on_drag: None,
+            themed: None,
             hover_style: None,
             active_style: None,
             focus_style: None,
@@ -75,15 +104,19 @@ impl<Msg> Element<Msg> {
         &self.style
     }
 
-    /// Appends children.
-    pub fn children(mut self, children: impl IntoIterator<Item = Element<Msg>>) -> Self {
-        self.children.extend(children);
+    /// Appends children. Anything convertible to an element works, so kit
+    /// widget builders drop in next to `text()`/`div()` trees.
+    pub fn children<T: Into<Element<Msg>>>(
+        mut self,
+        children: impl IntoIterator<Item = T>,
+    ) -> Self {
+        self.children.extend(children.into_iter().map(Into::into));
         self
     }
 
     /// Appends one child.
-    pub fn child(mut self, child: Element<Msg>) -> Self {
-        self.children.push(child);
+    pub fn child(mut self, child: impl Into<Element<Msg>>) -> Self {
+        self.children.push(child.into());
         self
     }
 
@@ -105,19 +138,70 @@ impl<Msg> Element<Msg> {
 
     /// Style overlay applied while hovered.
     pub fn hover(mut self, f: impl Fn(Style) -> Style + 'static) -> Self {
+        self.hover_style = Some(Box::new(move |_, s| f(s)));
+        self
+    }
+
+    /// Theme-aware hover overlay (used by kit widgets, which have no theme
+    /// in scope at build time).
+    pub fn hover_themed(mut self, f: impl Fn(&Theme, Style) -> Style + 'static) -> Self {
         self.hover_style = Some(Box::new(f));
         self
     }
 
     /// Style overlay applied while pressed.
     pub fn active(mut self, f: impl Fn(Style) -> Style + 'static) -> Self {
+        self.active_style = Some(Box::new(move |_, s| f(s)));
+        self
+    }
+
+    /// Theme-aware active overlay.
+    pub fn active_themed(mut self, f: impl Fn(&Theme, Style) -> Style + 'static) -> Self {
         self.active_style = Some(Box::new(f));
         self
     }
 
     /// Style overlay applied while focused.
     pub fn focus(mut self, f: impl Fn(Style) -> Style + 'static) -> Self {
+        self.focus_style = Some(Box::new(move |_, s| f(s)));
+        self
+    }
+
+    /// Theme-aware focus overlay.
+    pub fn focus_themed(mut self, f: impl Fn(&Theme, Style) -> Style + 'static) -> Self {
         self.focus_style = Some(Box::new(f));
+        self
+    }
+
+    /// Theme-deferred base styling, applied during style resolution. This is
+    /// how kit widgets route every color through tokens without a theme in
+    /// scope: `view()` has no theme parameter.
+    pub fn themed(mut self, f: impl Fn(&Theme, Style) -> Style + 'static) -> Self {
+        self.themed = Some(match self.themed.take() {
+            Some(prev) => Box::new(move |t, s| f(t, prev(t, s))),
+            None => Box::new(f),
+        });
+        self
+    }
+
+    /// Emits this message when the pointer enters the element.
+    pub fn on_hover(mut self, msg: Msg) -> Self {
+        self.on_hover = Some(msg);
+        self
+    }
+
+    /// Maps key presses (while focused) to messages.
+    pub fn on_key(mut self, f: impl Fn(&KeyInput) -> Option<Msg> + 'static) -> Self {
+        self.on_key = Some(Box::new(f));
+        self.focusable = true;
+        self
+    }
+
+    /// Maps pointer presses and captured drags to messages. The callback
+    /// receives the pointer position as fractions (0..=1) of the element
+    /// rect on both axes.
+    pub fn on_drag(mut self, f: impl Fn(f32, f32) -> Option<Msg> + 'static) -> Self {
+        self.on_drag = Some(Box::new(f));
         self
     }
 
@@ -429,6 +513,12 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Draw progress for path elements (0 = nothing, 1 = full path).
+    pub fn trim(mut self, v: f32) -> Self {
+        self.style = self.style.trim(v);
+        self
+    }
+
     /// Text size.
     pub fn size(mut self, size: TextSize) -> Self {
         self.style = self.style.size(size);
@@ -505,6 +595,21 @@ pub fn spacer<Msg>() -> Element<Msg> {
 /// For a vertical rule, override with `.w(1.0)` and `.h_full()`.
 pub fn divider<Msg>() -> Element<Msg> {
     Element::new(Kind::Divider).w_full().h(1.0).shrink0()
+}
+
+/// A vector path drawn in `viewbox` coordinates and scaled to the element
+/// rect (sized to the viewbox by default). `stroke` is a width in viewbox
+/// units; `None` fills instead. Painted in the resolved text color.
+pub fn path<Msg>(bez: kurbo::BezPath, viewbox: (f64, f64), stroke: Option<f64>) -> Element<Msg> {
+    #[expect(clippy::cast_possible_truncation, reason = "viewbox sizes are small")]
+    Element::new(Kind::Path(PathData {
+        path: std::sync::Arc::new(bez),
+        viewbox,
+        stroke,
+    }))
+    .w(viewbox.0 as f32)
+    .h(viewbox.1 as f32)
+    .shrink0()
 }
 
 impl<Msg> Element<Msg> {

@@ -4,7 +4,10 @@
 //! This crate is windowless by design: everything here is a pure function of
 //! `(element tree, theme, size, scale)` plus a single retained `FrameState`.
 
+mod anim;
+mod app;
 mod element;
+mod events;
 mod frame;
 mod frame_state;
 mod id;
@@ -15,7 +18,11 @@ mod text;
 mod theme;
 mod tokens;
 
-pub use element::{Cursor, Element, Kind, col, div, divider, row, spacer, stack, text};
+pub use app::App;
+pub use element::{
+    Cursor, Element, Kind, PathData, col, div, divider, path, row, spacer, stack, text,
+};
+pub use events::{Dispatch, InputEvent, Key, KeyInput, dispatch, refresh_hover};
 pub use frame::{Frame, build_frame, build_scene};
 pub use frame_state::FrameState;
 pub use id::WidgetId;

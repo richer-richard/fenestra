@@ -209,3 +209,35 @@ pub const FOCUS_RING: FocusRing = FocusRing {
     offset: 2.0,
     alpha: 0.6,
 };
+
+impl CubicBezier {
+    /// Evaluates the easing curve at progress `x` in 0..=1 (CSS
+    /// `cubic-bezier` semantics): solves the parametric x-curve with Newton
+    /// iteration, then returns the y value.
+    pub fn eval(self, x: f32) -> f32 {
+        if x <= 0.0 {
+            return 0.0;
+        }
+        if x >= 1.0 {
+            return 1.0;
+        }
+        let bez = |t: f32, p1: f32, p2: f32| {
+            let u = 1.0 - t;
+            3.0 * u * u * t * p1 + 3.0 * u * t * t * p2 + t * t * t
+        };
+        let dbez = |t: f32, p1: f32, p2: f32| {
+            let u = 1.0 - t;
+            3.0 * u * u * p1 + 6.0 * u * t * (p2 - p1) + 3.0 * t * t * (1.0 - p2)
+        };
+        let mut t = x;
+        for _ in 0..8 {
+            let err = bez(t, self.x1, self.x2) - x;
+            let d = dbez(t, self.x1, self.x2);
+            if d.abs() < 1e-6 {
+                break;
+            }
+            t = (t - err / d).clamp(0.0, 1.0);
+        }
+        bez(t, self.y1, self.y2)
+    }
+}

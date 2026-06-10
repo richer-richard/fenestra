@@ -6,12 +6,14 @@ use std::fmt;
 
 mod element_render;
 mod headless;
+mod synthetic;
 pub mod testing;
 mod window;
 
-pub use element_render::{render_element, render_element_with_state, with_headless};
+pub use element_render::{render_element, render_element_with_state, with_fonts, with_headless};
 pub use headless::Headless;
-pub use window::{WindowOptions, run_scene, run_static};
+pub use synthetic::{SyntheticEvent, render_app};
+pub use window::{WindowOptions, run_app, run_scene, run_static};
 
 /// Errors from the windowed or headless runners.
 #[derive(Debug)]

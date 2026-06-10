@@ -1,11 +1,16 @@
 //! Paints one resolved, laid-out element into a vello scene, following the
 //! spec order: shadows, fill, border, clip layer, alpha layer, children.
 
-use kurbo::{Affine, Point, Rect, RoundedRect, RoundedRectRadii, Stroke, Vec2};
-use peniko::{ColorStop, ColorStops, Fill, Gradient};
+use kurbo::{
+    Affine, BezPath, ParamCurve, ParamCurveArclen, Point, Rect, RoundedRect, RoundedRectRadii,
+    Stroke, Vec2,
+};
+use peniko::{Color, ColorStop, ColorStops, Fill, Gradient};
 use vello::Scene;
 
+use crate::element::PathData;
 use crate::style::{CornerRadius, Paint, Shadow, Style};
+use crate::tokens::FOCUS_RING;
 
 /// CSS box-shadow semantics: the gaussian standard deviation is half the
 /// blur radius (CSS Backgrounds & Borders 3, §7.1.1). Locked by the shadow
@@ -231,5 +236,97 @@ pub(crate) fn push_box(
 pub(crate) fn pop_box(scene: &mut Scene, layers: usize) {
     for _ in 0..layers {
         scene.pop_layer();
+    }
+}
+
+/// Paints the keyboard focus ring: a 2px accent stroke offset 2px outside
+/// the element, with ring radius = element radius + 2.
+pub(crate) fn focus_ring(scene: &mut Scene, rect: Rect, corners: CornerRadius, color: Color) {
+    let offset = f64::from(FOCUS_RING.offset) + f64::from(FOCUS_RING.width) * 0.5;
+    let ring_rect = rect.inflate(offset, offset);
+    let mut ring_corners = corners;
+    for r in [
+        &mut ring_corners.tl,
+        &mut ring_corners.tr,
+        &mut ring_corners.br,
+        &mut ring_corners.bl,
+    ] {
+        *r += FOCUS_RING.offset;
+    }
+    scene.stroke(
+        &Stroke::new(f64::from(FOCUS_RING.width)),
+        Affine::IDENTITY,
+        color,
+        None,
+        &rounded_rect(ring_rect, ring_corners),
+    );
+}
+
+/// Paints a vector path scaled from its viewbox into `rect`, optionally
+/// trimmed to the first `trim` fraction of its arc length (check marks
+/// draw on with this).
+pub(crate) fn draw_path(scene: &mut Scene, data: &PathData, trim: f32, color: Color, rect: Rect) {
+    if trim <= 0.0 {
+        return;
+    }
+    let sx = rect.width() / data.viewbox.0.max(1e-6);
+    let sy = rect.height() / data.viewbox.1.max(1e-6);
+    let transform = Affine::translate((rect.x0, rect.y0)) * Affine::scale_non_uniform(sx, sy);
+    let trimmed;
+    let path: &BezPath = if trim >= 1.0 {
+        &data.path
+    } else {
+        trimmed = trim_path(&data.path, f64::from(trim));
+        &trimmed
+    };
+    match data.stroke {
+        Some(width) => {
+            let stroke = Stroke::new(width)
+                .with_caps(kurbo::Cap::Round)
+                .with_join(kurbo::Join::Round);
+            scene.stroke(&stroke, transform, color, None, path);
+        }
+        None => scene.fill(Fill::NonZero, transform, color, None, path),
+    }
+}
+
+/// Keeps the first `t` fraction (by arc length) of a path.
+fn trim_path(path: &BezPath, t: f64) -> BezPath {
+    const ACCURACY: f64 = 0.1;
+    let segments: Vec<kurbo::PathSeg> = path.segments().collect();
+    let total: f64 = segments.iter().map(|s| s.arclen(ACCURACY)).sum();
+    let mut budget = total * t.clamp(0.0, 1.0);
+    let mut out = BezPath::new();
+    for seg in segments {
+        let len = seg.arclen(ACCURACY);
+        if budget <= 0.0 {
+            break;
+        }
+        let piece = if len <= budget {
+            seg
+        } else {
+            // Cut by parameter; close enough to arclength for icon strokes.
+            seg.subsegment(0.0..(budget / len))
+        };
+        let needs_move =
+            out.elements().is_empty() || piece.start().distance(last_point(&out)) > 1e-6;
+        if needs_move {
+            out.move_to(piece.start());
+        }
+        match piece {
+            kurbo::PathSeg::Line(l) => out.line_to(l.p1),
+            kurbo::PathSeg::Quad(q) => out.quad_to(q.p1, q.p2),
+            kurbo::PathSeg::Cubic(c) => out.curve_to(c.p1, c.p2, c.p3),
+        }
+        budget -= len;
+    }
+    out
+}
+
+fn last_point(path: &BezPath) -> Point {
+    match path.elements().last() {
+        Some(kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p)) => *p,
+        Some(kurbo::PathEl::QuadTo(_, p) | kurbo::PathEl::CurveTo(_, _, p)) => *p,
+        _ => Point::ORIGIN,
     }
 }

@@ -8,7 +8,7 @@ use serde::Serialize;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use vello::Scene;
 
-use crate::element::{Element, Kind};
+use crate::element::{Element, Kind, PathData};
 use crate::frame_state::FrameState;
 use crate::id::WidgetId;
 use crate::layout;
@@ -16,7 +16,7 @@ use crate::painter;
 use crate::style::{AlignItems, Direction, Display, Overflow, Paint, Position, Style};
 use crate::text::{Fonts, ResolvedText, resolve_text};
 use crate::theme::Theme;
-use crate::tokens::R_FULL;
+use crate::tokens::{FOCUS_RING, R_FULL};
 
 /// Scrollbar thumb width and edge inset, logical px.
 const SCROLLBAR_WIDTH: f64 = 6.0;
@@ -33,6 +33,15 @@ struct TextCtx {
 enum PaintKind {
     Box,
     Text { text: String, style: ResolvedText },
+    Path(PathData),
+}
+
+/// Interactivity facts the frame needs for hit/focus queries.
+#[derive(Debug, Clone, Copy, Default)]
+struct NodeMeta {
+    /// Focusable and enabled.
+    focusable: bool,
+    focus_ring: bool,
 }
 
 /// Scroll geometry of one scrollable container, resolved for this frame.
@@ -40,6 +49,8 @@ struct ScrollInfo {
     offset: f32,
     thumb: Option<Rect>,
     alpha: f32,
+    /// Content actually overflows; wheel routing skips containers that fit.
+    can_scroll: bool,
 }
 
 /// One node with its final absolute logical rect.
@@ -51,6 +62,7 @@ struct FrameNode {
     /// Effective clip rect inherited from ancestors (None = unclipped).
     visible: Option<Rect>,
     scroll: Option<ScrollInfo>,
+    meta: NodeMeta,
     children: Vec<FrameNode>,
 }
 
@@ -61,7 +73,9 @@ pub struct Frame {
     canvas: Rect,
     scale: f64,
     thumb_color: crate::Color,
-    /// `true` while any scrollbar is mid-fade; the runner keeps animating.
+    ring_color: crate::Color,
+    /// `true` while any scrollbar fade or style transition is running; the
+    /// runner keeps scheduling frames.
     pub animating: bool,
 }
 
@@ -72,13 +86,42 @@ struct BuiltNode {
     id: WidgetId,
     kind: PaintKind,
     style: Style,
+    focusable: bool,
+    disabled: bool,
     children: Vec<BuiltNode>,
 }
 
-/// Resolves an element's style against the theme: expands shadow tokens,
-/// fills role-based defaults. Interaction-state overlays arrive in M4.
-fn resolve<Msg>(el: &Element<Msg>, theme: &Theme) -> Style {
+/// Resolves an element's style against the theme: applies the deferred
+/// `themed` styling, overlays interaction variants from state, expands
+/// shadow tokens, fills role-based defaults, and advances any transition.
+/// Returns the style to paint and whether a transition is still running.
+fn resolve<Msg>(
+    el: &Element<Msg>,
+    theme: &Theme,
+    state: &mut FrameState,
+    id: WidgetId,
+) -> (Style, bool) {
     let mut style = el.style.clone();
+    if let Some(f) = &el.themed {
+        style = f(theme, style);
+    }
+    if !el.disabled {
+        if state.is_hovered(id)
+            && let Some(f) = &el.hover_style
+        {
+            style = f(theme, style);
+        }
+        if state.is_active(id)
+            && let Some(f) = &el.active_style
+        {
+            style = f(theme, style);
+        }
+        if state.focused() == Some(id)
+            && let Some(f) = &el.focus_style
+        {
+            style = f(theme, style);
+        }
+    }
     if let Some(token) = style.shadow_token {
         let mut layers = theme.shadow(token);
         layers.append(&mut style.shadows);
@@ -90,22 +133,50 @@ fn resolve<Msg>(el: &Element<Msg>, theme: &Theme) -> Style {
     if style.text.color.is_none() {
         style.text.color = Some(theme.text);
     }
-    style
+
+    let mut animating = false;
+    if let Some(transition) = el.transition
+        && !state.reduced_motion
+    {
+        let now = state.now();
+        let seen = state.frame_no;
+        let anim = state
+            .anims
+            .entry(id)
+            .or_insert_with(|| crate::anim::Anim::new(style.clone(), now, seen));
+        let (animated, running) = anim.advance(&style, transition, now, seen);
+        style = animated;
+        animating = running;
+    }
+    (style, animating)
 }
 
 fn build<Msg>(
     el: &Element<Msg>,
     theme: &Theme,
     tree: &mut TaffyTree<TextCtx>,
+    state: &mut FrameState,
+    animating: &mut bool,
     id: WidgetId,
     in_stack: bool,
 ) -> BuiltNode {
-    let style = resolve(el, theme);
+    let (style, anim) = resolve(el, theme, state, id);
+    *animating |= anim;
     let children: Vec<BuiltNode> = el
         .children
         .iter()
         .enumerate()
-        .map(|(i, c)| build(c, theme, tree, id.child(i, c.key.as_deref()), el.stack))
+        .map(|(i, c)| {
+            build(
+                c,
+                theme,
+                tree,
+                state,
+                animating,
+                id.child(i, c.key.as_deref()),
+                el.stack,
+            )
+        })
         .collect();
     let taffy_style = layout::to_taffy(&style, in_stack);
     let (taffy, kind) = match &el.kind {
@@ -124,6 +195,10 @@ fn build<Msg>(
                 },
             )
         }
+        Kind::Path(data) => (
+            tree.new_leaf(taffy_style).expect("taffy new_leaf"),
+            PaintKind::Path(data.clone()),
+        ),
         Kind::Box | Kind::Divider => {
             let node = if children.is_empty() {
                 tree.new_leaf(taffy_style).expect("taffy new_leaf")
@@ -140,6 +215,8 @@ fn build<Msg>(
         id,
         kind,
         style,
+        focusable: el.focusable,
+        disabled: el.disabled,
         children,
     }
 }
@@ -161,7 +238,7 @@ fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<TextCtx>, node: &BuiltNode
         PaintKind::Text { text, style } => {
             f64::from(fonts.first_baseline(text, style, Some(l.size.width)))
         }
-        PaintKind::Box => f64::from(l.size.height),
+        PaintKind::Box | PaintKind::Path(_) => f64::from(l.size.height),
     }
 }
 
@@ -222,6 +299,7 @@ impl Realize<'_> {
                 offset,
                 thumb,
                 alpha,
+                can_scroll: max >= MIN_SCROLL_RANGE,
             }
         });
 
@@ -278,6 +356,13 @@ impl Realize<'_> {
             })
             .collect();
 
+        let meta = NodeMeta {
+            focusable: node.focusable && !node.disabled,
+            focus_ring: node.focusable
+                && !node.disabled
+                && self.state.focused() == Some(node.id)
+                && self.state.focus_visible,
+        };
         FrameNode {
             id: node.id,
             kind: node.kind,
@@ -285,6 +370,7 @@ impl Realize<'_> {
             rect,
             visible,
             scroll,
+            meta,
             children,
         }
     }
@@ -301,7 +387,17 @@ pub fn build_frame<Msg>(
     scale: f64,
 ) -> Frame {
     let mut tree: TaffyTree<TextCtx> = TaffyTree::new();
-    let mut node = build(root, theme, &mut tree, WidgetId::ROOT, false);
+    state.frame_no += 1;
+    let mut transitions_running = false;
+    let mut node = build(
+        root,
+        theme,
+        &mut tree,
+        state,
+        &mut transitions_running,
+        WidgetId::ROOT,
+        false,
+    );
     if root.style.width == crate::style::Length::Auto {
         node.style.width = crate::style::Length::Px(size.0);
     }
@@ -340,13 +436,16 @@ pub fn build_frame<Msg>(
         animating: false,
     };
     let root_node = realize.realize(node, Point::ORIGIN, None);
-    let animating = realize.animating;
+    let animating = realize.animating || transitions_running;
+    let frame_no = state.frame_no;
+    state.anims.retain(|_, a| a.seen == frame_no);
 
     Frame {
         root: root_node,
         canvas: Rect::new(0.0, 0.0, f64::from(size.0), f64::from(size.1)),
         scale,
         thumb_color: theme.text_subtle,
+        ring_color: theme.accent.with_alpha(FOCUS_RING.alpha),
         animating,
     }
 }
@@ -378,8 +477,16 @@ impl Frame {
             return;
         }
         let layers = painter::push_box(scene, &node.style, node.rect, self.canvas, self.scale);
-        if let PaintKind::Text { text, style } = &node.kind {
-            fonts.paint(scene, text, style, node.rect);
+        if node.meta.focus_ring {
+            painter::focus_ring(scene, node.rect, node.style.corner_radius, self.ring_color);
+        }
+        match &node.kind {
+            PaintKind::Text { text, style } => fonts.paint(scene, text, style, node.rect),
+            PaintKind::Path(data) => {
+                let color = node.style.text.color.unwrap_or(self.thumb_color);
+                painter::draw_path(scene, data, node.style.path_trim, color, node.rect);
+            }
+            PaintKind::Box => {}
         }
         for child in &node.children {
             self.paint_node(scene, fonts, child);
@@ -417,15 +524,92 @@ impl Frame {
                     return Some(id);
                 }
             }
-            (node.scroll.is_some() && node.rect.contains(point)).then_some(node.id)
+            (node.scroll.as_ref().is_some_and(|s| s.can_scroll) && node.rect.contains(point))
+                .then_some(node.id)
         }
         walk(&self.root, point)
+    }
+
+    /// All elements containing `point` along the topmost branch (later
+    /// siblings paint on top and win), ordered root to deepest. Clip-aware:
+    /// content scrolled out of a clipped container does not hit.
+    pub fn hit_chain(&self, point: Point) -> Vec<WidgetId> {
+        fn walk(node: &FrameNode, point: Point, out: &mut Vec<WidgetId>) -> bool {
+            if node.style.display == Display::None {
+                return false;
+            }
+            if let Some(v) = node.visible
+                && !v.contains(point)
+            {
+                return false;
+            }
+            let inside = node.rect.contains(point);
+            if node.style.clip && !inside {
+                return false;
+            }
+            let mark = out.len();
+            if inside {
+                out.push(node.id);
+            }
+            for child in node.children.iter().rev() {
+                if walk(child, point, out) {
+                    return true;
+                }
+            }
+            if inside {
+                true
+            } else {
+                out.truncate(mark);
+                false
+            }
+        }
+        let mut chain = Vec::new();
+        walk(&self.root, point, &mut chain);
+        chain
+    }
+
+    /// The pointer position as fractions (0..=1) of the id's rect.
+    pub fn fraction_in(&self, id: WidgetId, point: Point) -> Option<(f32, f32)> {
+        fn find(node: &FrameNode, id: WidgetId) -> Option<Rect> {
+            if node.id == id {
+                return Some(node.rect);
+            }
+            node.children.iter().find_map(|c| find(c, id))
+        }
+        let rect = find(&self.root, id)?;
+        if rect.width() <= 0.0 || rect.height() <= 0.0 {
+            return None;
+        }
+        #[expect(clippy::cast_possible_truncation, reason = "fractions are 0..=1")]
+        Some((
+            (((point.x - rect.x0) / rect.width()).clamp(0.0, 1.0)) as f32,
+            (((point.y - rect.y0) / rect.height()).clamp(0.0, 1.0)) as f32,
+        ))
+    }
+
+    /// Focusable element ids in tree order (disabled elements excluded).
+    pub fn focusables(&self) -> Vec<WidgetId> {
+        fn walk(node: &FrameNode, out: &mut Vec<WidgetId>) {
+            if node.style.display == Display::None {
+                return;
+            }
+            if node.meta.focusable {
+                out.push(node.id);
+            }
+            for child in &node.children {
+                walk(child, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.root, &mut out);
+        out
     }
 
     /// `true` if the id resolves to a scrollable with room to scroll.
     pub fn is_scrollable(&self, id: WidgetId) -> bool {
         fn walk(node: &FrameNode, id: WidgetId) -> bool {
-            (node.id == id && node.scroll.is_some()) || node.children.iter().any(|c| walk(c, id))
+            (node.id == id && node.scroll.as_ref().is_some_and(|s| s.can_scroll))
+                || node.children.iter().any(|c| walk(c, id))
         }
         walk(&self.root, id)
     }
@@ -470,11 +654,12 @@ impl NodeDump {
             kind: match &node.kind {
                 PaintKind::Box => "box",
                 PaintKind::Text { .. } => "text",
+                PaintKind::Path(_) => "path",
             },
             rect,
             text: match &node.kind {
                 PaintKind::Text { text, .. } => Some(text.clone()),
-                PaintKind::Box => None,
+                PaintKind::Box | PaintKind::Path(_) => None,
             },
             fill: node.style.fill.as_ref().map(|f| match f {
                 Paint::Solid(c) => {

@@ -41,6 +41,8 @@ pub struct StatusColors {
     pub border: Color,
     /// Solid fill (step 9).
     pub solid: Color,
+    /// Hover state of the solid fill (step 10).
+    pub solid_hover: Color,
     /// Text on `bg` (step 11).
     pub text: Color,
 }
@@ -198,6 +200,7 @@ impl Theme {
             bg: ramp_color(accent_table, 3, status_hue),
             border: ramp_color(accent_table, 7, status_hue),
             solid: ramp_color(accent_table, 9, status_hue),
+            solid_hover: ramp_color(accent_table, 10, status_hue),
             text: ramp_color(accent_table, 11, status_hue),
         };
 
@@ -315,6 +318,7 @@ impl Theme {
             writeln!(out, "  bg: {}", hex(s.bg)).unwrap();
             writeln!(out, "  border: {}", hex(s.border)).unwrap();
             writeln!(out, "  solid: {}", hex(s.solid)).unwrap();
+            writeln!(out, "  solid_hover: {}", hex(s.solid_hover)).unwrap();
             writeln!(out, "  text: {}", hex(s.text)).unwrap();
         }
         writeln!(out, "\nroles:").unwrap();
