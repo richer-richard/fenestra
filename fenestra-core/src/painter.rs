@@ -108,30 +108,79 @@ fn color_stops(stops: &[crate::style::GradientStop]) -> ColorStops {
     )
 }
 
+/// Rounds a logical coordinate to the physical pixel grid.
+fn snap(v: f64, scale: f64) -> f64 {
+    (v * scale).round() / scale
+}
+
+/// Hairlines (sub-1.75-physical-px extents) snap to the physical grid so a
+/// 1px divider or border never lands between device pixels and blurs.
+fn snap_hairline_rect(rect: Rect, scale: f64) -> Rect {
+    let mut r = rect;
+    if rect.height() * scale < 1.75 {
+        let h = (rect.height() * scale).round().max(1.0) / scale;
+        r.y0 = snap(rect.y0, scale);
+        r.y1 = r.y0 + h;
+    }
+    if rect.width() * scale < 1.75 {
+        let w = (rect.width() * scale).round().max(1.0) / scale;
+        r.x0 = snap(rect.x0, scale);
+        r.x1 = r.x0 + w;
+    }
+    r
+}
+
+/// Fills a uniformly-rounded rect (used for scrollbar thumbs).
+pub(crate) fn fill_rounded(scene: &mut Scene, rect: Rect, radius: f32, color: peniko::Color) {
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        color,
+        None,
+        &rounded_rect(rect, CornerRadius::all(radius)),
+    );
+}
+
 /// Paints the box decoration (shadows, fill, border) and pushes any clip and
 /// alpha layers. Returns how many layers were pushed; the caller paints
 /// children, then pops that many.
-pub(crate) fn push_box(scene: &mut Scene, style: &Style, rect: Rect, canvas: Rect) -> usize {
+pub(crate) fn push_box(
+    scene: &mut Scene,
+    style: &Style,
+    rect: Rect,
+    canvas: Rect,
+    scale: f64,
+) -> usize {
     for shadow in &style.shadows {
         shadow_layer(scene, rect, style.corner_radius, shadow);
     }
 
     let path = rounded_rect(rect, style.corner_radius);
     if let Some(paint) = &style.fill {
+        let fill_rect = snap_hairline_rect(rect, scale);
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
-            &brush_for(paint, rect),
+            &brush_for(paint, fill_rect),
             None,
-            &path,
+            &rounded_rect(fill_rect, style.corner_radius),
         );
     }
 
     if let Some(border) = style.border
         && border.width > 0.0
     {
-        let half = f64::from(border.width) * 0.5;
-        let inset_rect = rect.inset(-half);
+        // Snap the stroke to whole physical pixels, centered so both stroke
+        // edges land on the grid.
+        let width = (f64::from(border.width) * scale).round().max(1.0) / scale;
+        let half = width * 0.5;
+        let snapped = Rect::new(
+            snap(rect.x0, scale),
+            snap(rect.y0, scale),
+            snap(rect.x1, scale),
+            snap(rect.y1, scale),
+        );
+        let inset_rect = snapped.inset(-half);
         let mut corners = style.corner_radius;
         for r in [
             &mut corners.tl,
@@ -139,10 +188,13 @@ pub(crate) fn push_box(scene: &mut Scene, style: &Style, rect: Rect, canvas: Rec
             &mut corners.br,
             &mut corners.bl,
         ] {
-            *r = (*r - half as f32).max(0.0);
+            #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
+            {
+                *r = (*r - half as f32).max(0.0);
+            }
         }
         scene.stroke(
-            &Stroke::new(f64::from(border.width)),
+            &Stroke::new(width),
             Affine::IDENTITY,
             border.color,
             None,

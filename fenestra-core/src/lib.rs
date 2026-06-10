@@ -6,6 +6,7 @@
 
 mod element;
 mod frame;
+mod frame_state;
 mod id;
 mod layout;
 mod painter;
@@ -15,7 +16,8 @@ mod theme;
 mod tokens;
 
 pub use element::{Cursor, Element, Kind, col, div, divider, row, spacer, stack, text};
-pub use frame::build_scene;
+pub use frame::{Frame, build_frame, build_scene};
+pub use frame_state::FrameState;
 pub use id::WidgetId;
 pub use style::*;
 pub use text::Fonts;

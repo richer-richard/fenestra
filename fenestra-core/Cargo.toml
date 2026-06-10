@@ -17,6 +17,7 @@ fontique.workspace = true
 taffy.workspace = true
 color.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 
 [dev-dependencies]
 insta.workspace = true

@@ -821,3 +821,39 @@ impl Style {
         self
     }
 }
+
+impl Style {
+    // -- grid --
+
+    /// Grid template columns (switches display to grid).
+    pub fn grid_cols(mut self, tracks: impl IntoIterator<Item = Track>) -> Self {
+        self.display = Display::Grid;
+        self.grid_template_columns = tracks.into_iter().collect();
+        self
+    }
+
+    /// Grid template rows (switches display to grid).
+    pub fn grid_rows(mut self, tracks: impl IntoIterator<Item = Track>) -> Self {
+        self.display = Display::Grid;
+        self.grid_template_rows = tracks.into_iter().collect();
+        self
+    }
+
+    /// Places this element at a 1-based grid column, spanning `span` tracks.
+    pub fn grid_col(mut self, start: i16, span: u16) -> Self {
+        self.grid_column = GridPlace {
+            start: Some(start),
+            span: (span > 1).then_some(span),
+        };
+        self
+    }
+
+    /// Places this element at a 1-based grid row, spanning `span` tracks.
+    pub fn grid_row(mut self, start: i16, span: u16) -> Self {
+        self.grid_row = GridPlace {
+            start: Some(start),
+            span: (span > 1).then_some(span),
+        };
+        self
+    }
+}

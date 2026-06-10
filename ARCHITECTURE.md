@@ -126,3 +126,38 @@ vello 0.9 is the classic compute-shader renderer (`vello_encoding` +
   frame pipeline shifts each in-flow child down by `max_baseline - baseline`,
   using parley's first-line baseline for text and the bottom edge for boxes
   (CSS synthesized baseline). The same offsets will feed hit testing in M4.
+
+## M3 decisions
+
+- **The `Frame` object.** `build_frame` now produces a `Frame`: resolved
+  styles plus final absolute logical rects for every node (baseline shifts
+  and scroll offsets already applied), ancestor clip rects, and resolved
+  scrollbar geometry. Paint, input routing (`scrollable_at`), and the serde
+  layout dump all read this one structure, so what you hit-test is exactly
+  what you painted. M4's hover/click hit testing extends the same walk.
+- **Scroll state.** `FrameState` owns per-`WidgetId` scroll offsets and a
+  clock (`tick(seconds)`). Offsets are clamped to the taffy `content_size`
+  range during frame builds (state is mutated by the build — the one
+  deliberate impurity, since clamping needs content heights). Wheel routing:
+  deepest scrollable under the cursor wins, so nested lists scroll before
+  the page.
+- **Scrollbars.** Overlay-style (no reserved gutter, `scrollbar_width: 0`),
+  6px rounded thumb in `text_subtle` at 0.6 alpha, painted after children
+  inside the clip layer. Visibility: full alpha while scrolling and for
+  0.8s after, then a 300ms fade; `Frame::animating` tells the runner to keep
+  scheduling 16ms frames during the fade. `reduced_motion` turns the fade
+  into a step function so headless renders are deterministic.
+- **DPI snapping.** Layout stays logical (taffy's own rounding on). At paint
+  time, border strokes round to whole physical pixels
+  (`max(1, round(w*scale))/scale`) around a grid-snapped rect, and any fill
+  thinner than 1.75 physical px (dividers) snaps its thin axis to the grid
+  with a 1-physical-px minimum, so hairlines never straddle device pixels.
+- **Grid builders.** `.grid_cols/.grid_rows([Track::Px(..), Track::Fr(..)])`
+  and `.grid_col/.grid_row(start, span)` round out the section-6 vocabulary;
+  the holy-grail demo and its layout-tree snapshot lock the taffy mapping.
+- **`run_static`.** The windowed runner for message-free views: rebuilds the
+  element tree per redraw, persists `FrameState`, routes wheel events
+  through the last frame, and schedules animation frames only while
+  something animates (`ControlFlow::WaitUntil`), idling at zero CPU
+  otherwise. The M4 `App` runner extends this skeleton with hit testing and
+  message dispatch.

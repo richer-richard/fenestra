@@ -13,5 +13,6 @@ fenestra-core.workspace = true
 
 [dev-dependencies]
 fenestra-shell.workspace = true
+kurbo.workspace = true
 image.workspace = true
 insta.workspace = true

@@ -506,3 +506,29 @@ pub fn spacer<Msg>() -> Element<Msg> {
 pub fn divider<Msg>() -> Element<Msg> {
     Element::new(Kind::Divider).w_full().h(1.0).shrink0()
 }
+
+impl<Msg> Element<Msg> {
+    /// Grid template columns (switches display to grid).
+    pub fn grid_cols(mut self, tracks: impl IntoIterator<Item = crate::style::Track>) -> Self {
+        self.style = self.style.grid_cols(tracks);
+        self
+    }
+
+    /// Grid template rows (switches display to grid).
+    pub fn grid_rows(mut self, tracks: impl IntoIterator<Item = crate::style::Track>) -> Self {
+        self.style = self.style.grid_rows(tracks);
+        self
+    }
+
+    /// Places this element at a 1-based grid column, spanning `span` tracks.
+    pub fn grid_col(mut self, start: i16, span: u16) -> Self {
+        self.style = self.style.grid_col(start, span);
+        self
+    }
+
+    /// Places this element at a 1-based grid row, spanning `span` tracks.
+    pub fn grid_row(mut self, start: i16, span: u16) -> Self {
+        self.style = self.style.grid_row(start, span);
+        self
+    }
+}

@@ -1,18 +1,28 @@
 //! The frame pipeline: element tree -> ids -> style resolution -> taffy
-//! layout (with parley-backed text measurement) -> vello scene. Pure: same
-//! inputs, same scene.
+//! layout (with parley-backed text measurement) -> a [`Frame`] of resolved
+//! absolute rects -> vello scene. Pure given `(tree, theme, size, scale)`
+//! plus the retained [`FrameState`].
 
 use kurbo::{Point, Rect};
+use serde::Serialize;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use vello::Scene;
 
 use crate::element::{Element, Kind};
+use crate::frame_state::FrameState;
 use crate::id::WidgetId;
 use crate::layout;
 use crate::painter;
-use crate::style::{AlignItems, Direction, Display, Paint, Position, Style};
+use crate::style::{AlignItems, Direction, Display, Overflow, Paint, Position, Style};
 use crate::text::{Fonts, ResolvedText, resolve_text};
 use crate::theme::Theme;
+use crate::tokens::R_FULL;
+
+/// Scrollbar thumb width and edge inset, logical px.
+const SCROLLBAR_WIDTH: f64 = 6.0;
+const SCROLLBAR_INSET: f64 = 2.0;
+/// Wheel scrolling needs at least this much overflow to engage.
+const MIN_SCROLL_RANGE: f32 = 0.5;
 
 /// Taffy node context for text leaves.
 struct TextCtx {
@@ -20,19 +30,49 @@ struct TextCtx {
     style: ResolvedText,
 }
 
-/// One resolved node: stable id, resolved style, taffy handle, and children.
-struct Node {
-    taffy: NodeId,
-    #[expect(dead_code, reason = "ids drive FrameState lookups from M4 on")]
-    id: WidgetId,
-    kind: PaintKind,
-    style: Style,
-    children: Vec<Node>,
-}
-
 enum PaintKind {
     Box,
     Text { text: String, style: ResolvedText },
+}
+
+/// Scroll geometry of one scrollable container, resolved for this frame.
+struct ScrollInfo {
+    offset: f32,
+    thumb: Option<Rect>,
+    alpha: f32,
+}
+
+/// One node with its final absolute logical rect.
+struct FrameNode {
+    id: WidgetId,
+    kind: PaintKind,
+    style: Style,
+    rect: Rect,
+    /// Effective clip rect inherited from ancestors (None = unclipped).
+    visible: Option<Rect>,
+    scroll: Option<ScrollInfo>,
+    children: Vec<FrameNode>,
+}
+
+/// A laid-out frame: resolved styles and absolute rects for every element.
+/// Paint, input routing, and debug dumps all read from this one structure.
+pub struct Frame {
+    root: FrameNode,
+    canvas: Rect,
+    scale: f64,
+    thumb_color: crate::Color,
+    /// `true` while any scrollbar is mid-fade; the runner keeps animating.
+    pub animating: bool,
+}
+
+// ---------------------------------------------------------------- building
+
+struct BuiltNode {
+    taffy: NodeId,
+    id: WidgetId,
+    kind: PaintKind,
+    style: Style,
+    children: Vec<BuiltNode>,
 }
 
 /// Resolves an element's style against the theme: expands shadow tokens,
@@ -59,9 +99,9 @@ fn build<Msg>(
     tree: &mut TaffyTree<TextCtx>,
     id: WidgetId,
     in_stack: bool,
-) -> Node {
+) -> BuiltNode {
     let style = resolve(el, theme);
-    let children: Vec<Node> = el
+    let children: Vec<BuiltNode> = el
         .children
         .iter()
         .enumerate()
@@ -95,7 +135,7 @@ fn build<Msg>(
             (node, PaintKind::Box)
         }
     };
-    Node {
+    BuiltNode {
         taffy,
         id,
         kind,
@@ -115,7 +155,7 @@ fn wrap_width(known: Option<f32>, available: AvailableSpace) -> Option<f32> {
 
 /// The baseline of a child for `items_baseline` rows: true first-line
 /// baseline for text, bottom edge for boxes (CSS synthesized baseline).
-fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<TextCtx>, node: &Node) -> f64 {
+fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<TextCtx>, node: &BuiltNode) -> f64 {
     let l = tree.layout(node.taffy).expect("taffy layout");
     match &node.kind {
         PaintKind::Text { text, style } => {
@@ -125,76 +165,141 @@ fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<TextCtx>, node: &Node) -> 
     }
 }
 
-fn paint(
-    scene: &mut Scene,
-    fonts: &mut Fonts,
-    tree: &TaffyTree<TextCtx>,
-    node: &Node,
-    origin: Point,
-    canvas: Rect,
-) {
-    if node.style.display == Display::None {
-        return;
-    }
-    let l = tree.layout(node.taffy).expect("taffy layout");
-    let x = origin.x + f64::from(l.location.x);
-    let y = origin.y + f64::from(l.location.y);
-    let rect = Rect::new(
-        x,
-        y,
-        x + f64::from(l.size.width),
-        y + f64::from(l.size.height),
-    );
-    let layers = painter::push_box(scene, &node.style, rect, canvas);
-    if let PaintKind::Text { text, style } = &node.kind {
-        fonts.paint(scene, text, style, rect);
-    }
-
-    // Baseline rows: shift each in-flow child down so first baselines align.
-    let baseline_offsets: Option<Vec<f64>> = (node.style.display == Display::Flex
-        && node.style.direction == Direction::Row
-        && node.style.align_items == AlignItems::Baseline)
-        .then(|| {
-            let baselines: Vec<f64> = node
-                .children
-                .iter()
-                .map(|c| {
-                    if c.style.position == Position::Absolute {
-                        0.0
-                    } else {
-                        child_baseline(fonts, tree, c)
-                    }
-                })
-                .collect();
-            let target = baselines.iter().copied().fold(0.0, f64::max);
-            baselines
-                .iter()
-                .zip(&node.children)
-                .map(|(b, c)| {
-                    if c.style.position == Position::Absolute {
-                        0.0
-                    } else {
-                        target - b
-                    }
-                })
-                .collect()
-        });
-
-    for (i, child) in node.children.iter().enumerate() {
-        let dy = baseline_offsets.as_ref().map_or(0.0, |offsets| offsets[i]);
-        paint(scene, fonts, tree, child, Point::new(x, y + dy), canvas);
-    }
-    painter::pop_box(scene, layers);
+struct Realize<'a> {
+    tree: &'a TaffyTree<TextCtx>,
+    fonts: &'a mut Fonts,
+    state: &'a mut FrameState,
+    animating: bool,
 }
 
-/// Renders an element tree to a vello scene at the given logical size.
-/// A root with `Auto` width/height is stretched to fill the canvas.
-pub fn build_scene<Msg>(
+impl Realize<'_> {
+    /// Converts a built node into a frame node with absolute rects, applying
+    /// baseline shifts, scroll offsets, and clip propagation.
+    fn realize(&mut self, node: BuiltNode, origin: Point, visible: Option<Rect>) -> FrameNode {
+        let l = self.tree.layout(node.taffy).expect("taffy layout");
+        let x = origin.x + f64::from(l.location.x);
+        let y = origin.y + f64::from(l.location.y);
+        let rect = Rect::new(
+            x,
+            y,
+            x + f64::from(l.size.width),
+            y + f64::from(l.size.height),
+        );
+
+        // Scroll resolution: clamp the persisted offset to the content range.
+        let scroll = (node.style.overflow_y == Overflow::Scroll).then(|| {
+            let max = (l.content_size.height - l.size.height).max(0.0);
+            let offset = if max >= MIN_SCROLL_RANGE {
+                self.state.clamp_scroll(node.id, max)
+            } else {
+                self.state.clamp_scroll(node.id, 0.0)
+            };
+            let alpha = if max >= MIN_SCROLL_RANGE {
+                self.state.scrollbar_alpha(node.id)
+            } else {
+                0.0
+            };
+            self.animating |= self.state.scrollbar_animating(node.id);
+            let thumb = (alpha > 0.0 && max >= MIN_SCROLL_RANGE).then(|| {
+                let track_h = rect.height() - 2.0 * SCROLLBAR_INSET;
+                let content_h = f64::from(l.content_size.height);
+                let thumb_h = (track_h * rect.height() / content_h).max(24.0).min(track_h);
+                let denom = f64::from(max);
+                let t = if denom > 0.0 {
+                    f64::from(offset) / denom
+                } else {
+                    0.0
+                };
+                let thumb_y = rect.y0 + SCROLLBAR_INSET + t * (track_h - thumb_h);
+                Rect::new(
+                    rect.x1 - SCROLLBAR_INSET - SCROLLBAR_WIDTH,
+                    thumb_y,
+                    rect.x1 - SCROLLBAR_INSET,
+                    thumb_y + thumb_h,
+                )
+            });
+            ScrollInfo {
+                offset,
+                thumb,
+                alpha,
+            }
+        });
+
+        // Children visibility: intersect with this node's bounds when clipping.
+        let child_visible = if node.style.clip {
+            Some(visible.map_or(rect, |v| v.intersect(rect)))
+        } else {
+            visible
+        };
+        let scroll_dy = scroll.as_ref().map_or(0.0, |s| f64::from(s.offset));
+        let child_origin = Point::new(x, y - scroll_dy);
+
+        // Baseline rows: shift in-flow children so first baselines align.
+        let baseline_offsets: Option<Vec<f64>> = (node.style.display == Display::Flex
+            && node.style.direction == Direction::Row
+            && node.style.align_items == AlignItems::Baseline)
+            .then(|| {
+                let baselines: Vec<f64> = node
+                    .children
+                    .iter()
+                    .map(|c| {
+                        if c.style.position == Position::Absolute {
+                            0.0
+                        } else {
+                            child_baseline(self.fonts, self.tree, c)
+                        }
+                    })
+                    .collect();
+                let target = baselines.iter().copied().fold(0.0, f64::max);
+                baselines
+                    .iter()
+                    .zip(&node.children)
+                    .map(|(b, c)| {
+                        if c.style.position == Position::Absolute {
+                            0.0
+                        } else {
+                            target - b
+                        }
+                    })
+                    .collect()
+            });
+
+        let children = node
+            .children
+            .into_iter()
+            .enumerate()
+            .map(|(i, child)| {
+                let dy = baseline_offsets.as_ref().map_or(0.0, |o| o[i]);
+                self.realize(
+                    child,
+                    Point::new(child_origin.x, child_origin.y + dy),
+                    child_visible,
+                )
+            })
+            .collect();
+
+        FrameNode {
+            id: node.id,
+            kind: node.kind,
+            style: node.style,
+            rect,
+            visible,
+            scroll,
+            children,
+        }
+    }
+}
+
+/// Lays out an element tree into a [`Frame`] at the given logical size and
+/// DPI scale. A root with `Auto` width/height is stretched to the canvas.
+pub fn build_frame<Msg>(
     root: &Element<Msg>,
     theme: &Theme,
     fonts: &mut Fonts,
+    state: &mut FrameState,
     size: (f32, f32),
-) -> Scene {
+    scale: f64,
+) -> Frame {
     let mut tree: TaffyTree<TextCtx> = TaffyTree::new();
     let mut node = build(root, theme, &mut tree, WidgetId::ROOT, false);
     if root.style.width == crate::style::Length::Auto {
@@ -228,8 +333,159 @@ pub fn build_scene<Msg>(
     )
     .expect("taffy compute_layout");
 
-    let canvas = Rect::new(0.0, 0.0, f64::from(size.0), f64::from(size.1));
-    let mut scene = Scene::new();
-    paint(&mut scene, fonts, &tree, &node, Point::ORIGIN, canvas);
-    scene
+    let mut realize = Realize {
+        tree: &tree,
+        fonts,
+        state,
+        animating: false,
+    };
+    let root_node = realize.realize(node, Point::ORIGIN, None);
+    let animating = realize.animating;
+
+    Frame {
+        root: root_node,
+        canvas: Rect::new(0.0, 0.0, f64::from(size.0), f64::from(size.1)),
+        scale,
+        thumb_color: theme.text_subtle,
+        animating,
+    }
+}
+
+/// Convenience: lays out and paints in one call with throwaway state.
+pub fn build_scene<Msg>(
+    root: &Element<Msg>,
+    theme: &Theme,
+    fonts: &mut Fonts,
+    size: (f32, f32),
+) -> Scene {
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+    build_frame(root, theme, fonts, &mut state, size, 1.0).paint(fonts)
+}
+
+// ---------------------------------------------------------------- painting
+
+impl Frame {
+    /// Paints the frame into a fresh scene (logical coordinates).
+    pub fn paint(&self, fonts: &mut Fonts) -> Scene {
+        let mut scene = Scene::new();
+        self.paint_node(&mut scene, fonts, &self.root);
+        scene
+    }
+
+    fn paint_node(&self, scene: &mut Scene, fonts: &mut Fonts, node: &FrameNode) {
+        if node.style.display == Display::None {
+            return;
+        }
+        let layers = painter::push_box(scene, &node.style, node.rect, self.canvas, self.scale);
+        if let PaintKind::Text { text, style } = &node.kind {
+            fonts.paint(scene, text, style, node.rect);
+        }
+        for child in &node.children {
+            self.paint_node(scene, fonts, child);
+        }
+        if let Some(scroll) = &node.scroll
+            && let Some(thumb) = scroll.thumb
+        {
+            let color = self.thumb_color.multiply_alpha(scroll.alpha * 0.6);
+            painter::fill_rounded(scene, thumb, R_FULL, color);
+        }
+        painter::pop_box(scene, layers);
+    }
+
+    // ------------------------------------------------------------- queries
+
+    /// The deepest scrollable container whose visible area contains `point`
+    /// and which actually has overflowing content.
+    pub fn scrollable_at(&self, point: Point) -> Option<WidgetId> {
+        fn walk(node: &FrameNode, point: Point) -> Option<WidgetId> {
+            if node.style.display == Display::None {
+                return None;
+            }
+            if let Some(v) = node.visible
+                && !v.contains(point)
+            {
+                return None;
+            }
+            if !node.rect.contains(point) && node.style.clip {
+                return None;
+            }
+            // Children win over the container (deepest scrollable first);
+            // later children paint on top, so walk them in reverse.
+            for child in node.children.iter().rev() {
+                if let Some(id) = walk(child, point) {
+                    return Some(id);
+                }
+            }
+            (node.scroll.is_some() && node.rect.contains(point)).then_some(node.id)
+        }
+        walk(&self.root, point)
+    }
+
+    /// `true` if the id resolves to a scrollable with room to scroll.
+    pub fn is_scrollable(&self, id: WidgetId) -> bool {
+        fn walk(node: &FrameNode, id: WidgetId) -> bool {
+            (node.id == id && node.scroll.is_some()) || node.children.iter().any(|c| walk(c, id))
+        }
+        walk(&self.root, id)
+    }
+
+    // ---------------------------------------------------------------- dump
+
+    /// A serde debug dump of the resolved layout tree: ids, rects, and key
+    /// style properties. Locked with insta snapshots in tests.
+    pub fn dump(&self) -> String {
+        let dump = NodeDump::from_node(&self.root);
+        serde_json::to_string_pretty(&dump).expect("layout dump serializes")
+    }
+}
+
+#[derive(Serialize)]
+struct NodeDump {
+    id: u64,
+    kind: &'static str,
+    /// `[x, y, w, h]` in logical px.
+    rect: [f32; 4],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    fill: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scroll_offset: Option<f32>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<NodeDump>,
+}
+
+impl NodeDump {
+    fn from_node(node: &FrameNode) -> Self {
+        #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
+        let rect = [
+            node.rect.x0 as f32,
+            node.rect.y0 as f32,
+            node.rect.width() as f32,
+            node.rect.height() as f32,
+        ];
+        Self {
+            id: node.id.0,
+            kind: match &node.kind {
+                PaintKind::Box => "box",
+                PaintKind::Text { .. } => "text",
+            },
+            rect,
+            text: match &node.kind {
+                PaintKind::Text { text, .. } => Some(text.clone()),
+                PaintKind::Box => None,
+            },
+            fill: node.style.fill.as_ref().map(|f| match f {
+                Paint::Solid(c) => {
+                    let c = c.to_rgba8();
+                    format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b)
+                }
+                Paint::LinearGradient { .. } => "linear-gradient".to_owned(),
+                Paint::RadialGradient { .. } => "radial-gradient".to_owned(),
+            }),
+            scroll_offset: node.scroll.as_ref().map(|s| s.offset),
+            children: node.children.iter().map(Self::from_node).collect(),
+        }
+    }
 }

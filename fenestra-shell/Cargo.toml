@@ -11,6 +11,7 @@ categories.workspace = true
 [dependencies]
 fenestra-core.workspace = true
 winit.workspace = true
+kurbo.workspace = true
 wgpu.workspace = true
 vello.workspace = true
 image.workspace = true

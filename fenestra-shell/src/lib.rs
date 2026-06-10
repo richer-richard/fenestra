@@ -9,9 +9,9 @@ mod headless;
 pub mod testing;
 mod window;
 
-pub use element_render::{render_element, with_headless};
+pub use element_render::{render_element, render_element_with_state, with_headless};
 pub use headless::Headless;
-pub use window::{WindowOptions, run_scene};
+pub use window::{WindowOptions, run_scene, run_static};
 
 /// Errors from the windowed or headless runners.
 #[derive(Debug)]

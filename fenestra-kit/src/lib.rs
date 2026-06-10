@@ -2,8 +2,10 @@
 //! public API. Widgets land in M4-M6; the painting specimen lives here so
 //! the example and the golden tests render the exact same tree.
 
+mod demo;
 mod specimen;
 mod type_specimen;
 
+pub use demo::{holy_grail, scroll_demo};
 pub use specimen::specimen;
 pub use type_specimen::type_specimen;

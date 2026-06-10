@@ -506,6 +506,7 @@ dependencies = [
  "fenestra-shell",
  "image",
  "insta",
+ "kurbo",
 ]
 
 [[package]]
@@ -514,6 +515,7 @@ version = "0.1.0"
 dependencies = [
  "fenestra-core",
  "image",
+ "kurbo",
  "pollster",
  "vello",
  "wgpu",
