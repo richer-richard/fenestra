@@ -21,3 +21,8 @@ fenestra-shell.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+
+# Native-only example deps (file dialogs).
+[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+rfd.workspace = true
+pollster.workspace = true
