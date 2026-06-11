@@ -55,6 +55,9 @@ pub struct FrameState {
     pub(crate) frame_no: u64,
     /// Last completed click (element, clock time), for double-click.
     pub(crate) last_click: Option<(WidgetId, f64)>,
+    /// The autofocus element and the frame it was last seen, so focus
+    /// moves only when it newly appears.
+    pub(crate) autofocus_last: Option<(WidgetId, u64)>,
 }
 
 impl Default for FrameState {
@@ -75,6 +78,7 @@ impl Default for FrameState {
             clipboard: Box::new(MemoryClipboard::default()),
             frame_no: 0,
             last_click: None,
+            autofocus_last: None,
         }
     }
 }

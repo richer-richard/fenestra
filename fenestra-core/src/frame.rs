@@ -264,6 +264,19 @@ fn build<Msg>(
     // Canvas height: the materialization viewport for virtual lists.
     viewport: f32,
 ) -> BuiltNode {
+    if el.autofocus && !el.disabled {
+        // Focus when newly appearing (absent last frame or a different
+        // element), without a keyboard focus ring.
+        let newly = match state.autofocus_last {
+            Some((prev, seen)) => prev != id || seen + 1 < state.frame_no,
+            None => true,
+        };
+        state.autofocus_last = Some((id, state.frame_no));
+        if newly {
+            state.focus = Some(id);
+            state.focus_visible = false;
+        }
+    }
     let (style, anim) = resolve(el, theme, state, id);
     *animating |= anim;
     // Virtual containers swap their declared children for the materialized

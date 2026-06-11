@@ -270,6 +270,7 @@ pub struct Element<Msg> {
     /// Forces children of a z-stack into the same grid cell.
     pub(crate) stack: bool,
     pub(crate) focusable: bool,
+    pub(crate) autofocus: bool,
     pub(crate) cursor: Option<Cursor>,
     pub(crate) disabled: bool,
     pub(crate) on_click: Option<Msg>,
@@ -307,6 +308,7 @@ impl<Msg> Element<Msg> {
             key: None,
             stack: false,
             focusable: false,
+            autofocus: false,
             cursor: None,
             disabled: false,
             on_click: None,
@@ -534,6 +536,16 @@ impl<Msg> Element<Msg> {
     /// Marks the element keyboard-focusable.
     pub fn focusable(mut self, focusable: bool) -> Self {
         self.focusable = focusable;
+        self
+    }
+
+    /// Focuses this element when it newly appears in the tree (opening a
+    /// modal focuses its input). It does not steal focus while it stays
+    /// mounted, and refocuses when it disappears and reappears. Give at
+    /// most one element autofocus per view state.
+    pub fn autofocus(mut self) -> Self {
+        self.autofocus = true;
+        self.focusable = true;
         self
     }
 
@@ -1042,6 +1054,7 @@ impl<Msg: 'static> Element<Msg> {
             key: self.key,
             stack: self.stack,
             focusable: self.focusable,
+            autofocus: self.autofocus,
             cursor: self.cursor,
             disabled: self.disabled,
             on_click: self.on_click.map(&f),
