@@ -6,8 +6,9 @@ use fenestra_core::{
 };
 
 use crate::{
-    ButtonVariant, ControlSize, Status, avatar, badge, button, callout, card, checkbox, progress,
-    radio, select, slider, spinner, stat_card, switch, table, tabs, text_input,
+    ButtonVariant, ControlSize, Status, avatar, badge, button, callout, card, checkbox, icons,
+    progress, radio, select, slider, spinner, stat_card, switch, table, tabs, text_area,
+    text_input,
 };
 
 fn section<Msg>(title: &str, content: Element<Msg>) -> Element<Msg> {
@@ -84,6 +85,15 @@ pub fn gallery_controls(theme: &Theme) -> Element<()> {
                 text_input("Disabled").disabled(true).id("in-d"),
             ]),
         ),
+        section(
+            "TEXT AREA",
+            col().items_start().children([Element::from(
+                text_area("Wraps to its width and grows with the content.\nNewlines too.")
+                    .width(280.0)
+                    .min_height(64.0)
+                    .id("ta-a"),
+            )]),
+        ),
     ])
 }
 
@@ -142,6 +152,19 @@ pub fn gallery_display(theme: &Theme) -> Element<()> {
             )]),
         ),
         section("DIVIDER", col().w(320.0).children([divider()])),
+        section(
+            "LUCIDE ICONS",
+            col().gap(SP3).children([
+                row()
+                    .gap(SP3)
+                    .items_center()
+                    .children(icons::lucide::all().take(12).map(|(_, el)| el)),
+                row()
+                    .gap(SP3)
+                    .items_center()
+                    .children(icons::lucide::all().skip(12).map(|(_, el)| el)),
+            ]),
+        ),
     ])
 }
 

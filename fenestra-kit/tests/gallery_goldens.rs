@@ -14,28 +14,28 @@ fn snapshot_dir() -> PathBuf {
 #[test]
 fn gallery_controls_light() {
     let theme = Theme::light();
-    let image = render_element(gallery_controls(&theme), &theme, (688, 660));
+    let image = render_element(gallery_controls(&theme), &theme, (688, 900));
     assert_png_snapshot(snapshot_dir(), "gallery_controls_light", &image);
 }
 
 #[test]
 fn gallery_controls_dark() {
     let theme = Theme::dark();
-    let image = render_element(gallery_controls(&theme), &theme, (688, 660));
+    let image = render_element(gallery_controls(&theme), &theme, (688, 900));
     assert_png_snapshot(snapshot_dir(), "gallery_controls_dark", &image);
 }
 
 #[test]
 fn gallery_display_light() {
     let theme = Theme::light();
-    let image = render_element(gallery_display(&theme), &theme, (760, 1040));
+    let image = render_element(gallery_display(&theme), &theme, (760, 1190));
     assert_png_snapshot(snapshot_dir(), "gallery_display_light", &image);
 }
 
 #[test]
 fn gallery_display_dark() {
     let theme = Theme::dark();
-    let image = render_element(gallery_display(&theme), &theme, (760, 1040));
+    let image = render_element(gallery_display(&theme), &theme, (760, 1190));
     assert_png_snapshot(snapshot_dir(), "gallery_display_dark", &image);
 }
 

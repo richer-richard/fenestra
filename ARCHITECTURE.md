@@ -353,3 +353,59 @@ fix below is locked by a regression test in the crate's `tests/hardening.rs`
   (vulnerabilities fail; unmaintained-crate warnings stay advisory so
   third-party churn cannot redden CI). `unsafe_code = "forbid"` is set
   workspace-wide; no crate uses unsafe today.
+
+## M8 decisions
+
+- **`Element::map` moves, it does not wrap.** Mapping rebuilds the node
+  with converted handlers (message values mapped directly, boxed closures
+  rewrapped, children recursed) rather than introducing a wrapper node, so
+  widget identity, layout, and styling are untouched by composition.
+- **Commands without changing `update`.** Rather than an Elm `Cmd` return
+  type (which would churn every app), `App::init` hands the app a
+  `Proxy<Msg>`: an `Arc<dyn Fn(Msg) + Send + Sync>`. The windowed runner
+  backs it with a winit user-event envelope (`A::Msg: Send` because
+  messages cross threads); headless `render_app` backs it with a collector
+  drained before each event and the settle frame, keeping tests
+  deterministic for synchronous sends. Messages sent after the loop dies
+  drop silently.
+- **Images are identity-compared.** `Kind::Image` holds `Arc`'d RGBA8
+  (`peniko::ImageData`); equality is blob id + dimensions, so full-tree
+  rebuilds never hash pixels. Incomplete trailing rows are dropped at
+  construction (clamp-over-panic). Paint stretches to the rect and clips
+  to the corner radius, which is how round avatars work.
+- **Multiline measurement = text measurement.** The text area measures
+  through the same parley cache as `Kind::Text` at taffy's content-box
+  width (taffy passes content-box known dimensions to leaf measure), so
+  measured wrap equals the editor's paint-time wrap exactly; a trailing
+  newline measures one extra caret line. The sanitizer is mode-aware:
+  multiline keeps normalized `\n`, single-line strips all controls.
+  Internal vertical scrolling is out of scope — the area grows, and an
+  outer scroll container caps it.
+- **Toasts are app state.** Like the modal, the app owns the toast list;
+  the kit renders it via `OverlayPlacement::TopRight` with no backdrop,
+  no focus trap, and no outside-dismiss. Auto-expiry composes from the
+  command proxy (a timer thread sending a removal message).
+- **Lucide is vendored as path data.** No usvg dependency: shapes from
+  lucide-static 1.17.0 (ISC) were converted to path-d strings (circles
+  and rects become arc commands; a leading relative `m` from a
+  concatenated second path is absolutized while its implicit linetos stay
+  relative) and parsed at construction with `kurbo::BezPath::from_svg`.
+  The painter already strokes paths with round caps and joins.
+- **Keyframes are looping and clock-anchored.** `Keyframes` stops resolve
+  against the element's fully-resolved base style each frame, then lerp
+  every animatable property between the surrounding stops (the
+  transition lerp with all flags on). No retained per-widget phase: the
+  loop derives from the frame clock like `.spin`, and reduced motion pins
+  the first stop. One-shot enters remain `Transition`'s job. Implementing
+  this exposed and fixed an opacity bug: alpha groups now wrap the
+  element's own decoration (CSS semantics), not just children.
+- **Accessibility is a projection, not a parallel tree.** Core stays
+  AccessKit-free: elements carry an optional `Semantics` role + label
+  (text/image/input leaves project automatically), the frame exposes
+  `access_tree()` as plain data (headlessly testable), and the shell maps
+  it to AccessKit nodes — root `Role::Window` with a scale transform,
+  ids equal to `WidgetId`s, Click/Focus actions translated back through
+  `click_msg_of` and `set_focus`. The adapter attaches before the window
+  first becomes visible (an AccessKit requirement; windows now start
+  hidden for one frame). Screen-reader text editing and live regions are
+  out of scope this release.

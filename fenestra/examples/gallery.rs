@@ -13,12 +13,12 @@ fn main() {
 
     for (mode, suffix) in [(Mode::Light, "light"), (Mode::Dark, "dark")] {
         let theme = Theme::from_accent(262.0, mode);
-        let controls = render_element(fenestra::kit::gallery_controls(&theme), &theme, (688, 660));
+        let controls = render_element(fenestra::kit::gallery_controls(&theme), &theme, (688, 900));
         controls
             .save(out.join(format!("controls_{suffix}.png")))
             .expect("write controls");
 
-        let display = render_element(fenestra::kit::gallery_display(&theme), &theme, (760, 1040));
+        let display = render_element(fenestra::kit::gallery_display(&theme), &theme, (760, 1190));
         display
             .save(out.join(format!("display_{suffix}.png")))
             .expect("write display");

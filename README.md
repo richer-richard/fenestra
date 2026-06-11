@@ -99,9 +99,10 @@ autocomplete. Every widget routes every color through the theme; flip one
 ## The kit
 
 Button, IconButton, Checkbox, Switch, Radio, Slider, TextInput (parley
-editing, clipboard, IME), Select, Tooltip, Modal (focus trap + backdrop),
-Tabs, Card, StatCard, Badge, Avatar, Divider, Progress, Spinner, Table,
-Callout — every state, both themes:
+editing, clipboard, IME), TextArea (multiline, auto-growing), Select,
+Tooltip, Modal (focus trap + backdrop), Toasts, Tabs, Card, StatCard,
+Badge, Avatar, Divider, Progress, Spinner, Table, Callout, and a vendored
+Lucide icon subset — every state, both themes:
 
 | | |
 | --- | --- |
@@ -124,14 +125,29 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pipeline, widget
 identity, transitions, and overlays work — recorded decision-by-decision as
 the framework was built.
 
+## Composition, commands, accessibility
+
+Components written around their own message type compose with
+`Element::map`. Background work flows in through `App::init`, which hands
+the app a cloneable `Proxy<Msg>` — spawn a thread, send messages, the
+window repaints (`examples/clock.rs`, `examples/toasts.rs`). Every widget
+exposes its role, state, and name: headlessly via `Frame::access_tree()`
+(assert your UI is labeled, in CI), and to real assistive technology
+through AccessKit in the windowed runner. Ambient motion comes from
+looping `Keyframes` timelines; images from `image_rgba8` (round avatars
+via `.rounded_full()`).
+
 ## Status
 
-v1 covers the spec'd milestones M0–M7: rendering, theme, text, layout and
-scrolling, interactivity and transitions, text input, overlays, the full
-kit, and the dashboard. Out of scope for v1 (planned M8+): AccessKit,
-multiline text areas, images, keyframe animation, and a larger icon set.
+0.2 covers the spec'd milestones M0–M7 — rendering, theme, text, layout
+and scrolling, interactivity and transitions, text input, overlays, the
+full kit, the dashboard — plus the M8 set: `Element::map`, the command
+proxy, images, multiline text areas, toasts, keyframe timelines, a Lucide
+icon subset, and the AccessKit tree. Out of scope so far: the
+screen-reader text-editing protocol, live regions, and rich text.
 
 ## License
 
 MIT or Apache-2.0, at your option. The embedded Inter font is licensed
-under the SIL Open Font License 1.1.
+under the SIL Open Font License 1.1; the vendored Lucide icon path data is
+ISC (see `fenestra-kit/LICENSE-LUCIDE.txt`).
