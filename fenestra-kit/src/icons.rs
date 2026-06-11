@@ -1,6 +1,7 @@
 //! Hand-drawn kurbo icon paths in a 16x16 viewbox, painted in the resolved
-//! text color. The full v1 set lands in M6; a full icon library is out of
-//! scope.
+//! text color, plus the vendored [`lucide`] subset (24x24).
+
+pub mod lucide;
 
 use fenestra_core::{Element, path};
 use kurbo::BezPath;
