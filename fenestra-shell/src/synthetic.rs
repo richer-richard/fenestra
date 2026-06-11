@@ -23,6 +23,10 @@ pub enum SyntheticEvent {
     MouseDown,
     /// Release the primary button.
     MouseUp,
+    /// Press the secondary (right) button.
+    RightDown,
+    /// Release the secondary (right) button.
+    RightUp,
     /// Press a key.
     Key(KeyInput),
     /// Commit text (M5).
@@ -44,6 +48,8 @@ impl From<&SyntheticEvent> for InputEvent {
             SyntheticEvent::MouseMove { x, y } => Self::PointerMove { x: *x, y: *y },
             SyntheticEvent::MouseDown => Self::PointerDown,
             SyntheticEvent::MouseUp => Self::PointerUp,
+            SyntheticEvent::RightDown => Self::RightDown,
+            SyntheticEvent::RightUp => Self::RightUp,
             SyntheticEvent::Key(k) => Self::Key(*k),
             SyntheticEvent::Text(s) => Self::Text(s.clone()),
             SyntheticEvent::Wheel { dy } => Self::Wheel { dy: *dy },

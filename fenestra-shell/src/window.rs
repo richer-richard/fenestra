@@ -798,6 +798,8 @@ fn map_key(
             NamedKey::End => Key::End,
             NamedKey::Backspace => Key::Backspace,
             NamedKey::Delete => Key::Delete,
+            NamedKey::PageUp => Key::PageUp,
+            NamedKey::PageDown => Key::PageDown,
             _ => return None,
         },
         WKey::Character(s) => Key::Char(s.chars().next()?),
@@ -944,6 +946,16 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                 self.input(match state {
                     winit::event::ElementState::Pressed => InputEvent::PointerDown,
                     winit::event::ElementState::Released => InputEvent::PointerUp,
+                });
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: winit::event::MouseButton::Right,
+                ..
+            } => {
+                self.input(match state {
+                    winit::event::ElementState::Pressed => InputEvent::RightDown,
+                    winit::event::ElementState::Released => InputEvent::RightUp,
                 });
             }
             WindowEvent::MouseWheel { delta, .. } => {

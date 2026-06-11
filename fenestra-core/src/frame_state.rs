@@ -53,6 +53,8 @@ pub struct FrameState {
     pub(crate) clipboard: Box<dyn Clipboard>,
     /// Frame stamp for animation garbage collection.
     pub(crate) frame_no: u64,
+    /// Last completed click (element, clock time), for double-click.
+    pub(crate) last_click: Option<(WidgetId, f64)>,
 }
 
 impl Default for FrameState {
@@ -72,6 +74,7 @@ impl Default for FrameState {
             overlay_opened: HashMap::new(),
             clipboard: Box::new(MemoryClipboard::default()),
             frame_no: 0,
+            last_click: None,
         }
     }
 }

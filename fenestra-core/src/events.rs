@@ -38,6 +38,10 @@ pub enum Key {
     Backspace,
     /// Delete.
     Delete,
+    /// Page up (scrolls the focused scrollable).
+    PageUp,
+    /// Page down.
+    PageDown,
     /// A printable character.
     Char(char),
 }
@@ -85,6 +89,10 @@ pub enum InputEvent {
     PointerDown,
     /// Primary button released.
     PointerUp,
+    /// Secondary (right) button pressed: the context-menu gesture.
+    RightDown,
+    /// Secondary (right) button released.
+    RightUp,
     /// Wheel / trackpad scroll. Winit convention: positive `dy` moves the
     /// content down (scrolling toward the top of the document).
     Wheel {
@@ -508,6 +516,22 @@ pub fn dispatch<Msg: Clone>(
             }
             out.cursor = Some(cursor_of(&handlers, &chain));
         }
+        InputEvent::RightDown => {
+            if let Some((px, py)) = state.pointer {
+                let chain = frame.hit_chain(Point::new(f64::from(px), f64::from(py)));
+                // Deepest enabled element with a right-click handler wins.
+                if let Some(msg) = chain.iter().rev().find_map(|id| {
+                    handlers
+                        .get(*id)
+                        .filter(|el| !el.disabled)
+                        .and_then(|el| el.on_right_click.clone())
+                }) {
+                    out.msgs.push(msg);
+                    out.redraw = true;
+                }
+            }
+        }
+        InputEvent::RightUp => {}
         InputEvent::PointerUp => {
             if let Some(active) = state.active.take() {
                 // Click = press + release on the same element.
@@ -517,12 +541,27 @@ pub fn dispatch<Msg: Clone>(
                         .contains(&active)
                     && let Some(el) = handlers.get(active)
                     && !el.disabled
-                    && let Some(msg) = &el.on_click
                 {
-                    out.msgs.push(msg.clone());
-                    // Menus close when something inside them is chosen.
-                    if let Some(overlay_id) = frame.overlay_containing(active) {
-                        state.close_overlay(overlay_id);
+                    if let Some(msg) = &el.on_click {
+                        out.msgs.push(msg.clone());
+                        // Menus close when something inside them is chosen.
+                        if let Some(overlay_id) = frame.overlay_containing(active) {
+                            state.close_overlay(overlay_id);
+                        }
+                    }
+                    // Double click: a second completed click on the same
+                    // element within the window. Both singles also fire.
+                    let now = state.now();
+                    let doubled = state
+                        .last_click
+                        .is_some_and(|(id, at)| id == active && now - at <= 0.4);
+                    if doubled {
+                        if let Some(msg) = &el.on_double_click {
+                            out.msgs.push(msg.clone());
+                        }
+                        state.last_click = None;
+                    } else {
+                        state.last_click = Some((active, now));
                     }
                 }
                 out.redraw = true;

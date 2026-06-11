@@ -273,6 +273,8 @@ pub struct Element<Msg> {
     pub(crate) cursor: Option<Cursor>,
     pub(crate) disabled: bool,
     pub(crate) on_click: Option<Msg>,
+    pub(crate) on_double_click: Option<Msg>,
+    pub(crate) on_right_click: Option<Msg>,
     pub(crate) on_hover: Option<Msg>,
     pub(crate) on_key: Option<KeyFn<Msg>>,
     pub(crate) on_drag: Option<DragFn<Msg>>,
@@ -308,6 +310,8 @@ impl<Msg> Element<Msg> {
             cursor: None,
             disabled: false,
             on_click: None,
+            on_double_click: None,
+            on_right_click: None,
             on_hover: None,
             on_key: None,
             on_drag: None,
@@ -409,6 +413,20 @@ impl<Msg> Element<Msg> {
             Some(prev) => Box::new(move |t, s| f(t, prev(t, s))),
             None => Box::new(f),
         });
+        self
+    }
+
+    /// Emits this message when the element is clicked twice within 400ms
+    /// (the single-click message fires for both clicks too).
+    pub fn on_double_click(mut self, msg: Msg) -> Self {
+        self.on_double_click = Some(msg);
+        self
+    }
+
+    /// Emits this message on a right-button press over the element (the
+    /// context-menu gesture; fires on press, like macOS).
+    pub fn on_right_click(mut self, msg: Msg) -> Self {
+        self.on_right_click = Some(msg);
         self
     }
 
@@ -1027,6 +1045,8 @@ impl<Msg: 'static> Element<Msg> {
             cursor: self.cursor,
             disabled: self.disabled,
             on_click: self.on_click.map(&f),
+            on_double_click: self.on_double_click.map(&f),
+            on_right_click: self.on_right_click.map(&f),
             on_hover: self.on_hover.map(&f),
             on_key: self.on_key.map(|k| {
                 let f = f.clone();
