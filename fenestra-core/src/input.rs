@@ -65,6 +65,11 @@ fn apply_style(editor: &mut parley::PlainEditor<LayoutBrush>, style: &ResolvedTe
     styles.insert(StyleProperty::FontFamily(match style.family {
         crate::tokens::FamilyRole::Sans => FontFamily::named("Inter"),
         crate::tokens::FamilyRole::Mono => FontFamily::Single(GenericFamily::Monospace.into()),
+        // Editors keep the body face; display/serif faces are for static
+        // text (registered names are not plumbed into editors yet).
+        crate::tokens::FamilyRole::Display | crate::tokens::FamilyRole::Serif => {
+            FontFamily::named("Inter")
+        }
     }));
 }
 

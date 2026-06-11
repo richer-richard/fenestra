@@ -182,3 +182,159 @@ pub fn scroll_demo<Msg>(theme: &Theme) -> Element<Msg> {
             .chain((4..=12).map(card)),
         )
 }
+
+/// An editorial "study guide cover" poster: the demo that fenestra's
+/// design range goes beyond SaaS dashboards. Register a display face under
+/// `FamilyRole::Display` and an italic under `FamilyRole::Serif`
+/// (`Fonts::register`), build a duotone theme, and render — every color
+/// still routes through theme tokens.
+pub fn poster<Msg: 'static>(theme: &Theme) -> Element<Msg> {
+    use fenestra_core::{FamilyRole, GradientStop, Length, Paint, SP2, SP4, SP6, SP8, stack};
+
+    let field = Paint::LinearGradient {
+        angle_deg: 8.0,
+        stops: vec![
+            GradientStop {
+                offset: 0.0,
+                color: theme.neutrals.step(3),
+            },
+            GradientStop {
+                offset: 0.55,
+                color: theme.neutrals.step(2),
+            },
+            GradientStop {
+                offset: 1.0,
+                color: theme.neutrals.step(1),
+            },
+        ],
+    };
+
+    // Faint ruled lines: paper grain.
+    let rules = (1..18).map(|i| {
+        #[expect(clippy::cast_precision_loss, reason = "small loop index")]
+        fenestra_core::div::<Msg>()
+            .absolute()
+            .top(72.0 * i as f32)
+            .left(0.0)
+            .w(Length::Pct(100.0))
+            .h(1.0)
+            .themed(|t: &Theme, s| s.bg(t.neutrals.step(4).with_alpha(0.35)))
+    });
+
+    // A botanical sprig, drawn once and echoed at two scales.
+    let sprig = |w: f32, h: f32| {
+        fenestra_core::path::<Msg>(branch_path(), (260.0, 360.0), Some(2.2))
+            .w(w)
+            .h(h)
+            .themed(|t: &Theme, s| s.color(t.neutrals.step(6).with_alpha(0.55)))
+    };
+
+    let content = col()
+        .absolute()
+        .top(0.0)
+        .left(0.0)
+        .w(Length::Pct(100.0))
+        .h(Length::Pct(100.0))
+        .pl(150.0)
+        .pr(110.0)
+        .pt(258.0)
+        .items_start()
+        .children([
+            text("YEAR 8 · INTEGRATED SCIENCE")
+                .family(FamilyRole::Mono)
+                .size_px(15.0)
+                .tracking(0.42)
+                .themed(|t: &Theme, s| s.color(t.accents.step(10))),
+            row().items_center().gap(SP4).pt(SP6).children([
+                fenestra_core::div()
+                    .w(88.0)
+                    .h(2.0)
+                    .themed(|t: &Theme, s| s.bg(t.accents.step(9))),
+                text("UNIT EIGHT")
+                    .family(FamilyRole::Mono)
+                    .size_px(14.0)
+                    .tracking(0.42)
+                    .themed(|t: &Theme, s| s.color(t.text_muted)),
+            ]),
+            text("Evolution")
+                .family(FamilyRole::Display)
+                .size_px(148.0)
+                .leading(1.02)
+                .weight(Weight::Semibold)
+                .pt(SP8)
+                .themed(|t: &Theme, s| s.color(t.text)),
+            text("a field guide to deep time")
+                .family(FamilyRole::Serif)
+                .size_px(56.0)
+                .leading(1.1)
+                .pt(SP2)
+                .themed(|t: &Theme, s| s.color(t.accents.step(9))),
+            fenestra_core::div()
+                .w(430.0)
+                .h(3.0)
+                .mt(44.0)
+                .themed(|t: &Theme, s| s.bg(t.accents.step(9))),
+            text(
+                "Everything you need for the end-of-unit test — extinction and \
+                 the fossil record, variation, natural selection, and a \
+                 changing Earth — explained from the ground up, with worked \
+                 examples, diagrams and exam technique.",
+            )
+            .family(FamilyRole::Display)
+            .size_px(23.0)
+            .leading(1.72)
+            .w(620.0)
+            .mt(52.0)
+            .themed(|t: &Theme, s| s.color(t.text_muted)),
+        ]);
+
+    stack()
+        .w(Length::Pct(100.0))
+        .h(Length::Pct(100.0))
+        .children([fenestra_core::div()
+            .w(Length::Pct(100.0))
+            .h(Length::Pct(100.0))
+            .bg(field)])
+        .children(rules)
+        .children([
+            // The ochre spine.
+            fenestra_core::div()
+                .absolute()
+                .top(0.0)
+                .left(40.0)
+                .w(18.0)
+                .h(Length::Pct(100.0))
+                .themed(|t: &Theme, s| s.bg(t.accents.step(9))),
+            sprig(330.0, 460.0).absolute().top(820.0).left(640.0),
+            sprig(210.0, 290.0).absolute().top(990.0).left(430.0),
+            content,
+        ])
+}
+
+/// A hand-drawn botanical branch in a 260x360 viewbox: one stem, a few
+/// arcs, seed dots at the tips.
+fn branch_path() -> kurbo::BezPath {
+    use kurbo::Shape;
+    let mut p = kurbo::BezPath::new();
+    // Main stem.
+    p.move_to((130.0, 350.0));
+    p.curve_to((120.0, 260.0), (140.0, 180.0), (128.0, 80.0));
+    // Side branches with a seed dot at each tip.
+    type Branch = ((f64, f64), (f64, f64), (f64, f64));
+    let branches: [Branch; 6] = [
+        ((128.0, 300.0), (80.0, 270.0), (44.0, 246.0)),
+        ((126.0, 252.0), (180.0, 226.0), (216.0, 196.0)),
+        ((130.0, 206.0), (84.0, 178.0), (58.0, 142.0)),
+        ((132.0, 162.0), (186.0, 138.0), (222.0, 104.0)),
+        ((129.0, 122.0), (94.0, 96.0), (76.0, 62.0)),
+        ((128.0, 80.0), (150.0, 44.0), (170.0, 22.0)),
+    ];
+    for (start, ctrl, tip) in branches {
+        p.move_to(start);
+        p.quad_to(ctrl, tip);
+        let r = 5.0;
+        p.move_to((tip.0 + r, tip.1));
+        p.extend(kurbo::Circle::new(tip, r).path_elements(0.1));
+    }
+    p
+}

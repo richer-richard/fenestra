@@ -8,6 +8,8 @@ repository.workspace = true
 keywords.workspace = true
 categories.workspace = true
 readme = "../README.md"
+# Poster fonts and goldens stay out of the published package.
+exclude = ["examples/assets", "tests/snapshots"]
 
 [lints]
 workspace = true

@@ -271,6 +271,9 @@ pub enum TextAlign {
 pub struct TextStyle {
     /// Size on the typographic scale.
     pub size: TextSize,
+    /// Free-form size in logical px, overriding the scale token (editorial
+    /// display sizes). Line height defaults to 1.25 when set.
+    pub size_px: Option<f32>,
     /// Font weight.
     pub weight: Weight,
     /// Text color; defaults to the theme's `text` role.
@@ -866,6 +869,30 @@ impl Style {
     // -- text --
 
     /// Text size on the typographic scale.
+    /// Free-form text size in logical px (overrides the scale token).
+    pub fn size_px(mut self, px: f32) -> Self {
+        self.text.size_px = Some(px);
+        self
+    }
+
+    /// Letter spacing in em (tracked-out editorial eyebrows etc.).
+    pub fn tracking(mut self, em: f32) -> Self {
+        self.text.letter_spacing = Some(em);
+        self
+    }
+
+    /// Line height as a multiple of the font size.
+    pub fn leading(mut self, multiple: f32) -> Self {
+        self.text.line_height = Some(multiple);
+        self
+    }
+
+    /// Font family role (Sans, Mono, or a registered Display/Serif face).
+    pub fn family(mut self, family: crate::tokens::FamilyRole) -> Self {
+        self.text.family = family;
+        self
+    }
+
     pub fn size(mut self, size: crate::tokens::TextSize) -> Self {
         self.text.size = size;
         self

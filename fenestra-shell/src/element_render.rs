@@ -52,6 +52,38 @@ pub fn render_element<Msg>(el: Element<Msg>, theme: &Theme, size: (u32, u32)) ->
     render_element_with_state(el, theme, size, &mut state)
 }
 
+/// Like [`render_element`], but with caller-provided [`Fonts`], so design
+/// languages can register Display/Serif faces (`Fonts::register`) and
+/// render through them. The requested size is clamped like
+/// [`render_element`]'s.
+///
+/// # Panics
+/// If no compute-capable GPU adapter exists or rendering fails.
+pub fn render_element_with<Msg>(
+    el: Element<Msg>,
+    theme: &Theme,
+    size: (u32, u32),
+    fonts: &mut Fonts,
+) -> RgbaImage {
+    let size =
+        with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+    #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
+    let frame = build_frame(
+        &el,
+        theme,
+        fonts,
+        &mut state,
+        (size.0 as f32, size.1 as f32),
+        1.0,
+    );
+    let scene = frame.paint(fonts, &mut state);
+    with_headless(|headless| headless.render(&scene, size.0, size.1, theme.bg))
+        .expect("headless renderer unavailable")
+        .expect("headless render failed")
+}
+
 /// Like [`render_element`], but with caller-provided retained state, so
 /// tests can render scrolled (and later focused/hovered) configurations.
 /// The requested size is clamped like [`render_element`]'s.

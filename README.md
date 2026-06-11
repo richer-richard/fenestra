@@ -133,6 +133,16 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pipeline, widget
 identity, transitions, and overlays work — recorded decision-by-decision as
 the framework was built.
 
+## Design range
+
+The same framework, the same tokens — a different design language. Custom
+display faces register under font roles (`Fonts::register`), free-form
+sizes and tracking come from the style builders, and `Theme::duotone`
+builds atmospheric fields instead of neutral grays. This poster is a
+fenestra element tree, rendered headlessly, golden-tested:
+
+<p align="center"><img src="gallery/poster.png" width="520" alt="an editorial study-guide cover rendered by fenestra" /></p>
+
 ## Composition, commands, accessibility
 
 Components written around their own message type compose with
@@ -156,6 +166,7 @@ screen-reader text-editing protocol, live regions, and rich text.
 
 ## License
 
-MIT or Apache-2.0, at your option. The embedded Inter font is licensed
-under the SIL Open Font License 1.1; the vendored Lucide icon path data is
-ISC (see `fenestra-kit/LICENSE-LUCIDE.txt`).
+MIT or Apache-2.0, at your option. The embedded Inter font and the
+Playfair Display faces used by the poster example are licensed under the
+SIL Open Font License 1.1; the vendored Lucide icon path data is ISC (see
+`fenestra-kit/LICENSE-LUCIDE.txt`).

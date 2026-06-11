@@ -240,6 +240,42 @@ impl Theme {
         }
     }
 
+    /// A duotone theme: the neutral field takes its own hue with a chroma
+    /// multiplier (1.0 matches the standard near-gray neutrals; 4-10 gives
+    /// an atmospheric, editorial field like deep green or warm paper),
+    /// while the accent keeps `from_accent` semantics. Out-of-gamut chroma
+    /// is gamut-mapped per color, never clipped.
+    pub fn duotone(neutral_hue: f32, neutral_chroma: f32, accent_hue: f32, mode: Mode) -> Self {
+        let mut theme = Self::from_accent(accent_hue, mode);
+        let (neutral_table, accent_table) = match mode {
+            Mode::Light => (&NEUTRAL_LIGHT, &ACCENT_LIGHT),
+            Mode::Dark => (&NEUTRAL_DARK, &ACCENT_DARK),
+        };
+        let hue = neutral_hue.rem_euclid(360.0);
+        let boost = neutral_chroma.clamp(0.0, 40.0);
+        let neutrals = Ramp(std::array::from_fn(|i| {
+            let (l, c) = neutral_table[i];
+            oklch(l, c * boost, hue)
+        }));
+        theme.bg = neutrals.step(1);
+        theme.surface = neutrals.step(2);
+        if matches!(mode, Mode::Dark) {
+            theme.surface_raised = neutrals.step(3);
+        }
+        theme.border_subtle = neutrals.step(5);
+        theme.border = neutrals.step(6);
+        theme.border_strong = neutrals.step(7);
+        theme.text = neutrals.step(12);
+        theme.text_muted = neutrals.step(11);
+        theme.text_subtle = neutrals.step(9);
+        theme.text_disabled = neutrals.step(8);
+        if accent_table[8].0 >= 0.65 {
+            theme.on_accent = neutrals.step(12);
+        }
+        theme.neutrals = neutrals;
+        theme
+    }
+
     /// The default light theme (accent hue 262).
     pub fn light() -> Self {
         Self::from_accent(262.0, Mode::Light)

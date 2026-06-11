@@ -46,11 +46,19 @@ pub(crate) struct ResolvedText {
 
 /// Resolves the text style group against the theme and size tokens.
 pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
-    let px = ts.size.px();
+    let px = ts.size_px.unwrap_or_else(|| ts.size.px());
     ResolvedText {
         px,
         weight: ts.weight.value(),
-        line_height: ts.line_height.unwrap_or_else(|| ts.size.line_height()),
+        line_height: ts.line_height.unwrap_or_else(|| {
+            // Free-form sizes default to a tight display leading; tokens
+            // keep their scale's value.
+            if ts.size_px.is_some() {
+                1.25
+            } else {
+                ts.size.line_height()
+            }
+        }),
         letter_spacing: ts
             .letter_spacing
             .unwrap_or_else(|| ts.size.letter_spacing())
@@ -102,6 +110,8 @@ pub struct Fonts {
     font_cx: FontContext,
     layout_cx: LayoutContext<LayoutBrush>,
     cache: HashMap<LayoutKey, Layout<LayoutBrush>>,
+    /// Family names registered per role (Display/Serif design faces).
+    roles: HashMap<FamilyRole, String>,
 }
 
 impl Fonts {
@@ -153,7 +163,30 @@ impl Fonts {
             font_cx,
             layout_cx: LayoutContext::new(),
             cache: HashMap::new(),
+            roles: HashMap::new(),
         }
+    }
+
+    /// Registers font data (TTF/OTF, collections too) under a family role,
+    /// so text styled `.family(FamilyRole::Display)` (or `Serif`) resolves
+    /// to it. The layout cache is cleared. Returns `false` when no face
+    /// could be parsed from `data`.
+    pub fn register(&mut self, role: FamilyRole, data: Vec<u8>) -> bool {
+        let collection = &mut self.font_cx.collection;
+        let mut name = None;
+        for (family, _fonts) in
+            collection.register_fonts(Blob::new(std::sync::Arc::new(data)), None)
+        {
+            if name.is_none() {
+                name = collection.family_name(family).map(str::to_owned);
+            }
+        }
+        let Some(name) = name else {
+            return false;
+        };
+        self.roles.insert(role, name);
+        self.cache.clear();
+        true
     }
 
     /// The font and layout contexts, for parley editor drivers.
@@ -204,6 +237,10 @@ impl Fonts {
         let family = match style.family {
             FamilyRole::Sans => FontFamily::named("Inter"),
             FamilyRole::Mono => FontFamily::Single(GenericFamily::Monospace.into()),
+            FamilyRole::Display | FamilyRole::Serif => match self.roles.get(&style.family) {
+                Some(name) => FontFamily::named(name),
+                None => FontFamily::named("Inter"),
+            },
         };
         let mut builder = self
             .layout_cx

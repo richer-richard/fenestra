@@ -122,6 +122,11 @@ pub enum FamilyRole {
     Sans,
     /// SF Mono / Cascadia Code / JetBrains Mono / monospace fallback list.
     Mono,
+    /// A display face registered via `Fonts::register` (falls back to Sans
+    /// until one is registered). Editorial headlines.
+    Display,
+    /// A serif face registered via `Fonts::register` (falls back to Sans).
+    Serif,
 }
 
 /// Shadow elevation tokens. Resolved to concrete layered shadows by the

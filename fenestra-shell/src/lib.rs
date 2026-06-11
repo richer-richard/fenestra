@@ -22,7 +22,9 @@ pub mod testing;
 mod window;
 
 #[cfg(not(target_arch = "wasm32"))]
-pub use element_render::{render_element, render_element_with_state, with_fonts, with_headless};
+pub use element_render::{
+    render_element, render_element_with, render_element_with_state, with_fonts, with_headless,
+};
 #[cfg(not(target_arch = "wasm32"))]
 pub use headless::Headless;
 #[cfg(not(target_arch = "wasm32"))]

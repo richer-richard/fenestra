@@ -821,6 +821,30 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Free-form text size in logical px (editorial display sizes).
+    pub fn size_px(mut self, px: f32) -> Self {
+        self.style = self.style.size_px(px);
+        self
+    }
+
+    /// Letter spacing in em (tracked-out eyebrows, small caps).
+    pub fn tracking(mut self, em: f32) -> Self {
+        self.style = self.style.tracking(em);
+        self
+    }
+
+    /// Line height as a multiple of the font size.
+    pub fn leading(mut self, multiple: f32) -> Self {
+        self.style = self.style.leading(multiple);
+        self
+    }
+
+    /// Font family role (Sans, Mono, or a registered Display/Serif face).
+    pub fn family(mut self, family: crate::tokens::FamilyRole) -> Self {
+        self.style = self.style.family(family);
+        self
+    }
+
     /// Font weight.
     pub fn weight(mut self, weight: Weight) -> Self {
         self.style = self.style.weight(weight);
