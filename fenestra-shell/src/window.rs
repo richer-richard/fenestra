@@ -5,10 +5,15 @@
 //! runner with messages arrives in M4 and builds on the same plumbing.
 
 use std::sync::Arc;
+#[cfg(not(target_arch = "wasm32"))]
 use std::time::{Duration, Instant};
+#[cfg(target_arch = "wasm32")]
+use web_time::Instant;
 
+#[cfg(not(target_arch = "wasm32"))]
+use fenestra_core::Theme;
 use fenestra_core::{
-    App, Element, Fonts, FrameState, InputEvent, Key, KeyInput, Theme, build_frame, dispatch,
+    App, Element, Fonts, FrameState, InputEvent, Key, KeyInput, build_frame, dispatch,
     refresh_hover,
 };
 use kurbo::Point;
@@ -19,7 +24,9 @@ use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene}
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{MouseScrollDelta, StartCause, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+#[cfg(not(target_arch = "wasm32"))]
+use winit::event_loop::EventLoopProxy;
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::ShellError;
@@ -28,8 +35,10 @@ use crate::ShellError;
 const LINE_SCROLL_PX: f64 = 40.0;
 
 /// A raw paint callback: `(scene, logical_w, logical_h, background)`.
+#[cfg(not(target_arch = "wasm32"))]
 type PaintFn = Box<dyn FnMut(&mut Scene, f64, f64, Color)>;
 /// A message-free element view function.
+#[cfg(not(target_arch = "wasm32"))]
 type ViewFn = Box<dyn Fn(&Theme) -> Element<()>>;
 
 /// Options for the application window.
@@ -64,6 +73,9 @@ enum RenderState {
         window: Arc<Window>,
     },
     Suspended(Option<Arc<Window>>),
+    /// Window created; the async surface setup is in flight (web only).
+    #[cfg(target_arch = "wasm32")]
+    Pending(Arc<Window>),
 }
 
 /// Shared surface plumbing for every windowed runner.
@@ -74,7 +86,16 @@ struct WindowShell {
     scene: Scene,
     options: WindowOptions,
     background: Color,
+    /// Completed async surface setup, parked until the next [`Self::pump`]
+    /// (web only; the web is single-threaded so `Rc<RefCell>` suffices).
+    #[cfg(target_arch = "wasm32")]
+    ready: WasmReady,
 }
+
+/// The handoff slot for the web's async surface creation.
+#[cfg(target_arch = "wasm32")]
+type WasmReady =
+    std::rc::Rc<std::cell::RefCell<Option<(RenderContext, Box<RenderSurface<'static>>)>>>;
 
 impl WindowShell {
     fn new(options: WindowOptions, background: Color) -> Self {
@@ -85,6 +106,8 @@ impl WindowShell {
             scene: Scene::new(),
             options,
             background,
+            #[cfg(target_arch = "wasm32")]
+            ready: WasmReady::default(),
         }
     }
 
@@ -111,6 +134,12 @@ impl WindowShell {
                     self.options.inner_size.1,
                 ))
                 .with_visible(false);
+            #[cfg(target_arch = "wasm32")]
+            let attrs = {
+                use winit::platform::web::WindowAttributesExtWebSys;
+                // winit creates the canvas; have it inserted into the page.
+                attrs.with_append(true)
+            };
             Arc::new(
                 event_loop
                     .create_window(attrs)
@@ -127,6 +156,7 @@ impl WindowShell {
 
     /// Builds (or rebuilds, after a lost surface) the swapchain for `window`
     /// and enters the active state.
+    #[cfg(not(target_arch = "wasm32"))]
     fn activate(&mut self, window: Arc<Window>) {
         let size = window.inner_size();
         let surface = pollster::block_on(self.context.create_surface(
@@ -158,6 +188,62 @@ impl WindowShell {
         };
     }
 
+    /// Web: surface/device setup is async — kick it off and park in
+    /// `Pending`; [`Self::pump`] finishes the activation when it lands.
+    #[cfg(target_arch = "wasm32")]
+    fn activate(&mut self, window: Arc<Window>) {
+        let size = window.inner_size();
+        let ready = std::rc::Rc::clone(&self.ready);
+        let win = window.clone();
+        wasm_bindgen_futures::spawn_local(async move {
+            let mut context = RenderContext::new();
+            let surface = context
+                .create_surface(
+                    win.clone(),
+                    size.width.max(1),
+                    size.height.max(1),
+                    wgpu::PresentMode::AutoVsync,
+                )
+                .await
+                .expect("failed to create wgpu surface");
+            *ready.borrow_mut() = Some((context, Box::new(surface)));
+            win.request_redraw();
+        });
+        self.state = RenderState::Pending(window);
+    }
+
+    /// Completes a pending web activation once the async setup finished.
+    /// No-op on native and while nothing is pending.
+    fn pump(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        if let RenderState::Pending(window) = &self.state
+            && let Some((context, surface)) = self.ready.borrow_mut().take()
+        {
+            let window = window.clone();
+            self.context = context;
+            self.renderers.clear();
+            self.renderers
+                .resize_with(self.context.devices.len(), || None);
+            self.renderers[surface.dev_id].get_or_insert_with(|| {
+                Renderer::new(
+                    &self.context.devices[surface.dev_id].device,
+                    RendererOptions {
+                        use_cpu: false,
+                        antialiasing_support: AaSupport::area_only(),
+                        ..Default::default()
+                    },
+                )
+                .expect("failed to create vello renderer")
+            });
+            let size = window.inner_size();
+            self.state = RenderState::Active {
+                surface,
+                valid_surface: size.width != 0 && size.height != 0,
+                window,
+            };
+        }
+    }
+
     fn suspended(&mut self) {
         if let RenderState::Active { window, .. } = &self.state {
             self.state = RenderState::Suspended(Some(window.clone()));
@@ -167,7 +253,7 @@ impl WindowShell {
     fn window(&self) -> Option<&Arc<Window>> {
         match &self.state {
             RenderState::Active { window, .. } => Some(window),
-            RenderState::Suspended(_) => None,
+            _ => None,
         }
     }
 
@@ -202,7 +288,7 @@ impl WindowShell {
                     scale,
                 ))
             }
-            RenderState::Suspended(_) => None,
+            _ => None,
         }
     }
 
@@ -298,6 +384,7 @@ impl WindowShell {
 /// Opens a window and repaints via `paint(scene, logical_w, logical_h, bg)`
 /// on every redraw. Blocks until the window closes. Low-level escape hatch;
 /// element views should prefer [`run_static`] (or the M4 `App` runner).
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_scene(
     options: WindowOptions,
     background: Color,
@@ -312,12 +399,14 @@ pub fn run_scene(
     event_loop.run_app(&mut app).map_err(ShellError::EventLoop)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct SceneApp {
     shell: WindowShell,
     fragment: Scene,
     paint: PaintFn,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ApplicationHandler for SceneApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.shell.resumed(event_loop);
@@ -370,6 +459,7 @@ impl ApplicationHandler for SceneApp {
 /// Opens a window showing a message-free element view. The view is rebuilt
 /// on every redraw; scroll state persists in a [`FrameState`]. Blocks until
 /// the window closes.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn run_static(
     options: WindowOptions,
     theme: Theme,
@@ -390,6 +480,7 @@ pub fn run_static(
     event_loop.run_app(&mut app).map_err(ShellError::EventLoop)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 struct StaticApp {
     shell: WindowShell,
     theme: Theme,
@@ -403,6 +494,7 @@ struct StaticApp {
     last_frame: Option<fenestra_core::Frame>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl StaticApp {
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         let Some((lw, lh, scale)) = self.shell.logical_size() else {
@@ -432,6 +524,7 @@ impl StaticApp {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl ApplicationHandler for StaticApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.shell.resumed(event_loop);
@@ -504,9 +597,11 @@ impl ApplicationHandler for StaticApp {
 /// activation/action events.
 enum RunnerEvent {
     App(Box<dyn std::any::Any + Send>),
+    #[cfg(not(target_arch = "wasm32"))]
     Access(accesskit_winit::Event),
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl From<accesskit_winit::Event> for RunnerEvent {
     fn from(event: accesskit_winit::Event) -> Self {
         Self::Access(event)
@@ -525,6 +620,7 @@ where
     let event_loop = EventLoop::<RunnerEvent>::with_user_event()
         .build()
         .map_err(ShellError::EventLoop)?;
+    #[cfg(not(target_arch = "wasm32"))]
     let access_proxy = event_loop.create_proxy();
     let proxy = event_loop.create_proxy();
     app.init(fenestra_core::Proxy::new(move |msg: A::Msg| {
@@ -532,9 +628,13 @@ where
         let _ = proxy.send_event(RunnerEvent::App(Box::new(msg)));
     }));
     let background = app.theme().bg;
+    #[cfg(target_arch = "wasm32")]
+    let state = FrameState::new();
+    #[cfg(not(target_arch = "wasm32"))]
     let mut state = FrameState::new();
+    #[cfg(not(target_arch = "wasm32"))]
     state.set_clipboard(Box::new(crate::OsClipboard::default()));
-    let mut runner = AppRunner {
+    let runner = AppRunner {
         shell: WindowShell::new(options, background),
         app,
         fonts: Fonts::with_system(),
@@ -543,12 +643,25 @@ where
         started: Instant::now(),
         last: None,
         modifiers: winit::keyboard::ModifiersState::empty(),
+        #[cfg(not(target_arch = "wasm32"))]
         adapter: None,
+        #[cfg(not(target_arch = "wasm32"))]
         proxy: access_proxy,
     };
-    event_loop
-        .run_app(&mut runner)
-        .map_err(ShellError::EventLoop)
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let mut runner = runner;
+        event_loop
+            .run_app(&mut runner)
+            .map_err(ShellError::EventLoop)
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        use winit::platform::web::EventLoopExtWebSys;
+        // Non-blocking on the web: the loop keeps running after main returns.
+        event_loop.spawn_app(runner);
+        Ok(())
+    }
 }
 
 struct AppRunner<A: App> {
@@ -562,13 +675,16 @@ struct AppRunner<A: App> {
     last: Option<(Element<A::Msg>, fenestra_core::Frame)>,
     modifiers: winit::keyboard::ModifiersState,
     /// The AccessKit adapter, created before the window first shows.
+    #[cfg(not(target_arch = "wasm32"))]
     adapter: Option<accesskit_winit::Adapter>,
     /// Loop proxy handed to the adapter for activation/action events.
+    #[cfg(not(target_arch = "wasm32"))]
     proxy: EventLoopProxy<RunnerEvent>,
 }
 
 impl<A: App> AppRunner<A> {
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
+        self.shell.pump();
         let Some((lw, lh, scale)) = self.shell.logical_size() else {
             return;
         };
@@ -595,18 +711,26 @@ impl<A: App> AppRunner<A> {
             w.request_redraw();
         }
         if frame.animating {
+            #[cfg(not(target_arch = "wasm32"))]
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
             ));
+            // The browser paces frames; just ask for the next one.
+            #[cfg(target_arch = "wasm32")]
+            if let Some(w) = self.shell.window() {
+                w.request_redraw();
+            }
         } else {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
         self.last = Some((view, frame));
+        #[cfg(not(target_arch = "wasm32"))]
         self.push_access_tree();
     }
 
     /// Pushes the current frame's accessibility projection to the platform
     /// (no-op until assistive technology activates the tree).
+    #[cfg(not(target_arch = "wasm32"))]
     fn push_access_tree(&mut self) {
         let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
         let focus = self.state.focused();
@@ -689,6 +813,7 @@ fn map_key(
 }
 
 impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
+    #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         let adapter = &mut self.adapter;
         let proxy = self.proxy.clone();
@@ -705,6 +830,14 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         }
     }
 
+    #[cfg(target_arch = "wasm32")]
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.shell.resumed(event_loop);
+        if let Some(w) = self.shell.window() {
+            w.set_ime_allowed(true);
+        }
+    }
+
     fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: RunnerEvent) {
         match event {
             RunnerEvent::App(msg) => {
@@ -715,6 +848,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                     }
                 }
             }
+            #[cfg(not(target_arch = "wasm32"))]
             RunnerEvent::Access(ev) => match ev.window_event {
                 accesskit_winit::WindowEvent::InitialTreeRequested => {
                     if self.last.is_some() {
@@ -771,6 +905,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         if self.shell.window().is_none_or(|w| w.id() != window_id) {
             return;
         }
+        #[cfg(not(target_arch = "wasm32"))]
         if let Some(adapter) = &mut self.adapter
             && let Some(window) = self.shell.window()
         {

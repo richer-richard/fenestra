@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fenestra — live demo</title>
+  <meta name="description" content="A pure-Rust native GUI framework rendering live in your browser via WebGPU. No DOM, no CSS — every pixel is vello on wgpu." />
+  <style>
+    html, body { margin: 0; height: 100%; background: #0b0d12; color: #e6e8ee;
+      font: 15px/1.6 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .wrap { min-height: 100%; display: flex; flex-direction: column;
+      align-items: center; gap: 16px; padding: 28px 16px 48px; box-sizing: border-box; }
+    header { text-align: center; max-width: 720px; }
+    h1 { font-size: 22px; margin: 0 0 6px; }
+    h1 a { color: #8ab4ff; text-decoration: none; }
+    p { margin: 0; color: #9aa3b2; }
+    canvas { border-radius: 12px; box-shadow: 0 8px 40px rgba(0,0,0,.5);
+      outline: none; max-width: 100%; }
+    #status { color: #9aa3b2; font-size: 14px; }
+    #status.error { color: #ff8a8a; }
+    code { background: #161a22; padding: 1px 6px; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1><a href="https://github.com/richer-richard/fenestra">fenestra</a> — live demo</h1>
+      <p>A pure-Rust native GUI framework, rendering in your browser through
+      WebGPU. There is no DOM and no CSS below this line — every pixel is
+      <code>vello</code> on <code>wgpu</code>, the same code path as the
+      native window.</p>
+    </header>
+    <div id="status">Loading…</div>
+  </div>
+  <script type="module">
+    const status = document.getElementById("status");
+    if (!navigator.gpu) {
+      status.textContent = "This demo needs WebGPU (Chrome, Edge, or Safari 18+; Firefox 141+).";
+      status.className = "error";
+    } else {
+      try {
+        const init = (await import("./demo/web_demo.js")).default;
+        await init();
+        status.remove();
+        // winit appends its canvas to <body>; move it into the layout.
+        const canvas = document.querySelector("body > canvas");
+        if (canvas) document.querySelector(".wrap").appendChild(canvas);
+      } catch (e) {
+        status.textContent = "Failed to start: " + e;
+        status.className = "error";
+      }
+    }
+  </script>
+</body>
+</html>

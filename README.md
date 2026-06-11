@@ -4,6 +4,10 @@ A pure-Rust native GUI framework with web-grade aesthetics — and first-class
 headless rendering, so both humans and AI coding agents can *see* what they
 build.
 
+**[▶ Try the live demo](https://richer-richard.github.io/fenestra/)** — the
+dashboard and widget galleries running in your browser via WebGPU. No DOM,
+no CSS: every pixel is vello on wgpu, the same code as the native window.
+
 | Light | Dark |
 | --- | --- |
 | ![dashboard, light theme](gallery/dashboard_light.png) | ![dashboard, dark theme](gallery/dashboard_dark.png) |

@@ -13,12 +13,20 @@ workspace = true
 
 [dependencies]
 fenestra-core.workspace = true
-accesskit.workspace = true
-accesskit_winit.workspace = true
 winit.workspace = true
 kurbo.workspace = true
 wgpu.workspace = true
 vello.workspace = true
+
+# Native-only: headless rendering/readback, OS clipboard, AccessKit.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+accesskit.workspace = true
+accesskit_winit.workspace = true
 image.workspace = true
 pollster.workspace = true
 arboard.workspace = true
+
+# Web-only: async surface setup and a clock that works without std::time.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen-futures.workspace = true
+web-time.workspace = true

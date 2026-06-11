@@ -4,19 +4,34 @@
 
 use std::fmt;
 
+// Headless rendering, GPU readback, the OS clipboard, and the AccessKit
+// adapter are native-only; on the web only the windowed (canvas) runner
+// exists. `fenestra-core` and `fenestra-kit` compile everywhere.
+#[cfg(not(target_arch = "wasm32"))]
 mod access;
+#[cfg(not(target_arch = "wasm32"))]
 mod element_render;
+#[cfg(not(target_arch = "wasm32"))]
 mod headless;
+#[cfg(not(target_arch = "wasm32"))]
 mod os_clipboard;
+#[cfg(not(target_arch = "wasm32"))]
 mod synthetic;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
 mod window;
 
+#[cfg(not(target_arch = "wasm32"))]
 pub use element_render::{render_element, render_element_with_state, with_fonts, with_headless};
+#[cfg(not(target_arch = "wasm32"))]
 pub use headless::Headless;
+#[cfg(not(target_arch = "wasm32"))]
 pub use os_clipboard::OsClipboard;
+#[cfg(not(target_arch = "wasm32"))]
 pub use synthetic::{SyntheticEvent, render_app};
-pub use window::{WindowOptions, run_app, run_scene, run_static};
+pub use window::{WindowOptions, run_app};
+#[cfg(not(target_arch = "wasm32"))]
+pub use window::{run_scene, run_static};
 
 /// Errors from the windowed or headless runners.
 #[derive(Debug)]
