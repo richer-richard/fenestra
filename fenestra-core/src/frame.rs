@@ -27,8 +27,40 @@ const MIN_SCROLL_RANGE: f32 = 0.5;
 
 /// Taffy node context for measured leaves.
 enum MeasureCtx {
-    Text { text: String, style: ResolvedText },
-    Input { style: ResolvedText },
+    Text {
+        text: String,
+        style: ResolvedText,
+    },
+    Input {
+        /// Current value, measured for multiline height.
+        text: String,
+        style: ResolvedText,
+        multiline: bool,
+    },
+}
+
+/// Content height of an input leaf: one line for single-line inputs, the
+/// wrapped text height (plus the caret line after a trailing newline) for
+/// multiline ones.
+fn measure_input_height(
+    fonts: &mut Fonts,
+    text: &str,
+    style: &ResolvedText,
+    multiline: bool,
+    wrap: Option<f32>,
+) -> f32 {
+    let line = (style.px * style.line_height).ceil();
+    if !multiline || text.is_empty() {
+        return line;
+    }
+    // The editor shows a caret line after a trailing newline; measure one.
+    let measured: std::borrow::Cow<'_, str> = if text.ends_with('\n') {
+        std::borrow::Cow::Owned(format!("{text} "))
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    };
+    let (_, h) = fonts.measure(&measured, style, wrap);
+    h.max(line)
 }
 
 /// Intrinsic width of an unconstrained input, logical px.
@@ -254,8 +286,9 @@ fn build<Msg>(
             let editor = state
                 .editors
                 .entry(id)
-                .or_insert_with(|| EditorState::new(&resolved, now));
+                .or_insert_with(|| EditorState::new(&resolved, now, data.multiline));
             editor.sync(&data.value, &resolved);
+            editor.multiline = data.multiline;
             editor.seen = frame_no;
             let focused = state.focused() == Some(id);
             if focused && !state.reduced_motion {
@@ -263,8 +296,15 @@ fn build<Msg>(
                 *animating = true;
             }
             (
-                tree.new_leaf_with_context(taffy_style, MeasureCtx::Input { style: resolved })
-                    .expect("taffy new_leaf_with_context"),
+                tree.new_leaf_with_context(
+                    taffy_style,
+                    MeasureCtx::Input {
+                        text: data.value.clone(),
+                        style: resolved,
+                        multiline: data.multiline,
+                    },
+                )
+                .expect("taffy new_leaf_with_context"),
                 PaintKind::Input(InputPaint {
                     placeholder: data.placeholder.clone(),
                     style: resolved,
@@ -273,6 +313,8 @@ fn build<Msg>(
                     selection_color: theme.accent.with_alpha(0.25),
                     focused,
                     pad_x: f64::from(style.padding.left),
+                    pad_y: f64::from(style.padding.top),
+                    multiline: data.multiline,
                 }),
             )
         }
@@ -517,11 +559,21 @@ pub fn build_frame<Msg>(
                     height: known.height.unwrap_or(h),
                 }
             }
-            Some(MeasureCtx::Input { style }) => Size {
+            Some(MeasureCtx::Input {
+                text,
+                style,
+                multiline,
+            }) => Size {
                 width: known.width.unwrap_or(INPUT_DEFAULT_WIDTH),
-                height: known
-                    .height
-                    .unwrap_or_else(|| (style.px * style.line_height).ceil()),
+                height: known.height.unwrap_or_else(|| {
+                    measure_input_height(
+                        fonts,
+                        text,
+                        style,
+                        *multiline,
+                        wrap_width(known.width, available.width),
+                    )
+                }),
             },
             None => Size::ZERO,
         },
@@ -612,11 +664,21 @@ pub fn build_frame<Msg>(
                             height: known.height.unwrap_or(h),
                         }
                     }
-                    Some(MeasureCtx::Input { style }) => Size {
+                    Some(MeasureCtx::Input {
+                        text,
+                        style,
+                        multiline,
+                    }) => Size {
                         width: known.width.unwrap_or(INPUT_DEFAULT_WIDTH),
-                        height: known
-                            .height
-                            .unwrap_or_else(|| (style.px * style.line_height).ceil()),
+                        height: known.height.unwrap_or_else(|| {
+                            measure_input_height(
+                                fonts,
+                                text,
+                                style,
+                                *multiline,
+                                wrap_width(known.width, available.width),
+                            )
+                        }),
                     },
                     None => Size::ZERO,
                 },

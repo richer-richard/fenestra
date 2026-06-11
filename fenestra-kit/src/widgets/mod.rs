@@ -10,6 +10,7 @@ mod radio;
 mod select;
 mod slider;
 mod switch;
+mod text_area;
 mod text_input;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
@@ -22,6 +23,7 @@ pub use radio::{Radio, radio};
 pub use select::{Select, select};
 pub use slider::{Slider, slider};
 pub use switch::{Switch, switch};
+pub use text_area::{TextArea, text_area};
 pub use text_input::{TextInput, text_input};
 
 /// Control heights shared by buttons and inputs, logical px.

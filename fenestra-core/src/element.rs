@@ -60,6 +60,9 @@ pub struct InputData {
     pub value: String,
     /// Placeholder shown when the value is empty.
     pub placeholder: String,
+    /// Multiline editing: text wraps to the element width, Enter inserts a
+    /// newline, and the measured height grows with the content.
+    pub multiline: bool,
 }
 
 /// Path payload for [`Kind::Path`].
@@ -753,6 +756,25 @@ pub fn raw_input<Msg>(value: impl Into<String>, placeholder: impl Into<String>) 
     Element::new(Kind::Input(InputData {
         value: value.into(),
         placeholder: placeholder.into(),
+        multiline: false,
+    }))
+    .focusable(true)
+    .cursor(Cursor::Text)
+}
+
+/// A bare multiline text area leaf: text wraps to the element width, Enter
+/// inserts a newline, arrows move by line, and the measured height grows
+/// with the wrapped content (constrain it with `.min_h`/`.max_h` plus an
+/// outer scroll container). Most apps want the styled `fenestra_kit`
+/// `text_area` instead; this is the primitive it wraps.
+pub fn raw_text_area<Msg>(
+    value: impl Into<String>,
+    placeholder: impl Into<String>,
+) -> Element<Msg> {
+    Element::new(Kind::Input(InputData {
+        value: value.into(),
+        placeholder: placeholder.into(),
+        multiline: true,
     }))
     .focusable(true)
     .cursor(Cursor::Text)

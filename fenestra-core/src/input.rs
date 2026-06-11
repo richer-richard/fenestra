@@ -25,18 +25,21 @@ pub(crate) struct EditorState {
     pub last_activity: f64,
     /// Frame stamp for garbage collection.
     pub seen: u64,
+    /// Multiline mode: wraps, accepts newlines, moves by line.
+    pub multiline: bool,
 }
 
 impl EditorState {
-    pub(crate) fn new(style: &ResolvedText, now: f64) -> Self {
+    pub(crate) fn new(style: &ResolvedText, now: f64, multiline: bool) -> Self {
         let mut editor = parley::PlainEditor::new(style.px);
         apply_style(&mut editor, style);
-        editor.set_width(None); // single line: never wrap
+        editor.set_width(None); // multiline editors get their width at paint
         Self {
             editor,
             scroll_x: 0.0,
             last_activity: now,
             seen: 0,
+            multiline,
         }
     }
 
@@ -96,6 +99,7 @@ pub(crate) fn handle_key(
     clipboard: &mut dyn Clipboard,
     key: &KeyInput,
 ) -> EditOutcome {
+    let multiline = state.multiline;
     let (font_cx, layout_cx) = fonts.editor_contexts();
     let mut drv = state.editor.driver(font_cx, layout_cx);
     let shortcut = key.meta || key.ctrl;
@@ -123,8 +127,7 @@ pub(crate) fn handle_key(
             }
             'v' => {
                 if let Some(text) = clipboard.get() {
-                    let sanitized: String = text.chars().filter(|c| !c.is_control()).collect();
-                    drv.insert_or_replace_selection(&sanitized);
+                    drv.insert_or_replace_selection(&sanitize(&text, multiline));
                     return HANDLED;
                 }
                 MOVED
@@ -176,6 +179,26 @@ pub(crate) fn handle_key(
             }
             MOVED
         }
+        Key::Enter if multiline => {
+            drv.insert_or_replace_selection("\n");
+            HANDLED
+        }
+        Key::ArrowUp if multiline => {
+            if key.shift {
+                drv.select_up();
+            } else {
+                drv.move_up();
+            }
+            MOVED
+        }
+        Key::ArrowDown if multiline => {
+            if key.shift {
+                drv.select_down();
+            } else {
+                drv.move_down();
+            }
+            MOVED
+        }
         Key::Backspace => {
             if word {
                 drv.backdelete_word();
@@ -196,9 +219,24 @@ pub(crate) fn handle_key(
     }
 }
 
+/// Filters control characters out of committed or pasted text. Multiline
+/// editors keep newlines (normalized to `\n`); single-line editors strip
+/// them with everything else.
+fn sanitize(text: &str, multiline: bool) -> String {
+    if multiline {
+        text.replace("\r\n", "\n")
+            .chars()
+            .map(|c| if c == '\r' { '\n' } else { c })
+            .filter(|c| *c == '\n' || !c.is_control())
+            .collect()
+    } else {
+        text.chars().filter(|c| !c.is_control()).collect()
+    }
+}
+
 /// Inserts committed text (typing or IME commit).
 pub(crate) fn handle_text(state: &mut EditorState, fonts: &mut Fonts, text: &str) -> EditOutcome {
-    let sanitized: String = text.chars().filter(|c| !c.is_control()).collect();
+    let sanitized = sanitize(text, state.multiline);
     if sanitized.is_empty() {
         return IGNORED;
     }
@@ -264,6 +302,10 @@ pub(crate) struct InputPaint {
     pub focused: bool,
     /// Left/right padding inside the box, logical px.
     pub pad_x: f64,
+    /// Top padding inside the box (multiline is top-aligned), logical px.
+    pub pad_y: f64,
+    /// Multiline mode: wrapped, top-aligned, no horizontal follow-scroll.
+    pub multiline: bool,
 }
 
 /// Paints an input's content (selection, text or placeholder, caret) inside
@@ -280,13 +322,29 @@ pub(crate) fn paint(
 ) -> bool {
     let content = Rect::new(rect.x0 + data.pad_x, rect.y0, rect.x1 - data.pad_x, rect.y1);
 
-    // Refresh the layout, then center the single line vertically.
+    // Multiline editors wrap to the content width (set before layout).
+    if data.multiline {
+        #[expect(clippy::cast_possible_truncation, reason = "widths fit in f32")]
+        state
+            .editor
+            .set_width(Some(content.width().max(0.0) as f32));
+    }
+
+    // Refresh the layout; single lines center vertically, multiline is
+    // top-aligned under the padding.
     let (font_cx, layout_cx) = fonts.editor_contexts();
     let layout_height = f64::from(state.editor.layout(font_cx, layout_cx).height());
-    let text_y = rect.y0 + (rect.height() - layout_height) * 0.5;
+    let text_y = if data.multiline {
+        rect.y0 + data.pad_y
+    } else {
+        rect.y0 + (rect.height() - layout_height) * 0.5
+    };
 
-    // Follow-scroll: keep the caret inside the content box.
-    if let Some(caret) = state.editor.cursor_geometry(1.0) {
+    // Follow-scroll: keep the caret inside the content box (single line
+    // only; multiline grows vertically instead).
+    if data.multiline {
+        state.scroll_x = 0.0;
+    } else if let Some(caret) = state.editor.cursor_geometry(1.0) {
         let caret_x = caret.x0; // layout-local
         let visible_w = content.width().max(0.0);
         if caret_x - state.scroll_x > visible_w {
@@ -334,7 +392,12 @@ pub(crate) fn paint(
         if !data.placeholder.is_empty() {
             let mut placeholder_style = data.style;
             placeholder_style.color = data.placeholder_color;
-            let ph_rect = Rect::new(content.x0, text_y, content.x1, text_y + layout_height);
+            let ph_bottom = if data.multiline {
+                rect.y1 - data.pad_y
+            } else {
+                text_y + layout_height
+            };
+            let ph_rect = Rect::new(content.x0, text_y, content.x1, ph_bottom);
             fonts.paint(scene, &data.placeholder, &placeholder_style, ph_rect);
         }
     } else {
