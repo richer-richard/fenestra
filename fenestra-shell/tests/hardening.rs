@@ -27,14 +27,7 @@ fn clamp_size_contract() {
     .expect("headless renderer unavailable");
 }
 
-/// The clamped maximum-width render end to end. WARP (Windows' software
-/// DX12 rasterizer) access-violates inside the driver on max-dimension
-/// renders, so this runs where rasterizers survive it; the contract above
-/// is covered everywhere.
-#[cfg_attr(
-    target_os = "windows",
-    ignore = "WARP crashes (STATUS_ACCESS_VIOLATION) rendering at max texture width"
-)]
+/// The clamped maximum-width render end to end.
 #[test]
 fn oversized_render_clamps_to_device_limit() {
     let el: Element<()> = col();

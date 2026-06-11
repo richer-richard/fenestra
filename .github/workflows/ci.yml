@@ -85,9 +85,13 @@ jobs:
         run: cargo test --workspace
 
   test-windows:
-    # GPU-less Windows runners fall back to DX12 WARP (software rasterizer),
-    # which supports the compute pipelines vello needs.
-    name: test (Windows / WARP)
+    # GPU-less Windows runners only have DX12 WARP, whose software
+    # rasterizer crashes nondeterministically (STATUS_ACCESS_VIOLATION)
+    # under vello's compute workloads. Windows therefore verifies the full
+    # compile (every target) plus the GPU-free core suites; rendering is
+    # covered by Metal (reference) and lavapipe. Real-GPU Windows machines
+    # run the full suite fine.
+    name: build + core tests (Windows)
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
@@ -95,11 +99,8 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-      - name: Run tests
-        env:
-          # Goldens are Metal-rendered; WARP AA differs slightly.
-          FENESTRA_SNAPSHOT_BUDGET: "0.006"
-        run: cargo test --workspace
+      - run: cargo build --workspace --all-targets
+      - run: cargo test -p fenestra-core
 
   audit:
     # Vulnerabilities in the dependency tree fail the job; unmaintained-crate
