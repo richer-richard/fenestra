@@ -131,7 +131,9 @@ renders headlessly.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pipeline, widget
 identity, transitions, and overlays work — recorded decision-by-decision as
-the framework was built.
+the framework was built — and [BENCHMARKS.md](BENCHMARKS.md) for honest
+frame-cost numbers (a full screen rebuilds, lays out, and paints in ~0.3 ms;
+100k-row lists virtualize to ~0.09 ms).
 
 ## Design range
 

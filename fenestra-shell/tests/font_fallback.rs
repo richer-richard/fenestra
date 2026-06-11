@@ -37,5 +37,8 @@ fn system_fonts_provide_cjk_fallback() {
         .pixels()
         .filter(|p| p.0[0] < 200 || p.0[1] < 200 || p.0[2] < 200)
         .count();
-    assert!(ink > 300, "CJK text should render visible glyphs, got {ink}");
+    assert!(
+        ink > 300,
+        "CJK text should render visible glyphs, got {ink}"
+    );
 }
