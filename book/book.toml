@@ -1,0 +1,9 @@
+[book]
+title = "fenestra"
+description = "A pure-Rust native GUI framework with web-grade aesthetics and first-class headless rendering"
+authors = ["fenestra contributors"]
+language = "en"
+
+[output.html]
+git-repository-url = "https://github.com/richer-richard/fenestra"
+site-url = "/fenestra/book/"

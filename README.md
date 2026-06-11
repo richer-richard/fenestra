@@ -7,6 +7,8 @@ build.
 **[▶ Try the live demo](https://richer-richard.github.io/fenestra/)** — the
 dashboard and widget galleries running in your browser via WebGPU. No DOM,
 no CSS: every pixel is vello on wgpu, the same code as the native window.
+**[Read the book](https://richer-richard.github.io/fenestra/book/)** for
+the guided tour.
 
 | Light | Dark |
 | --- | --- |

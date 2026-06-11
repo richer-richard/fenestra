@@ -409,3 +409,27 @@ fix below is locked by a regression test in the crate's `tests/hardening.rs`
   first becomes visible (an AccessKit requirement; windows now start
   hidden for one frame). Screen-reader text editing and live regions are
   out of scope this release.
+
+## Multi-window: design (not yet implemented)
+
+Declarative windows, Elm-pure, mirroring how modals already work:
+
+- `App` gains `fn windows(&self) -> Vec<WindowDesc>` (default: one main
+  window from `WindowOptions`). `WindowDesc { key: String, title, size }`
+  — presence in the list means open, removal means close, exactly like
+  toast/modal state.
+- `view` gains a per-window form: `fn view_for(&self, key: &str) ->
+  Element<Msg>` with `view()` delegating for the main window, so
+  single-window apps never see the API.
+- The runner reconciles winit windows against the list after every
+  update (open/close/title), holding one `WindowShell` + `FrameState`
+  per key; input dispatch and accessibility trees stay per-window, app
+  state stays shared. Proxied messages repaint every open window.
+- Constraints to decide at implementation time: per-window themes (the
+  current `theme(&self)` is global), focus across windows (winit reports
+  per-window focus; `state.focus` is per-FrameState already), and
+  whether `render_app` should grow a multi-window headless form.
+
+The design is additive (defaults preserve today's API). Tracked as a
+help-wanted issue; the windowed runner refactor (RunnerEvent, per-shell
+plumbing) from the WASM port already isolates most of what it touches.
