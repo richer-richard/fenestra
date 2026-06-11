@@ -437,6 +437,52 @@ pub struct Transition {
     pub easing: crate::tokens::CubicBezier,
 }
 
+/// A looping keyframe timeline: style stops at fractional times across one
+/// period, sampled from the frame clock every frame. Built for ambient
+/// motion (pulses, shimmers, breathing); one-shot state changes belong to
+/// [`Transition`]. With reduced motion the first stop is pinned, keeping
+/// headless renders deterministic.
+pub struct Keyframes {
+    pub(crate) stops: Vec<(f32, ThemedFn)>,
+    pub(crate) duration_ms: f32,
+    pub(crate) easing: crate::tokens::CubicBezier,
+}
+
+impl Keyframes {
+    /// A timeline lasting `duration_ms` per cycle (looped).
+    pub fn new(duration_ms: f32) -> Self {
+        Self {
+            stops: Vec::new(),
+            duration_ms,
+            easing: crate::tokens::EASE_STANDARD,
+        }
+    }
+
+    /// Adds a stop at fraction `at` (clamped to 0..=1) transforming the
+    /// element's resolved base style. For a seamless loop, make the styles
+    /// at 0 and 1 match.
+    pub fn stop(self, at: f32, f: impl Fn(Style) -> Style + 'static) -> Self {
+        self.themed_stop(at, move |_, s| f(s))
+    }
+
+    /// A theme-aware stop, for keyframes that color through tokens.
+    pub fn themed_stop(
+        mut self,
+        at: f32,
+        f: impl Fn(&crate::theme::Theme, Style) -> Style + 'static,
+    ) -> Self {
+        self.stops.push((at.clamp(0.0, 1.0), Box::new(f)));
+        self.stops.sort_by(|a, b| a.0.total_cmp(&b.0));
+        self
+    }
+
+    /// Per-segment easing (standard ease by default).
+    pub fn ease(mut self, easing: crate::tokens::CubicBezier) -> Self {
+        self.easing = easing;
+        self
+    }
+}
+
 impl Transition {
     /// The standard hover transition: colors and shadow alpha over the Fast
     /// duration with standard easing.

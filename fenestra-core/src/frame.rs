@@ -205,6 +205,11 @@ fn resolve<Msg>(
         style = animated;
         animating = running;
     }
+    if let Some(kf) = &el.keyframes {
+        style = crate::anim::sample_keyframes(kf, theme, &style, state.now(), state.reduced_motion);
+        // Looping timelines repaint for as long as they are mounted.
+        animating |= !state.reduced_motion && !kf.stops.is_empty();
+    }
     (style, animating)
 }
 

@@ -209,6 +209,8 @@ pub struct Element<Msg> {
     pub(crate) overlay: Option<Overlay>,
     /// Continuous rotation period in ms (spinners); paint-time, clock-driven.
     pub(crate) spin: Option<f32>,
+    /// Looping keyframe timeline sampled from the frame clock.
+    pub(crate) keyframes: Option<crate::style::Keyframes>,
     pub(crate) themed: Option<ThemedFn>,
     pub(crate) hover_style: Option<ThemedFn>,
     pub(crate) active_style: Option<ThemedFn>,
@@ -235,6 +237,7 @@ impl<Msg> Element<Msg> {
             on_close: None,
             overlay: None,
             spin: None,
+            keyframes: None,
             themed: None,
             hover_style: None,
             active_style: None,
@@ -371,6 +374,14 @@ impl<Msg> Element<Msg> {
     /// `period_ms`). Only path elements rotate; used by spinners.
     pub fn spin(mut self, period_ms: f32) -> Self {
         self.spin = Some(period_ms);
+        self
+    }
+
+    /// Attaches a looping [`Keyframes`](crate::style::Keyframes) timeline,
+    /// sampled from the frame clock after `themed`, interaction variants,
+    /// and transitions resolve. Reduced motion pins the first stop.
+    pub fn keyframes(mut self, keyframes: crate::style::Keyframes) -> Self {
+        self.keyframes = Some(keyframes);
         self
     }
 
@@ -892,6 +903,7 @@ impl<Msg: 'static> Element<Msg> {
             on_close: self.on_close.map(&f),
             overlay: self.overlay,
             spin: self.spin,
+            keyframes: self.keyframes,
             themed: self.themed,
             hover_style: self.hover_style,
             active_style: self.active_style,

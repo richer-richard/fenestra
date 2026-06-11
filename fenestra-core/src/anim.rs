@@ -65,6 +65,49 @@ impl Anim {
     }
 }
 
+/// Samples a looping [`Keyframes`](crate::style::Keyframes) timeline
+/// against the frame clock: finds the two stops around the current phase,
+/// resolves both against `base`, and lerps every animatable property
+/// between them. Reduced motion pins the first stop.
+pub(crate) fn sample_keyframes(
+    kf: &crate::style::Keyframes,
+    theme: &crate::theme::Theme,
+    base: &Style,
+    now: f64,
+    reduced_motion: bool,
+) -> Style {
+    if kf.stops.is_empty() {
+        return base.clone();
+    }
+    let resolve = |i: usize| (kf.stops[i].1)(theme, base.clone());
+    if reduced_motion {
+        return resolve(0);
+    }
+    let period = f64::from(kf.duration_ms.max(1.0)) / 1000.0;
+    #[expect(clippy::cast_possible_truncation, reason = "phase is in 0..1")]
+    let phase = (now.rem_euclid(period) / period) as f32;
+    let last = kf.stops.len() - 1;
+    if phase <= kf.stops[0].0 {
+        return resolve(0);
+    }
+    if phase >= kf.stops[last].0 {
+        return resolve(last);
+    }
+    let next = kf
+        .stops
+        .iter()
+        .position(|(at, _)| *at >= phase)
+        .unwrap_or(last);
+    let prev = next.saturating_sub(1);
+    let span = (kf.stops[next].0 - kf.stops[prev].0).max(1e-6);
+    let local = ((phase - kf.stops[prev].0) / span).clamp(0.0, 1.0);
+    let all = Transition {
+        easing: kf.easing,
+        ..Transition::all()
+    };
+    lerp_style(&resolve(prev), &resolve(next), kf.easing.eval(local), all)
+}
+
 /// Interpolates the animatable properties enabled by `transition`; all other
 /// properties snap to `b`.
 fn lerp_style(a: &Style, b: &Style, t: f32, transition: Transition) -> Style {

@@ -156,6 +156,21 @@ pub(crate) fn push_box(
     canvas: Rect,
     scale: f64,
 ) -> usize {
+    let mut layers = 0;
+    if style.opacity < 1.0 {
+        // CSS group semantics: the element's own shadows, fill, and border
+        // fade together with its children. Bounded by the canvas so
+        // overflowing children and shadows stay inside the group.
+        scene.push_layer(
+            Fill::NonZero,
+            peniko::Mix::Normal,
+            style.opacity.clamp(0.0, 1.0),
+            Affine::IDENTITY,
+            &rounded_rect(canvas, CornerRadius::default()),
+        );
+        layers += 1;
+    }
+
     for shadow in &style.shadows {
         shadow_layer(scene, rect, style.corner_radius, shadow);
     }
@@ -207,26 +222,8 @@ pub(crate) fn push_box(
         );
     }
 
-    let mut layers = 0;
     if style.clip {
         scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &path);
-        layers += 1;
-    }
-    if style.opacity < 1.0 {
-        // Alpha groups clip; bound them by the element when clipping anyway,
-        // otherwise by the canvas so overflowing children stay visible.
-        let bounds = if style.clip {
-            path
-        } else {
-            rounded_rect(canvas, CornerRadius::default())
-        };
-        scene.push_layer(
-            Fill::NonZero,
-            peniko::Mix::Normal,
-            style.opacity.clamp(0.0, 1.0),
-            Affine::IDENTITY,
-            &bounds,
-        );
         layers += 1;
     }
     layers
