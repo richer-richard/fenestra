@@ -39,6 +39,7 @@ enum PaintKind {
     Text { text: String, style: ResolvedText },
     Path(PathData),
     Input(InputPaint),
+    Image(crate::element::ImageData),
 }
 
 /// Interactivity facts the frame needs for hit/focus queries.
@@ -279,6 +280,10 @@ fn build<Msg>(
             tree.new_leaf(taffy_style).expect("taffy new_leaf"),
             PaintKind::Path(data.clone()),
         ),
+        Kind::Image(data) => (
+            tree.new_leaf(taffy_style).expect("taffy new_leaf"),
+            PaintKind::Image(data.clone()),
+        ),
         Kind::Box | Kind::Divider => {
             let node = if children.is_empty() {
                 tree.new_leaf(taffy_style).expect("taffy new_leaf")
@@ -323,7 +328,9 @@ fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<MeasureCtx>, node: &BuiltN
         PaintKind::Text { text, style } => {
             f64::from(fonts.first_baseline(text, style, Some(l.size.width)))
         }
-        PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) => f64::from(l.size.height),
+        PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) | PaintKind::Image(_) => {
+            f64::from(l.size.height)
+        }
     }
 }
 
@@ -827,6 +834,9 @@ impl Frame {
                     crate::input::paint(scene, fonts, editor, data, node.rect, now, reduced);
                 }
             }
+            PaintKind::Image(data) => {
+                painter::draw_image(scene, &data.image, node.rect, node.style.corner_radius);
+            }
             PaintKind::Box => {}
         }
         for child in &node.children {
@@ -1055,11 +1065,14 @@ impl NodeDump {
                 PaintKind::Text { .. } => "text",
                 PaintKind::Path(_) => "path",
                 PaintKind::Input(_) => "input",
+                PaintKind::Image(_) => "image",
             },
             rect,
             text: match &node.kind {
                 PaintKind::Text { text, .. } => Some(text.clone()),
-                PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) => None,
+                PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) | PaintKind::Image(_) => {
+                    None
+                }
             },
             fill: node.style.fill.as_ref().map(|f| match f {
                 Paint::Solid(c) => {

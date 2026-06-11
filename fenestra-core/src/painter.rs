@@ -239,6 +239,30 @@ pub(crate) fn pop_box(scene: &mut Scene, layers: usize) {
     }
 }
 
+/// Draws an RGBA image stretched to `rect`, clipped to the corner radius.
+pub(crate) fn draw_image(
+    scene: &mut Scene,
+    image: &peniko::ImageData,
+    rect: Rect,
+    corners: CornerRadius,
+) {
+    if image.width == 0 || image.height == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
+        return;
+    }
+    let transform = Affine::translate((rect.x0, rect.y0))
+        * Affine::scale_non_uniform(
+            rect.width() / f64::from(image.width),
+            rect.height() / f64::from(image.height),
+        );
+    scene.push_clip_layer(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &rounded_rect(rect, corners),
+    );
+    scene.draw_image(image, transform);
+    scene.pop_layer();
+}
+
 /// Paints the keyboard focus ring: a 2px accent stroke offset 2px outside
 /// the element, with ring radius = element radius + 2.
 pub(crate) fn focus_ring(scene: &mut Scene, rect: Rect, corners: CornerRadius, color: Color) {

@@ -31,6 +31,26 @@ pub enum Kind {
     /// A single-line editable text field driven by parley's `PlainEditor`.
     /// The app's value is the source of truth; edits emit `on_input`.
     Input(InputData),
+    /// An RGBA8 image stretched to the element rect and clipped to its
+    /// corner radius.
+    Image(ImageData),
+}
+
+/// Payload for [`Kind::Image`].
+#[derive(Debug, Clone)]
+pub struct ImageData {
+    /// Decoded straight-alpha RGBA8 pixels, shared cheaply across frames.
+    pub image: peniko::ImageData,
+}
+
+impl PartialEq for ImageData {
+    /// Identity comparison (same pixel allocation and dimensions), not a
+    /// byte-by-byte one: rebuilt views share the `Arc`'d blob.
+    fn eq(&self, other: &Self) -> bool {
+        self.image.data.id() == other.image.data.id()
+            && self.image.width == other.image.width
+            && self.image.height == other.image.height
+    }
 }
 
 /// Payload for [`Kind::Input`].
@@ -736,6 +756,36 @@ pub fn raw_input<Msg>(value: impl Into<String>, placeholder: impl Into<String>) 
     }))
     .focusable(true)
     .cursor(Cursor::Text)
+}
+
+/// An image leaf showing straight-alpha RGBA8 pixels (row-major, 4 bytes
+/// per pixel). Sized to the image by default, stretched when styled
+/// otherwise, and painted clipped to the corner radius — so
+/// `.rounded_full()` crops a square source into a round avatar. If `pixels`
+/// holds fewer than `width * height` complete rows, the element shrinks to
+/// the rows actually provided instead of panicking.
+pub fn image_rgba8<Msg>(width: u32, height: u32, mut pixels: Vec<u8>) -> Element<Msg> {
+    let row = width as usize * 4;
+    let rows = pixels
+        .len()
+        .checked_div(row)
+        .unwrap_or(0)
+        .min(height as usize);
+    pixels.truncate(row * rows);
+    #[expect(clippy::cast_possible_truncation, reason = "rows <= height: u32")]
+    let height = rows as u32;
+    let image = peniko::ImageData {
+        data: pixels.into(),
+        format: peniko::ImageFormat::Rgba8,
+        alpha_type: peniko::ImageAlphaType::Alpha,
+        width,
+        height,
+    };
+    #[expect(clippy::cast_precision_loss, reason = "image sizes fit in f32")]
+    Element::new(Kind::Image(ImageData { image }))
+        .w(width as f32)
+        .h(height as f32)
+        .shrink0()
 }
 
 /// A vector path drawn in `viewbox` coordinates and scaled to the element

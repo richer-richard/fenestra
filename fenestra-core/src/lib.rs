@@ -24,8 +24,8 @@ mod tokens;
 pub use app::App;
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
-    Cursor, Element, InputData, Kind, Overlay, OverlayMode, OverlayPlacement, PathData, col, div,
-    divider, path, raw_input, row, spacer, stack, text,
+    Cursor, Element, ImageData, InputData, Kind, Overlay, OverlayMode, OverlayPlacement, PathData,
+    col, div, divider, image_rgba8, path, raw_input, row, spacer, stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, dispatch, refresh_hover};
 pub use frame::{Frame, build_frame, build_scene};
