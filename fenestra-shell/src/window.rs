@@ -861,8 +861,9 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                     let id = fenestra_core::WidgetId(req.target_node.0);
                     match req.action {
                         accesskit::Action::Click => {
-                            if let Some((view, _)) = &self.last
-                                && let Some(msg) = fenestra_core::click_msg_of(view, id)
+                            if let Some((view, frame)) = &self.last
+                                && let Some(msg) =
+                                    fenestra_core::click_msg_of(view, frame, &self.state, id)
                             {
                                 self.app.update(msg);
                                 if let Some(w) = self.shell.window() {

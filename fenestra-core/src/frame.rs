@@ -261,11 +261,23 @@ fn build<Msg>(
     in_stack: bool,
     path: &mut Vec<usize>,
     pending: &mut Vec<PendingOverlay>,
+    // Canvas height: the materialization viewport for virtual lists.
+    viewport: f32,
 ) -> BuiltNode {
     let (style, anim) = resolve(el, theme, state, id);
     *animating |= anim;
-    let children: Vec<BuiltNode> = el
-        .children
+    // Virtual containers swap their declared children for the materialized
+    // window. Overlays inside virtual rows are unsupported (the overlay
+    // path machinery indexes the declared tree).
+    let generated: Vec<Element<Msg>>;
+    let child_slice: &[Element<Msg>] = match &el.virtual_rows {
+        Some(v) => {
+            generated = expand_virtual(v, state.scroll_offset(id), viewport);
+            &generated
+        }
+        None => &el.children,
+    };
+    let children: Vec<BuiltNode> = child_slice
         .iter()
         .enumerate()
         .filter_map(|(i, c)| {
@@ -285,7 +297,7 @@ fn build<Msg>(
             }
             path.push(i);
             let node = build(
-                c, theme, tree, state, animating, child_id, el.stack, path, pending,
+                c, theme, tree, state, animating, child_id, el.stack, path, pending, viewport,
             );
             path.pop();
             Some(node)
@@ -401,6 +413,63 @@ fn build<Msg>(
         access: (semantics, label, value),
         children,
     }
+}
+
+/// The materialized index window for a virtual list: the rows overlapping
+/// `offset..offset+viewport`, padded by a fixed overscan. Shared by the
+/// frame build and event dispatch so ids always agree.
+pub(crate) fn virtual_window(
+    count: usize,
+    row_height: f32,
+    offset: f32,
+    viewport: f32,
+) -> std::ops::Range<usize> {
+    const OVERSCAN: usize = 8;
+    if count == 0 || row_height <= 0.0 || row_height.is_nan() || !viewport.is_finite() {
+        return 0..0;
+    }
+    let offset = offset.max(0.0);
+    #[expect(clippy::cast_possible_truncation, reason = "row indices fit in usize")]
+    #[expect(clippy::cast_sign_loss, reason = "clamped non-negative above")]
+    let first = (offset / row_height).floor() as usize;
+    #[expect(clippy::cast_possible_truncation, reason = "row indices fit in usize")]
+    #[expect(clippy::cast_sign_loss, reason = "clamped non-negative above")]
+    let last = ((offset + viewport.max(0.0)) / row_height).ceil() as usize;
+    first.saturating_sub(OVERSCAN).min(count)..last.saturating_add(OVERSCAN).min(count)
+}
+
+/// Builds one virtual row with the shared invariants applied: keyed by
+/// index (so identity is stable as the window slides) and forced to the
+/// declared row height.
+pub(crate) fn materialize_virtual_row<Msg>(
+    v: &crate::element::VirtualData<Msg>,
+    i: usize,
+) -> Element<Msg> {
+    let mut row = (v.builder)(i);
+    if row.key.is_none() {
+        row = row.id(&format!("v{i}"));
+    }
+    row.h(v.row_height).shrink0()
+}
+
+/// Expands a virtual container into spacer + visible rows + spacer.
+fn expand_virtual<Msg>(
+    v: &crate::element::VirtualData<Msg>,
+    offset: f32,
+    viewport: f32,
+) -> Vec<Element<Msg>> {
+    let window = virtual_window(v.count, v.row_height, offset, viewport);
+    let mut out = Vec::with_capacity(window.len() + 2);
+    #[expect(clippy::cast_precision_loss, reason = "row counts fit in f32")]
+    let top = window.start as f32 * v.row_height;
+    #[expect(clippy::cast_precision_loss, reason = "row counts fit in f32")]
+    let bottom = (v.count - window.end) as f32 * v.row_height;
+    out.push(crate::element::div().h(top).w_full().shrink0());
+    for i in window {
+        out.push(materialize_virtual_row(v, i));
+    }
+    out.push(crate::element::div().h(bottom).w_full().shrink0());
+    out
 }
 
 /// Wrap width for a text leaf given taffy's measure inputs.
@@ -587,6 +656,7 @@ pub fn build_frame<Msg>(
         false,
         &mut path,
         &mut pending,
+        size.1,
     );
     if root.style.width == crate::style::Length::Auto {
         node.style.width = crate::style::Length::Px(size.0);
@@ -692,6 +762,7 @@ pub fn build_frame<Msg>(
                 false,
                 &mut opath,
                 &mut nested,
+                size.1,
             );
             // Nested overlay paths are relative to `el`; rebase onto root.
             for mut q in nested {
@@ -969,6 +1040,15 @@ impl Frame {
     }
 
     // ------------------------------------------------------------- queries
+
+    /// Canvas height in logical px: the virtual-list materialization
+    /// viewport used by event dispatch.
+    pub(crate) fn canvas_height(&self) -> f32 {
+        #[expect(clippy::cast_possible_truncation, reason = "canvas sizes fit in f32")]
+        {
+            self.canvas.height() as f32
+        }
+    }
 
     /// The accessibility projection of this frame: roles, names, values,
     /// logical rects, and focusability, with open overlays appended after

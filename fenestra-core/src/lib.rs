@@ -25,8 +25,8 @@ pub use app::App;
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
     Cursor, Element, ImageData, InputData, Kind, Overlay, OverlayMode, OverlayPlacement, PathData,
-    Semantics, col, div, divider, image_rgba8, path, raw_input, raw_text_area, row, spacer, stack,
-    text,
+    Semantics, VirtualData, col, div, divider, image_rgba8, path, raw_input, raw_text_area, row,
+    spacer, stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, refresh_hover};
 pub use frame::{AccessNode, Frame, build_frame, build_scene};

@@ -36,6 +36,24 @@ pub enum Kind {
     Image(ImageData),
 }
 
+/// Payload for virtualized rows ([`Element::virtual_rows`]): only the
+/// scrolled-into-view window of rows is materialized each frame.
+pub struct VirtualData<Msg> {
+    pub(crate) count: usize,
+    pub(crate) row_height: f32,
+    pub(crate) builder: std::rc::Rc<dyn Fn(usize) -> Element<Msg>>,
+}
+
+impl<Msg> Clone for VirtualData<Msg> {
+    fn clone(&self) -> Self {
+        Self {
+            count: self.count,
+            row_height: self.row_height,
+            builder: std::rc::Rc::clone(&self.builder),
+        }
+    }
+}
+
 /// Payload for [`Kind::Image`].
 #[derive(Debug, Clone)]
 pub struct ImageData {
@@ -265,6 +283,8 @@ pub struct Element<Msg> {
     pub(crate) spin: Option<f32>,
     /// Looping keyframe timeline sampled from the frame clock.
     pub(crate) keyframes: Option<crate::style::Keyframes>,
+    /// Virtualized rows: materialized from scroll state at build time.
+    pub(crate) virtual_rows: Option<VirtualData<Msg>>,
     /// Accessible role and state (kit widgets set it; leaves auto-project).
     pub(crate) semantics: Option<Semantics>,
     /// Accessible name (screen-reader label).
@@ -296,6 +316,7 @@ impl<Msg> Element<Msg> {
             overlay: None,
             spin: None,
             keyframes: None,
+            virtual_rows: None,
             semantics: None,
             label: None,
             themed: None,
@@ -442,6 +463,27 @@ impl<Msg> Element<Msg> {
     /// and transitions resolve. Reduced motion pins the first stop.
     pub fn keyframes(mut self, keyframes: crate::style::Keyframes) -> Self {
         self.keyframes = Some(keyframes);
+        self
+    }
+
+    /// Virtualizes this container's rows: `builder(i)` is called only for
+    /// the rows inside the scrolled-into-view window (plus overscan), with
+    /// spacers standing in for the rest, so a 100k-row list builds a
+    /// screenful of nodes per frame. Rows are forced to `row_height` and
+    /// keyed by index. Pair with `.scroll_y()` and a stable `.id(..)` (the
+    /// kit's `virtual_list` does both). Overlays inside virtual rows are
+    /// not supported.
+    pub fn virtual_rows(
+        mut self,
+        count: usize,
+        row_height: f32,
+        builder: impl Fn(usize) -> Element<Msg> + 'static,
+    ) -> Self {
+        self.virtual_rows = Some(VirtualData {
+            count,
+            row_height,
+            builder: std::rc::Rc::new(builder),
+        });
         self
     }
 
@@ -978,6 +1020,15 @@ impl<Msg: 'static> Element<Msg> {
             overlay: self.overlay,
             spin: self.spin,
             keyframes: self.keyframes,
+            virtual_rows: self.virtual_rows.map(|v| {
+                let f = f.clone();
+                let builder = v.builder;
+                VirtualData {
+                    count: v.count,
+                    row_height: v.row_height,
+                    builder: std::rc::Rc::new(move |i| builder(i).map(f.clone())),
+                }
+            }),
             semantics: self.semantics,
             label: self.label,
             themed: self.themed,

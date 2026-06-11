@@ -131,31 +131,121 @@ impl<Msg> Default for Dispatch<Msg> {
     }
 }
 
+/// A handler entry: borrowed from the declared tree, or an owned,
+/// materialized virtual row (addressed by a child path inside it).
+enum ElemRef<'a, Msg> {
+    Borrowed(&'a Element<Msg>),
+    Owned {
+        row: std::rc::Rc<Element<Msg>>,
+        path: Vec<usize>,
+    },
+}
+
+impl<Msg> ElemRef<'_, Msg> {
+    fn resolve(&self) -> &Element<Msg> {
+        match self {
+            Self::Borrowed(el) => el,
+            Self::Owned { row, path } => {
+                let mut el: &Element<Msg> = row;
+                for &i in path {
+                    el = &el.children[i];
+                }
+                el
+            }
+        }
+    }
+}
+
 /// Index from widget id to the element carrying its handlers, rebuilt per
-/// dispatch from the same id derivation the frame build uses.
+/// dispatch from the same id derivation the frame build uses. Virtual
+/// containers materialize the same row window the frame build used, so
+/// handlers on virtual rows resolve like any other element.
 struct Handlers<'a, Msg> {
-    map: HashMap<WidgetId, &'a Element<Msg>>,
+    map: HashMap<WidgetId, ElemRef<'a, Msg>>,
 }
 
 impl<'a, Msg> Handlers<'a, Msg> {
-    fn collect(root: &'a Element<Msg>) -> Self {
-        fn walk<'a, Msg>(
-            el: &'a Element<Msg>,
-            id: WidgetId,
-            map: &mut HashMap<WidgetId, &'a Element<Msg>>,
-        ) {
-            map.insert(id, el);
-            for (i, child) in el.children.iter().enumerate() {
-                walk(child, id.child(i, child.key.as_deref()), map);
-            }
-        }
-        let mut map = HashMap::new();
-        walk(root, WidgetId::ROOT, &mut map);
-        Self { map }
+    fn collect(root: &'a Element<Msg>, state: &FrameState, viewport: f32) -> Self {
+        let mut handlers = Self {
+            map: HashMap::new(),
+        };
+        handlers.walk_borrowed(root, WidgetId::ROOT, state, viewport);
+        handlers
     }
 
-    fn get(&self, id: WidgetId) -> Option<&'a Element<Msg>> {
-        self.map.get(&id).copied()
+    fn walk_borrowed(
+        &mut self,
+        el: &'a Element<Msg>,
+        id: WidgetId,
+        state: &FrameState,
+        viewport: f32,
+    ) {
+        self.expand_virtual(el, id, state, viewport);
+        self.map.insert(id, ElemRef::Borrowed(el));
+        for (i, child) in el.children.iter().enumerate() {
+            self.walk_borrowed(child, id.child(i, child.key.as_deref()), state, viewport);
+        }
+    }
+
+    /// Materializes the same window of rows the frame build produced
+    /// (spacer at child index 0; rows are keyed, so the index is moot).
+    fn expand_virtual(
+        &mut self,
+        el: &Element<Msg>,
+        id: WidgetId,
+        state: &FrameState,
+        viewport: f32,
+    ) {
+        let Some(v) = &el.virtual_rows else {
+            return;
+        };
+        let window =
+            crate::frame::virtual_window(v.count, v.row_height, state.scroll_offset(id), viewport);
+        for (j, i) in window.enumerate() {
+            let row = std::rc::Rc::new(crate::frame::materialize_virtual_row(v, i));
+            let rid = id.child(1 + j, row.key.as_deref());
+            self.walk_owned(&row, Vec::new(), rid, state, viewport);
+        }
+    }
+
+    fn walk_owned(
+        &mut self,
+        row: &std::rc::Rc<Element<Msg>>,
+        path: Vec<usize>,
+        id: WidgetId,
+        state: &FrameState,
+        viewport: f32,
+    ) {
+        let el = {
+            let mut el: &Element<Msg> = row;
+            for &i in &path {
+                el = &el.children[i];
+            }
+            el
+        };
+        self.expand_virtual(el, id, state, viewport);
+        let child_ids: Vec<WidgetId> = el
+            .children
+            .iter()
+            .enumerate()
+            .map(|(i, c)| id.child(i, c.key.as_deref()))
+            .collect();
+        self.map.insert(
+            id,
+            ElemRef::Owned {
+                row: std::rc::Rc::clone(row),
+                path: path.clone(),
+            },
+        );
+        for (i, child_id) in child_ids.into_iter().enumerate() {
+            let mut child_path = path.clone();
+            child_path.push(i);
+            self.walk_owned(row, child_path, child_id, state, viewport);
+        }
+    }
+
+    fn get(&self, id: WidgetId) -> Option<&Element<Msg>> {
+        self.map.get(&id).map(ElemRef::resolve)
     }
 }
 
@@ -226,7 +316,7 @@ pub fn refresh_hover<Msg>(root: &Element<Msg>, frame: &Frame, state: &mut FrameS
     let Some((x, y)) = state.pointer else {
         return false;
     };
-    let handlers = Handlers::collect(root);
+    let handlers = Handlers::collect(root, state, frame.canvas_height());
     let chain = frame.hit_chain(Point::new(f64::from(x), f64::from(y)));
     let now = state.now();
     let hovered: HashMap<WidgetId, f64> = chain
@@ -258,8 +348,13 @@ pub fn refresh_hover<Msg>(root: &Element<Msg>, frame: &Frame, state: &mut FrameS
 /// clicked, if any. The shell uses it to honor accessibility action
 /// requests (AccessKit `Action::Click`) without synthesizing pointer
 /// events.
-pub fn click_msg_of<Msg: Clone>(root: &Element<Msg>, id: WidgetId) -> Option<Msg> {
-    let handlers = Handlers::collect(root);
+pub fn click_msg_of<Msg: Clone>(
+    root: &Element<Msg>,
+    frame: &Frame,
+    state: &FrameState,
+    id: WidgetId,
+) -> Option<Msg> {
+    let handlers = Handlers::collect(root, state, frame.canvas_height());
     handlers
         .get(id)
         .filter(|el| !el.disabled)
@@ -275,7 +370,7 @@ pub fn dispatch<Msg: Clone>(
     fonts: &mut Fonts,
     event: InputEvent,
 ) -> Dispatch<Msg> {
-    let handlers = Handlers::collect(root);
+    let handlers = Handlers::collect(root, state, frame.canvas_height());
     let mut out = Dispatch::default();
 
     match event {
