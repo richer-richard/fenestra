@@ -1,7 +1,18 @@
 //! Path data generated from lucide-static v1.17.0
 //! (<https://lucide.dev>), ISC license — see LICENSE-LUCIDE.txt.
 //! Generated; do not edit by hand (converter: ARCHITECTURE.md M8 notes).
-
+pub(crate) const CALENDAR_DAYS: &str = "M8 2v4M16 2v4M21 12.822V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.382M7 11h4M7 15h4M15 17h6M15 21h6";
+pub(crate) const CHEVRON_UP: &str = "m18 15-6-6-6 6";
+pub(crate) const FILTER: &str = "M22 3H2l8.3 8.3v7.3l4 2v-9.3L22 3";
+pub(crate) const FOLDER: &str = "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2z";
+pub(crate) const HEART: &str = "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z";
+pub(crate) const LINK: &str = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
+pub(crate) const LOCK: &str = "M17 11V7a5 5 0 0 0-10 0v4M3 11h18v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z";
+pub(crate) const LOG_OUT: &str = "M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9";
+pub(crate) const REFRESH_CW: &str = "M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16";
+pub(crate) const SAVE: &str = "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7M11 3v4a1 1 0 0 0 1 1h3";
+pub(crate) const SHARE_2: &str = "m6 12 10-4M6 12l10 4M18 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM6 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM18 16a2 2 0 1 1-4 0 2 2 0 0 1 4 0z";
+pub(crate) const STAR: &str = "M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z";
 pub(crate) const ARROW_LEFT: &str = "m12 19-7-7 7-7M19 12H5";
 pub(crate) const ARROW_RIGHT: &str = "M5 12h14M12 5l7 7-7 7";
 pub(crate) const BELL: &str = "M10.268 21a2 2 0 0 0 3.464 0M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326";
@@ -36,24 +47,37 @@ pub(crate) const ALL: &[(&str, &str)] = &[
     ("arrow-right", ARROW_RIGHT),
     ("bell", BELL),
     ("calendar", CALENDAR),
+    ("calendar-days", CALENDAR_DAYS),
+    ("chevron-up", CHEVRON_UP),
     ("clock", CLOCK),
     ("copy", COPY),
     ("download", DOWNLOAD),
     ("external-link", EXTERNAL_LINK),
     ("eye", EYE),
+    ("filter", FILTER),
+    ("folder", FOLDER),
+    ("heart", HEART),
     ("house", HOUSE),
     ("info", INFO),
+    ("link", LINK),
+    ("lock", LOCK),
+    ("log-out", LOG_OUT),
     ("mail", MAIL),
     ("menu", MENU),
     ("minus", MINUS),
     ("moon", MOON),
     ("pencil", PENCIL),
     ("plus", PLUS),
+    ("refresh-cw", REFRESH_CW),
+    ("save", SAVE),
     ("search", SEARCH),
     ("settings", SETTINGS),
+    ("share-2", SHARE_2),
+    ("star", STAR),
     ("sun", SUN),
     ("triangle-alert", TRIANGLE_ALERT),
     ("trash-2", TRASH_2),
     ("upload", UPLOAD),
     ("user", USER),
 ];
+

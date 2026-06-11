@@ -32,6 +32,18 @@ macro_rules! lucide_icons {
 }
 
 lucide_icons! {
+    calendar_days => CALENDAR_DAYS, "calendar-days";
+    chevron_up => CHEVRON_UP, "chevron-up";
+    filter => FILTER, "filter";
+    folder => FOLDER, "folder";
+    heart => HEART, "heart";
+    link => LINK, "link";
+    lock => LOCK, "lock";
+    log_out => LOG_OUT, "log-out";
+    refresh_cw => REFRESH_CW, "refresh-cw";
+    save => SAVE, "save";
+    share_2 => SHARE_2, "share-2";
+    star => STAR, "star";
     arrow_left => ARROW_LEFT, "arrow-left";
     arrow_right => ARROW_RIGHT, "arrow-right";
     bell => BELL, "bell";

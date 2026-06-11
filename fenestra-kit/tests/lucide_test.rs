@@ -14,6 +14,18 @@ fn snapshot_dir() -> PathBuf {
 #[test]
 fn lucide_grid_golden() {
     let icons: Vec<Element<()>> = vec![
+        lucide::calendar_days(),
+        lucide::chevron_up(),
+        lucide::filter(),
+        lucide::folder(),
+        lucide::heart(),
+        lucide::link(),
+        lucide::lock(),
+        lucide::log_out(),
+        lucide::refresh_cw(),
+        lucide::save(),
+        lucide::share_2(),
+        lucide::star(),
         lucide::arrow_left(),
         lucide::arrow_right(),
         lucide::bell(),
