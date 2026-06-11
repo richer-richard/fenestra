@@ -482,12 +482,27 @@ impl ApplicationHandler for StaticApp {
 
 // ------------------------------------------------------------- run_app
 
+/// A type-erased app message crossing from a [`fenestra_core::Proxy`]
+/// (any thread) into the event loop.
+struct ProxyEvent(Box<dyn std::any::Any + Send>);
+
 /// Runs an [`App`]: the full Elm-shaped loop with hit testing, hover/active/
 /// focus, keyboard navigation, message dispatch, and event-driven repaint
-/// (animation frames only while something animates). Blocks until the
-/// window closes.
-pub fn run_app<A: App + 'static>(app: A, options: WindowOptions) -> Result<(), ShellError> {
-    let event_loop = EventLoop::new().map_err(ShellError::EventLoop)?;
+/// (animation frames only while something animates). Calls [`App::init`]
+/// with a [`fenestra_core::Proxy`] before the first frame; proxied messages
+/// wake the loop and repaint. Blocks until the window closes.
+pub fn run_app<A: App + 'static>(mut app: A, options: WindowOptions) -> Result<(), ShellError>
+where
+    A::Msg: Send,
+{
+    let event_loop = EventLoop::<ProxyEvent>::with_user_event()
+        .build()
+        .map_err(ShellError::EventLoop)?;
+    let proxy = event_loop.create_proxy();
+    app.init(fenestra_core::Proxy::new(move |msg: A::Msg| {
+        // Dropped silently once the loop is gone (window closed).
+        let _ = proxy.send_event(ProxyEvent(Box::new(msg)));
+    }));
     let background = app.theme().bg;
     let mut state = FrameState::new();
     state.set_clipboard(Box::new(crate::OsClipboard::default()));
@@ -626,11 +641,20 @@ fn map_key(
     }))
 }
 
-impl<A: App> ApplicationHandler for AppRunner<A> {
+impl<A: App> ApplicationHandler<ProxyEvent> for AppRunner<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.shell.resumed(event_loop);
         if let Some(w) = self.shell.window() {
             w.set_ime_allowed(true);
+        }
+    }
+
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ProxyEvent) {
+        if let Ok(msg) = event.0.downcast::<A::Msg>() {
+            self.app.update(*msg);
+            if let Some(w) = self.shell.window() {
+                w.request_redraw();
+            }
         }
     }
 

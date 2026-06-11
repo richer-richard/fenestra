@@ -753,6 +753,65 @@ pub fn path<Msg>(bez: kurbo::BezPath, viewbox: (f64, f64), stroke: Option<f64>) 
     .shrink0()
 }
 
+impl<Msg: 'static> Element<Msg> {
+    /// Converts every message this subtree can emit with `f`, so a
+    /// component written around its own message type drops into any parent:
+    /// the Elm composition tool.
+    ///
+    /// ```
+    /// use fenestra_core::{Element, div, text};
+    ///
+    /// #[derive(Clone)]
+    /// enum CardMsg { Open }
+    /// #[derive(Clone)]
+    /// enum AppMsg { Card(usize, CardMsg) }
+    ///
+    /// fn card() -> Element<CardMsg> {
+    ///     div().on_click(CardMsg::Open).child(text("open"))
+    /// }
+    ///
+    /// let el: Element<AppMsg> = card().map(|m| AppMsg::Card(0, m));
+    /// ```
+    pub fn map<B: 'static>(self, f: impl Fn(Msg) -> B + Clone + 'static) -> Element<B> {
+        Element {
+            kind: self.kind,
+            style: self.style,
+            children: self
+                .children
+                .into_iter()
+                .map(|c| c.map(f.clone()))
+                .collect(),
+            key: self.key,
+            stack: self.stack,
+            focusable: self.focusable,
+            cursor: self.cursor,
+            disabled: self.disabled,
+            on_click: self.on_click.map(&f),
+            on_hover: self.on_hover.map(&f),
+            on_key: self.on_key.map(|k| {
+                let f = f.clone();
+                Box::new(move |key: &KeyInput| k(key).map(&f)) as KeyFn<B>
+            }),
+            on_drag: self.on_drag.map(|d| {
+                let f = f.clone();
+                Box::new(move |x: f32, y: f32| d(x, y).map(&f)) as DragFn<B>
+            }),
+            on_input: self.on_input.map(|i| {
+                let f = f.clone();
+                Box::new(move |s: &str| f(i(s))) as InputFn<B>
+            }),
+            on_close: self.on_close.map(&f),
+            overlay: self.overlay,
+            spin: self.spin,
+            themed: self.themed,
+            hover_style: self.hover_style,
+            active_style: self.active_style,
+            focus_style: self.focus_style,
+            transition: self.transition,
+        }
+    }
+}
+
 impl<Msg> Element<Msg> {
     /// Grid template columns (switches display to grid).
     pub fn grid_cols(mut self, tracks: impl IntoIterator<Item = crate::style::Track>) -> Self {

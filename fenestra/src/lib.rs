@@ -10,11 +10,15 @@ pub use fenestra_shell as shell;
 
 pub use fenestra_shell::WindowOptions;
 
-/// Opens a window and runs the app until the window closes.
+/// Opens a window and runs the app until the window closes. `Msg: Send`
+/// because [`App::init`]'s proxy delivers messages across threads.
 ///
 /// # Panics
 /// If the event loop or GPU surface cannot be created.
-pub fn run<A: App + 'static>(app: A, options: WindowOptions) {
+pub fn run<A: App + 'static>(app: A, options: WindowOptions)
+where
+    A::Msg: Send,
+{
     fenestra_shell::run_app(app, options).expect("fenestra event loop failed");
 }
 

@@ -1,6 +1,7 @@
 //! The Elm-shaped application contract.
 
 use crate::element::Element;
+use crate::proxy::Proxy;
 use crate::theme::Theme;
 
 /// An application: state, a pure view of it, and a message-driven update.
@@ -36,6 +37,14 @@ use crate::theme::Theme;
 pub trait App {
     /// The message type carried by handlers. Cloned on dispatch.
     type Msg: Clone + 'static;
+
+    /// Called once by the runner before the first frame, with a [`Proxy`]
+    /// that delivers messages into [`Self::update`] from outside the view:
+    /// background threads, timers, IO completion. The default does nothing.
+    /// Store the proxy (or move clones into threads) to send later.
+    fn init(&mut self, proxy: Proxy<Self::Msg>) {
+        let _ = proxy;
+    }
 
     /// Applies one message to the state.
     fn update(&mut self, msg: Self::Msg);
