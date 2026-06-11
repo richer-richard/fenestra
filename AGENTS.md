@@ -142,6 +142,12 @@ Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
   rows use the virtualized list widget rather than mapping every row.
 - Sizes are clamped headlessly to the device texture limit (≥1, typically
   ≤8192) — check `image.dimensions()` if you requested something unusual.
+- **Fonts**: `Fonts::embedded()` (headless default) is deterministic and
+  Latin-only; the windowed runner uses `Fonts::with_system()`, which
+  falls back through system fonts per script (CJK works). Custom faces:
+  `fonts.register(FamilyRole::Display, bytes)` + `render_element_with`.
+  Color emoji coverage depends on vello's COLR support — treat it as
+  unreliable for now.
 
 ## Workspace map
 
