@@ -271,6 +271,9 @@ pub struct Element<Msg> {
     pub(crate) stack: bool,
     pub(crate) focusable: bool,
     pub(crate) autofocus: bool,
+    /// Scroll containers only: keep pinned to the bottom while content
+    /// grows (chat/log pattern).
+    pub(crate) stick_bottom: bool,
     pub(crate) cursor: Option<Cursor>,
     pub(crate) disabled: bool,
     pub(crate) on_click: Option<Msg>,
@@ -309,6 +312,7 @@ impl<Msg> Element<Msg> {
             stack: false,
             focusable: false,
             autofocus: false,
+            stick_bottom: false,
             cursor: None,
             disabled: false,
             on_click: None,
@@ -803,6 +807,14 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Keeps a scroll container pinned to its bottom edge while content
+    /// grows — until the user scrolls away, and again once they return to
+    /// the bottom (the chat/log pattern). Starts at the bottom.
+    pub fn stick_to_bottom(mut self) -> Self {
+        self.stick_bottom = true;
+        self
+    }
+
     /// Background fill.
     pub fn bg(mut self, paint: impl Into<Paint>) -> Self {
         self.style = self.style.bg(paint);
@@ -1055,6 +1067,7 @@ impl<Msg: 'static> Element<Msg> {
             stack: self.stack,
             focusable: self.focusable,
             autofocus: self.autofocus,
+            stick_bottom: self.stick_bottom,
             cursor: self.cursor,
             disabled: self.disabled,
             on_click: self.on_click.map(&f),

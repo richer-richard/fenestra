@@ -20,6 +20,8 @@ struct Scroll {
     last_change: f64,
     /// Frame stamp for garbage collection, like `Anim::seen`.
     seen: u64,
+    /// Sat at the bottom edge after the last clamp (stick-to-bottom).
+    at_bottom: bool,
 }
 
 /// Retained state for one UI surface (window or headless session).
@@ -155,6 +157,8 @@ impl FrameState {
         let entry = self.scroll.entry(id).or_default();
         entry.offset_y += dy;
         entry.last_change = self.now;
+        // Recomputed at the next clamp; a manual move unpins the bottom.
+        entry.at_bottom = false;
     }
 
     /// The persisted scroll offset for an id (0 when never scrolled).
@@ -162,16 +166,46 @@ impl FrameState {
         self.scroll.get(&id).map_or(0.0, |s| s.offset_y)
     }
 
+    /// Sets a scrollable's offset absolutely (clamped to the content range
+    /// on the next frame build; `f32::MAX` means "the bottom").
+    pub fn scroll_to(&mut self, id: WidgetId, offset_y: f32) {
+        let now = self.now;
+        let entry = self.scroll.entry(id).or_default();
+        entry.offset_y = offset_y.max(0.0);
+        entry.last_change = now;
+        // Recomputed at the next clamp; a manual move unpins the bottom.
+        entry.at_bottom = false;
+    }
+
     /// Clamps a stored offset to `0..=max`, returning the clamped value.
     /// Called during frame builds once the content height is known; also
-    /// stamps the entry as alive for [`Self::gc_scroll`].
-    pub(crate) fn clamp_scroll(&mut self, id: WidgetId, max: f32) -> f32 {
+    /// stamps the entry as alive for [`Self::gc_scroll`] and applies the
+    /// stick-to-bottom rule (pinned while at the bottom edge).
+    pub(crate) fn clamp_scroll(&mut self, id: WidgetId, max: f32, stick_bottom: bool) -> f32 {
         let frame_no = self.frame_no;
+        let max = max.max(0.0);
         match self.scroll.get_mut(&id) {
             Some(s) => {
-                s.offset_y = s.offset_y.clamp(0.0, max.max(0.0));
+                if stick_bottom && s.at_bottom {
+                    s.offset_y = max;
+                }
+                s.offset_y = s.offset_y.clamp(0.0, max);
+                s.at_bottom = s.offset_y >= max - 1.0;
                 s.seen = frame_no;
                 s.offset_y
+            }
+            None if stick_bottom => {
+                // Sticky containers start at the bottom, scrollbar quiet.
+                self.scroll.insert(
+                    id,
+                    Scroll {
+                        offset_y: max,
+                        last_change: -10.0,
+                        seen: frame_no,
+                        at_bottom: true,
+                    },
+                );
+                max
             }
             None => 0.0,
         }

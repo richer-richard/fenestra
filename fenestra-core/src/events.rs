@@ -604,6 +604,7 @@ pub fn dispatch<Msg: Clone>(
             }
         }
         InputEvent::Key(key) => {
+            let mut key_handled = false;
             if let Some(focus) = state.focus
                 && let Some(el) = handlers.get(focus)
                 && !el.disabled
@@ -633,6 +634,7 @@ pub fn dispatch<Msg: Clone>(
                 {
                     out.msgs.push(msg);
                     out.redraw = true;
+                    key_handled = true;
                 }
                 // Enter/Space activate clickables and toggle anchored menus.
                 if matches!(key.key, Key::Enter | Key::Space) {
@@ -649,6 +651,23 @@ pub fn dispatch<Msg: Clone>(
                         out.redraw = true;
                     }
                 }
+            }
+            // Keyboard paging drives the focused element's nearest
+            // scrollable (or the first one) unless on_key consumed the key.
+            if !key_handled
+                && matches!(key.key, Key::PageUp | Key::PageDown | Key::Home | Key::End)
+                && let Some((target, rect)) = frame.scroll_target_for(state.focus)
+            {
+                #[expect(clippy::cast_possible_truncation, reason = "viewports fit in f32")]
+                let page = (rect.height() * 0.9) as f32;
+                match key.key {
+                    Key::PageDown => state.scroll_by(target, page),
+                    Key::PageUp => state.scroll_by(target, -page),
+                    Key::End => state.scroll_to(target, f32::MAX),
+                    Key::Home => state.scroll_to(target, 0.0),
+                    _ => {}
+                }
+                out.redraw = true;
             }
             // Esc closes the top overlay: toggles close directly, app-driven
             // overlays are asked via on_close.

@@ -168,6 +168,8 @@ struct BuiltNode {
     focusable: bool,
     disabled: bool,
     spin: Option<f32>,
+    /// Scroll containers: pin to the bottom while content grows.
+    stick_bottom: bool,
     /// Accessibility projection: role/state, name, and value.
     access: (Option<Semantics>, Option<String>, Option<String>),
     children: Vec<BuiltNode>,
@@ -423,6 +425,7 @@ fn build<Msg>(
         focusable: el.focusable,
         disabled: el.disabled,
         spin: el.spin,
+        stick_bottom: el.stick_bottom,
         access: (semantics, label, value),
         children,
     }
@@ -533,9 +536,9 @@ impl Realize<'_> {
         let scroll = (node.style.overflow_y == Overflow::Scroll).then(|| {
             let max = (l.content_size.height - l.size.height).max(0.0);
             let offset = if max >= MIN_SCROLL_RANGE {
-                self.state.clamp_scroll(node.id, max)
+                self.state.clamp_scroll(node.id, max, node.stick_bottom)
             } else {
-                self.state.clamp_scroll(node.id, 0.0)
+                self.state.clamp_scroll(node.id, 0.0, node.stick_bottom)
             };
             let alpha = if max >= MIN_SCROLL_RANGE {
                 self.state.scrollbar_alpha(node.id)
@@ -1085,6 +1088,58 @@ impl Frame {
             root.children.push(project(&overlay.node));
         }
         root
+    }
+
+    /// The scrollable that keyboard paging should drive: the nearest
+    /// scrollable ancestor of `focus` (itself included), else the first
+    /// overflowing scrollable in paint order. Returns its rect too (the
+    /// paging viewport).
+    pub(crate) fn scroll_target_for(&self, focus: Option<WidgetId>) -> Option<(WidgetId, Rect)> {
+        fn path_scrollables(
+            node: &FrameNode,
+            id: WidgetId,
+            out: &mut Vec<(WidgetId, Rect)>,
+        ) -> bool {
+            let here = node
+                .scroll
+                .as_ref()
+                .is_some_and(|s| s.can_scroll)
+                .then_some((node.id, node.rect));
+            if let Some(h) = here {
+                out.push(h);
+            }
+            if node.id == id {
+                return true;
+            }
+            for child in &node.children {
+                if path_scrollables(child, id, out) {
+                    return true;
+                }
+            }
+            if here.is_some() {
+                out.pop();
+            }
+            false
+        }
+        fn first_scrollable(node: &FrameNode) -> Option<(WidgetId, Rect)> {
+            if node.scroll.as_ref().is_some_and(|s| s.can_scroll) {
+                return Some((node.id, node.rect));
+            }
+            node.children.iter().find_map(first_scrollable)
+        }
+        if let Some(focus) = focus {
+            let mut path = Vec::new();
+            let found = path_scrollables(&self.root, focus, &mut path)
+                || self.overlays.iter().any(|o| {
+                    path.clear();
+                    path_scrollables(&o.node, focus, &mut path)
+                });
+            if found && let Some(last) = path.last() {
+                return Some(*last);
+            }
+        }
+        first_scrollable(&self.root)
+            .or_else(|| self.overlays.iter().find_map(|o| first_scrollable(&o.node)))
     }
 
     /// The deepest scrollable container whose visible area contains `point`
