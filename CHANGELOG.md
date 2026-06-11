@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.0 — 2026-06-12
+
+### Added
+
+- **WebAssembly/WebGPU support**: the windowed runner compiles to
+  wasm32-unknown-unknown (async surface setup, browser-paced frames,
+  canvas auto-append); the interactive demo and the mdBook deploy to
+  GitHub Pages on every push.
+- **Virtualized lists**: `Element::virtual_rows` / kit `virtual_list` —
+  only the scrolled-into-view window materializes (100k rows ≈ 0.09 ms a
+  frame); handlers on materialized rows dispatch like any other element.
+- **Editorial design language**: `Fonts::register` loads custom faces
+  under `FamilyRole::Display`/`Serif`; text gains `.size_px`, `.tracking`,
+  `.leading`, `.family`; `Theme::duotone` builds atmospheric fields;
+  `render_element_with` renders through caller-provided fonts. Proven by
+  the golden-tested poster example (Playfair Display, OFL).
+- Windows CI (DX12 WARP), a benchmarks page with measured numbers, the
+  mdBook guide, AGENTS.md + llms.txt, CONTRIBUTING + issue templates, an
+  rfd file-dialog example, and a pixel test proving CJK fallback through
+  system fonts.
+
+### Changed
+
+- `click_msg_of` now takes the frame and state, so accessibility clicks
+  resolve virtual rows.
+- Headless modules (`render_element`, `render_app`, testing, clipboard,
+  AccessKit adapter) are native-only; the wasm build exposes the windowed
+  runner.
+
+
 ## 0.2.0 — 2026-06-11
 
 ### Added
