@@ -174,6 +174,60 @@ impl Overlay {
     }
 }
 
+/// Accessible role and state of an element, projected into the platform
+/// accessibility tree by the shell (AccessKit) and exposed headlessly via
+/// `Frame::access_tree`. Text, image, and input leaves project
+/// automatically; kit widgets set the rest.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Semantics {
+    /// An activatable button.
+    Button,
+    /// A two-state checkbox.
+    Checkbox {
+        /// Whether it is checked.
+        checked: bool,
+    },
+    /// An on/off switch.
+    Switch {
+        /// Whether it is on.
+        on: bool,
+    },
+    /// One option of a radio group.
+    Radio {
+        /// Whether it is the selected option.
+        selected: bool,
+    },
+    /// A numeric slider.
+    Slider {
+        /// Current value.
+        value: f32,
+        /// Minimum value.
+        min: f32,
+        /// Maximum value.
+        max: f32,
+    },
+    /// An editable text field (value comes from the input element).
+    TextInput {
+        /// Whether it accepts newlines.
+        multiline: bool,
+    },
+    /// A button that opens a listbox of options.
+    ComboBox,
+    /// A modal dialog.
+    Dialog,
+    /// One tab of a tab strip.
+    Tab {
+        /// Whether it is the active tab.
+        selected: bool,
+    },
+    /// A transient notification (toasts).
+    Alert,
+    /// Static text (automatic for text leaves).
+    Label,
+    /// An image (automatic for image leaves).
+    Image,
+}
+
 /// Mouse cursor shown while hovering an element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cursor {
@@ -211,6 +265,10 @@ pub struct Element<Msg> {
     pub(crate) spin: Option<f32>,
     /// Looping keyframe timeline sampled from the frame clock.
     pub(crate) keyframes: Option<crate::style::Keyframes>,
+    /// Accessible role and state (kit widgets set it; leaves auto-project).
+    pub(crate) semantics: Option<Semantics>,
+    /// Accessible name (screen-reader label).
+    pub(crate) label: Option<String>,
     pub(crate) themed: Option<ThemedFn>,
     pub(crate) hover_style: Option<ThemedFn>,
     pub(crate) active_style: Option<ThemedFn>,
@@ -238,6 +296,8 @@ impl<Msg> Element<Msg> {
             overlay: None,
             spin: None,
             keyframes: None,
+            semantics: None,
+            label: None,
             themed: None,
             hover_style: None,
             active_style: None,
@@ -382,6 +442,20 @@ impl<Msg> Element<Msg> {
     /// and transitions resolve. Reduced motion pins the first stop.
     pub fn keyframes(mut self, keyframes: crate::style::Keyframes) -> Self {
         self.keyframes = Some(keyframes);
+        self
+    }
+
+    /// Sets the accessible role and state projected into the accessibility
+    /// tree. Text, image, and input leaves project automatically.
+    pub fn semantics(mut self, semantics: Semantics) -> Self {
+        self.semantics = Some(semantics);
+        self
+    }
+
+    /// Sets the accessible name announced by screen readers (text leaves
+    /// use their content automatically).
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
         self
     }
 
@@ -904,6 +978,8 @@ impl<Msg: 'static> Element<Msg> {
             overlay: self.overlay,
             spin: self.spin,
             keyframes: self.keyframes,
+            semantics: self.semantics,
+            label: self.label,
             themed: self.themed,
             hover_style: self.hover_style,
             active_style: self.active_style,

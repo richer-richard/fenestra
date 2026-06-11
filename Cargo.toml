@@ -29,6 +29,8 @@ fontique = "0.10.0"
 taffy = "0.10.1"
 color = "0.3.3"
 arboard = "3.6.1"
+accesskit = "0.24.0"
+accesskit_winit = "0.33.0"
 image = { version = "0.25.10", default-features = false, features = ["png"] }
 insta = "1.47.2"
 serde = { version = "1.0.228", features = ["derive"] }

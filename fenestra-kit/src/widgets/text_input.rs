@@ -92,6 +92,7 @@ impl<Msg> TextInput<Msg> {
 impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
     fn from(t: TextInput<Msg>) -> Self {
         let invalid = t.invalid;
+        let placeholder = t.placeholder.clone();
         let mut el = raw_input(t.value, t.placeholder)
             .w(t.width)
             .h(t.size.height())
@@ -101,6 +102,9 @@ impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
             .size(t.size.text_size())
             .transition(Transition::colors())
             .disabled(t.disabled);
+        if !placeholder.is_empty() {
+            el = el.label(placeholder);
+        }
 
         el = el.themed(move |theme: &Theme, s| {
             let base = s.bg(theme.surface_raised);

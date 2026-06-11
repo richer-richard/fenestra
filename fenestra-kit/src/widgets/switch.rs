@@ -12,7 +12,7 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, R_FULL, SP2, ShadowToken, TextSize, Theme, Transition, row, text,
+    Cursor, Element, R_FULL, SP2, Semantics, ShadowToken, TextSize, Theme, Transition, row, text,
 };
 
 /// A switch under construction; converts into an [`Element`].
@@ -107,9 +107,12 @@ impl<Msg> From<Switch<Msg>> for Element<Msg> {
             .children([track])
             .focusable(true)
             .cursor(Cursor::Pointer)
-            .disabled(sw.disabled);
+            .disabled(sw.disabled)
+            .semantics(Semantics::Switch { on });
         if let Some(label) = sw.label {
-            el = el.children([text(label).size(TextSize::Sm)]);
+            el = el
+                .label(label.clone())
+                .children([text(label).size(TextSize::Sm)]);
         }
         if sw.disabled {
             el = el.opacity(0.5);

@@ -93,6 +93,7 @@ impl<Msg> TextArea<Msg> {
 impl<Msg: 'static> From<TextArea<Msg>> for Element<Msg> {
     fn from(t: TextArea<Msg>) -> Self {
         let invalid = t.invalid;
+        let placeholder = t.placeholder.clone();
         let mut el = raw_text_area(t.value, t.placeholder)
             .w(t.width)
             .min_h(t.min_height)
@@ -103,6 +104,9 @@ impl<Msg: 'static> From<TextArea<Msg>> for Element<Msg> {
             .size(TextSize::Sm)
             .transition(Transition::colors())
             .disabled(t.disabled);
+        if !placeholder.is_empty() {
+            el = el.label(placeholder);
+        }
 
         el = el.themed(move |theme: &Theme, s| {
             let base = s.bg(theme.surface_raised);

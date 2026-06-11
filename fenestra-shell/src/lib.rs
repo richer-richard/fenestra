@@ -4,6 +4,7 @@
 
 use std::fmt;
 
+mod access;
 mod element_render;
 mod headless;
 mod os_clipboard;

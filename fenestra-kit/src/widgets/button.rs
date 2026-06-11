@@ -15,7 +15,7 @@
 //! ]);
 //! ```
 
-use fenestra_core::{Cursor, Element, R_MD, SP2, Theme, Transition, Weight, row, text};
+use fenestra_core::{Cursor, Element, R_MD, SP2, Semantics, Theme, Transition, Weight, row, text};
 
 use super::ControlSize;
 
@@ -90,6 +90,7 @@ impl<Msg> Button<Msg> {
 impl<Msg> From<Button<Msg>> for Element<Msg> {
     fn from(b: Button<Msg>) -> Self {
         let variant = b.variant;
+        let label_text = b.label.clone();
         let label = text(b.label)
             .size(b.size.text_size())
             .weight(Weight::Medium)
@@ -110,7 +111,9 @@ impl<Msg> From<Button<Msg>> for Element<Msg> {
             .transition(Transition::colors())
             .focusable(true)
             .cursor(Cursor::Pointer)
-            .disabled(b.disabled);
+            .disabled(b.disabled)
+            .semantics(Semantics::Button)
+            .label(label_text);
 
         el = match variant {
             ButtonVariant::Primary => el
@@ -151,17 +154,20 @@ pub struct IconButton<Msg> {
     variant: ButtonVariant,
     size: ControlSize,
     disabled: bool,
+    label: Option<String>,
     on_click: Option<Msg>,
     key: Option<String>,
 }
 
-/// A square icon button (Ghost variant by default).
+/// A square icon button (Ghost variant by default). Give it a `.label` —
+/// icon-only buttons have no accessible name otherwise.
 pub fn icon_button<Msg>(icon: impl Into<Element<Msg>>) -> IconButton<Msg> {
     IconButton {
         icon: icon.into(),
         variant: ButtonVariant::Ghost,
         size: ControlSize::default(),
         disabled: false,
+        label: None,
         on_click: None,
         key: None,
     }
@@ -183,6 +189,12 @@ impl<Msg> IconButton<Msg> {
     /// Disables the button.
     pub fn disabled(mut self, disabled: bool) -> Self {
         self.disabled = disabled;
+        self
+    }
+
+    /// Sets the accessible name (icon-only buttons need one).
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
         self
     }
 
@@ -219,7 +231,11 @@ impl<Msg> From<IconButton<Msg>> for Element<Msg> {
             .transition(Transition::colors())
             .focusable(true)
             .cursor(Cursor::Pointer)
-            .disabled(b.disabled);
+            .disabled(b.disabled)
+            .semantics(Semantics::Button);
+        if let Some(label) = b.label {
+            el = el.label(label);
+        }
 
         el = match variant {
             ButtonVariant::Primary => el

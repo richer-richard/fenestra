@@ -12,7 +12,7 @@
 //!     radio(true).label("Annual billing").on_select(Msg::Pick(0)).into();
 //! ```
 
-use fenestra_core::{Cursor, Element, SP2, TextSize, Theme, Transition, row, text};
+use fenestra_core::{Cursor, Element, SP2, Semantics, TextSize, Theme, Transition, row, text};
 
 /// A radio button under construction; converts into an [`Element`].
 pub struct Radio<Msg> {
@@ -86,9 +86,12 @@ impl<Msg> From<Radio<Msg>> for Element<Msg> {
             .children([circle])
             .focusable(true)
             .cursor(Cursor::Pointer)
-            .disabled(r.disabled);
+            .disabled(r.disabled)
+            .semantics(Semantics::Radio { selected });
         if let Some(label) = r.label {
-            el = el.children([text(label).size(TextSize::Sm)]);
+            el = el
+                .label(label.clone())
+                .children([text(label).size(TextSize::Sm)]);
         }
         if r.disabled {
             el = el.opacity(0.5);

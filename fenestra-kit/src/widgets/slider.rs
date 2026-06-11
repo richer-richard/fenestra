@@ -13,7 +13,7 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Key, Length, R_FULL, ShadowToken, Theme, Transition, div, row,
+    Cursor, Element, Key, Length, R_FULL, Semantics, ShadowToken, Theme, Transition, div, row,
 };
 
 /// A slider under construction; converts into an [`Element`].
@@ -123,7 +123,12 @@ impl<Msg: 'static> From<Slider<Msg>> for Element<Msg> {
             .children([track, thumb])
             .focusable(true)
             .cursor(Cursor::Pointer)
-            .disabled(sl.disabled);
+            .disabled(sl.disabled)
+            .semantics(Semantics::Slider {
+                value,
+                min: 0.0,
+                max: 1.0,
+            });
 
         if let Some(f) = sl.on_change {
             let map = {

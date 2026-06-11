@@ -8,7 +8,7 @@ use serde::Serialize;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use vello::Scene;
 
-use crate::element::{Element, Kind, Overlay, OverlayMode, OverlayPlacement, PathData};
+use crate::element::{Element, Kind, Overlay, OverlayMode, OverlayPlacement, PathData, Semantics};
 use crate::frame_state::FrameState;
 use crate::id::WidgetId;
 use crate::input::{EditorState, InputPaint};
@@ -103,7 +103,30 @@ struct FrameNode {
     meta: NodeMeta,
     /// Continuous rotation period (ms) for spinner paths.
     spin: Option<f32>,
+    /// Accessibility projection: role/state, name, and value.
+    access: (Option<Semantics>, Option<String>, Option<String>),
     children: Vec<FrameNode>,
+}
+
+/// One node of a frame's accessibility projection (see
+/// [`Frame::access_tree`]): plain data, usable headlessly in tests and
+/// mapped to AccessKit by the windowed shell.
+#[derive(Debug, Clone)]
+pub struct AccessNode {
+    /// Stable widget identity (also the platform node id).
+    pub id: WidgetId,
+    /// Role and state, when the element exposes one.
+    pub semantics: Option<Semantics>,
+    /// Accessible name.
+    pub label: Option<String>,
+    /// Current value (text inputs).
+    pub value: Option<String>,
+    /// Layout rect in logical px.
+    pub rect: Rect,
+    /// Keyboard focusable (and enabled).
+    pub focusable: bool,
+    /// Children in paint order.
+    pub children: Vec<AccessNode>,
 }
 
 /// One realized overlay, painted above the root in stack order.
@@ -145,6 +168,8 @@ struct BuiltNode {
     focusable: bool,
     disabled: bool,
     spin: Option<f32>,
+    /// Accessibility projection: role/state, name, and value.
+    access: (Option<Semantics>, Option<String>, Option<String>),
     children: Vec<BuiltNode>,
 }
 
@@ -346,6 +371,25 @@ fn build<Msg>(
         // Spinners rotate continuously.
         *animating = true;
     }
+    // Accessibility projection: explicit semantics win; text, image, and
+    // input leaves project automatically.
+    let semantics = el.semantics.or(match &el.kind {
+        Kind::Text(_) => Some(Semantics::Label),
+        Kind::Image(_) => Some(Semantics::Image),
+        Kind::Input(data) => Some(Semantics::TextInput {
+            multiline: data.multiline,
+        }),
+        Kind::Box | Kind::Divider | Kind::Path(_) => None,
+    });
+    let label = el.label.clone().or(match &el.kind {
+        Kind::Text(content) => Some(content.clone()),
+        _ => None,
+    });
+    let value = match &el.kind {
+        Kind::Input(data) => Some(data.value.clone()),
+        _ => None,
+    };
+
     BuiltNode {
         taffy,
         id,
@@ -354,6 +398,7 @@ fn build<Msg>(
         focusable: el.focusable,
         disabled: el.disabled,
         spin: el.spin,
+        access: (semantics, label, value),
         children,
     }
 }
@@ -511,6 +556,7 @@ impl Realize<'_> {
             scroll,
             meta,
             spin: node.spin,
+            access: node.access,
             children,
         }
     }
@@ -923,6 +969,30 @@ impl Frame {
     }
 
     // ------------------------------------------------------------- queries
+
+    /// The accessibility projection of this frame: roles, names, values,
+    /// logical rects, and focusability, with open overlays appended after
+    /// the root content in paint order. Headless and dependency-free; the
+    /// windowed shell maps it to the platform tree via AccessKit.
+    pub fn access_tree(&self) -> AccessNode {
+        fn project(node: &FrameNode) -> AccessNode {
+            let (semantics, label, value) = node.access.clone();
+            AccessNode {
+                id: node.id,
+                semantics,
+                label,
+                value,
+                rect: node.rect,
+                focusable: node.meta.focusable,
+                children: node.children.iter().map(project).collect(),
+            }
+        }
+        let mut root = project(&self.root);
+        for overlay in &self.overlays {
+            root.children.push(project(&overlay.node));
+        }
+        root
+    }
 
     /// The deepest scrollable container whose visible area contains `point`
     /// and which actually has overflowing content.

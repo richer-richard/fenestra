@@ -18,8 +18,8 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Overlay, R_SM, SP2, SP3, ShadowToken, TextSize, Theme, Transition, col, div,
-    row, text,
+    Cursor, Element, Overlay, R_SM, SP2, SP3, Semantics, ShadowToken, TextSize, Theme, Transition,
+    col, div, row, text,
 };
 
 use super::Status;
@@ -81,6 +81,8 @@ fn toast_row<Msg: 'static>(
         .rounded(R_SM + 2.0)
         .shadow(ShadowToken::Lg)
         .shrink0()
+        .semantics(Semantics::Alert)
+        .label(message.clone())
         .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
         .children([
             div()

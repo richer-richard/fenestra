@@ -254,6 +254,18 @@ pub fn refresh_hover<Msg>(root: &Element<Msg>, frame: &Frame, state: &mut FrameS
     }
 }
 
+/// The message an enabled element with the given id would emit when
+/// clicked, if any. The shell uses it to honor accessibility action
+/// requests (AccessKit `Action::Click`) without synthesizing pointer
+/// events.
+pub fn click_msg_of<Msg: Clone>(root: &Element<Msg>, id: WidgetId) -> Option<Msg> {
+    let handlers = Handlers::collect(root);
+    handlers
+        .get(id)
+        .filter(|el| !el.disabled)
+        .and_then(|el| el.on_click.clone())
+}
+
 /// Dispatches one event against the last laid-out frame, updating retained
 /// interaction state and collecting emitted messages.
 pub fn dispatch<Msg: Clone>(

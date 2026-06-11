@@ -19,7 +19,7 @@ use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene}
 use winit::application::ApplicationHandler;
 use winit::dpi::LogicalSize;
 use winit::event::{MouseScrollDelta, StartCause, WindowEvent};
-use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
 use winit::window::{Window, WindowId};
 
 use crate::ShellError;
@@ -89,6 +89,17 @@ impl WindowShell {
     }
 
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.resumed_with(event_loop, |_, _| {});
+    }
+
+    /// Like [`Self::resumed`], but runs `before_visible` between window
+    /// creation and the first `set_visible(true)` — the AccessKit adapter
+    /// must attach while the window is still hidden.
+    fn resumed_with(
+        &mut self,
+        event_loop: &ActiveEventLoop,
+        before_visible: impl FnOnce(&ActiveEventLoop, &Arc<Window>),
+    ) {
         let RenderState::Suspended(cached_window) = &mut self.state else {
             return;
         };
@@ -98,14 +109,20 @@ impl WindowShell {
                 .with_inner_size(LogicalSize::new(
                     self.options.inner_size.0,
                     self.options.inner_size.1,
-                ));
+                ))
+                .with_visible(false);
             Arc::new(
                 event_loop
                     .create_window(attrs)
                     .expect("failed to create window"),
             )
         });
-        self.activate(window);
+        before_visible(event_loop, &window);
+        let was_hidden = window.is_visible() == Some(false);
+        self.activate(window.clone());
+        if was_hidden {
+            window.set_visible(true);
+        }
     }
 
     /// Builds (or rebuilds, after a lost surface) the swapchain for `window`
@@ -482,9 +499,19 @@ impl ApplicationHandler for StaticApp {
 
 // ------------------------------------------------------------- run_app
 
-/// A type-erased app message crossing from a [`fenestra_core::Proxy`]
-/// (any thread) into the event loop.
-struct ProxyEvent(Box<dyn std::any::Any + Send>);
+/// User events crossing into the app runner's loop: type-erased app
+/// messages from a [`fenestra_core::Proxy`] (any thread), and AccessKit's
+/// activation/action events.
+enum RunnerEvent {
+    App(Box<dyn std::any::Any + Send>),
+    Access(accesskit_winit::Event),
+}
+
+impl From<accesskit_winit::Event> for RunnerEvent {
+    fn from(event: accesskit_winit::Event) -> Self {
+        Self::Access(event)
+    }
+}
 
 /// Runs an [`App`]: the full Elm-shaped loop with hit testing, hover/active/
 /// focus, keyboard navigation, message dispatch, and event-driven repaint
@@ -495,13 +522,14 @@ pub fn run_app<A: App + 'static>(mut app: A, options: WindowOptions) -> Result<(
 where
     A::Msg: Send,
 {
-    let event_loop = EventLoop::<ProxyEvent>::with_user_event()
+    let event_loop = EventLoop::<RunnerEvent>::with_user_event()
         .build()
         .map_err(ShellError::EventLoop)?;
+    let access_proxy = event_loop.create_proxy();
     let proxy = event_loop.create_proxy();
     app.init(fenestra_core::Proxy::new(move |msg: A::Msg| {
         // Dropped silently once the loop is gone (window closed).
-        let _ = proxy.send_event(ProxyEvent(Box::new(msg)));
+        let _ = proxy.send_event(RunnerEvent::App(Box::new(msg)));
     }));
     let background = app.theme().bg;
     let mut state = FrameState::new();
@@ -515,6 +543,8 @@ where
         started: Instant::now(),
         last: None,
         modifiers: winit::keyboard::ModifiersState::empty(),
+        adapter: None,
+        proxy: access_proxy,
     };
     event_loop
         .run_app(&mut runner)
@@ -531,6 +561,10 @@ struct AppRunner<A: App> {
     /// View and frame from the last redraw, for input routing.
     last: Option<(Element<A::Msg>, fenestra_core::Frame)>,
     modifiers: winit::keyboard::ModifiersState,
+    /// The AccessKit adapter, created before the window first shows.
+    adapter: Option<accesskit_winit::Adapter>,
+    /// Loop proxy handed to the adapter for activation/action events.
+    proxy: EventLoopProxy<RunnerEvent>,
 }
 
 impl<A: App> AppRunner<A> {
@@ -568,6 +602,19 @@ impl<A: App> AppRunner<A> {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
         self.last = Some((view, frame));
+        self.push_access_tree();
+    }
+
+    /// Pushes the current frame's accessibility projection to the platform
+    /// (no-op until assistive technology activates the tree).
+    fn push_access_tree(&mut self) {
+        let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
+        let focus = self.state.focused();
+        if let Some(adapter) = &mut self.adapter
+            && let Some((_, frame)) = &self.last
+        {
+            adapter.update_if_active(|| crate::access::tree_update(frame, focus, scale));
+        }
     }
 
     fn input(&mut self, event: InputEvent) {
@@ -641,20 +688,65 @@ fn map_key(
     }))
 }
 
-impl<A: App> ApplicationHandler<ProxyEvent> for AppRunner<A> {
+impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.shell.resumed(event_loop);
+        let adapter = &mut self.adapter;
+        let proxy = self.proxy.clone();
+        self.shell.resumed_with(event_loop, |el, window| {
+            // The adapter must attach while the window is still hidden.
+            if adapter.is_none() {
+                *adapter = Some(accesskit_winit::Adapter::with_event_loop_proxy(
+                    el, window, proxy,
+                ));
+            }
+        });
         if let Some(w) = self.shell.window() {
             w.set_ime_allowed(true);
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: ProxyEvent) {
-        if let Ok(msg) = event.0.downcast::<A::Msg>() {
-            self.app.update(*msg);
-            if let Some(w) = self.shell.window() {
-                w.request_redraw();
+    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: RunnerEvent) {
+        match event {
+            RunnerEvent::App(msg) => {
+                if let Ok(msg) = msg.downcast::<A::Msg>() {
+                    self.app.update(*msg);
+                    if let Some(w) = self.shell.window() {
+                        w.request_redraw();
+                    }
+                }
             }
+            RunnerEvent::Access(ev) => match ev.window_event {
+                accesskit_winit::WindowEvent::InitialTreeRequested => {
+                    if self.last.is_some() {
+                        self.push_access_tree();
+                    } else if let Some(w) = self.shell.window() {
+                        w.request_redraw();
+                    }
+                }
+                accesskit_winit::WindowEvent::ActionRequested(req) => {
+                    let id = fenestra_core::WidgetId(req.target_node.0);
+                    match req.action {
+                        accesskit::Action::Click => {
+                            if let Some((view, _)) = &self.last
+                                && let Some(msg) = fenestra_core::click_msg_of(view, id)
+                            {
+                                self.app.update(msg);
+                                if let Some(w) = self.shell.window() {
+                                    w.request_redraw();
+                                }
+                            }
+                        }
+                        accesskit::Action::Focus => {
+                            self.state.set_focus(Some(id));
+                            if let Some(w) = self.shell.window() {
+                                w.request_redraw();
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+                accesskit_winit::WindowEvent::AccessibilityDeactivated => {}
+            },
         }
     }
 
@@ -678,6 +770,11 @@ impl<A: App> ApplicationHandler<ProxyEvent> for AppRunner<A> {
     ) {
         if self.shell.window().is_none_or(|w| w.id() != window_id) {
             return;
+        }
+        if let Some(adapter) = &mut self.adapter
+            && let Some(window) = self.shell.window()
+        {
+            adapter.process_event(window, &event);
         }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),

@@ -12,7 +12,9 @@
 //!     checkbox(true).label("Enable notifications").on_toggle(Msg::Toggle).into();
 //! ```
 
-use fenestra_core::{Cursor, Element, MotionDuration, SP2, TextSize, Theme, Transition, row, text};
+use fenestra_core::{
+    Cursor, Element, MotionDuration, SP2, Semantics, TextSize, Theme, Transition, row, text,
+};
 
 use crate::icons;
 
@@ -101,9 +103,12 @@ impl<Msg> From<Checkbox<Msg>> for Element<Msg> {
             .children([boxed])
             .focusable(true)
             .cursor(Cursor::Pointer)
-            .disabled(c.disabled);
+            .disabled(c.disabled)
+            .semantics(Semantics::Checkbox { checked });
         if let Some(label) = c.label {
-            el = el.children([text(label).size(TextSize::Sm)]);
+            el = el
+                .label(label.clone())
+                .children([text(label).size(TextSize::Sm)]);
         }
         if c.disabled {
             el = el.opacity(0.5);

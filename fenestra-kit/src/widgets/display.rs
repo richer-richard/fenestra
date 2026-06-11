@@ -2,8 +2,9 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    Element, Length, MotionDuration, R_FULL, R_LG, R_MD, SP1, SP2, SP3, SP4, SP6, ShadowToken,
-    StatusColors, TextSize, Theme, Track, Transition, Weight, col, div, path, row, text,
+    Element, Length, MotionDuration, R_FULL, R_LG, R_MD, SP1, SP2, SP3, SP4, SP6, Semantics,
+    ShadowToken, StatusColors, TextSize, Theme, Track, Transition, Weight, col, div, path, row,
+    text,
 };
 use kurbo::BezPath;
 
@@ -242,6 +243,10 @@ pub fn tabs<Msg: Clone + 'static>(
                 .focusable(true)
                 .cursor(fenestra_core::Cursor::Pointer)
                 .on_click(on_select(i))
+                .semantics(Semantics::Tab {
+                    selected: is_active,
+                })
+                .label(label.clone())
                 .children([
                     text(label)
                         .size(TextSize::Sm)

@@ -1,8 +1,8 @@
 //! Tooltip and Modal: overlay widgets on the core overlay stack.
 
 use fenestra_core::{
-    Element, Overlay, R_SM, R_XL, SP2, SP3, SP6, ShadowToken, TextSize, Theme, Weight, col, row,
-    text,
+    Element, Overlay, R_SM, R_XL, SP2, SP3, SP6, Semantics, ShadowToken, TextSize, Theme, Weight,
+    col, row, text,
 };
 
 use super::button::{ButtonVariant, icon_button};
@@ -104,6 +104,7 @@ impl<Msg> Modal<Msg> {
 
 impl<Msg: Clone + 'static> From<Modal<Msg>> for Element<Msg> {
     fn from(m: Modal<Msg>) -> Self {
+        let title = m.title.clone();
         let mut header = row()
             .items_center()
             .children([text(m.title).size(TextSize::Lg).weight(Weight::Semibold)]);
@@ -112,6 +113,7 @@ impl<Msg: Clone + 'static> From<Modal<Msg>> for Element<Msg> {
                 icon_button(icons::x())
                     .variant(ButtonVariant::Ghost)
                     .size(super::ControlSize::Sm)
+                    .label("Close")
                     .on_click(close.clone()),
             )]);
         }
@@ -125,7 +127,9 @@ impl<Msg: Clone + 'static> From<Modal<Msg>> for Element<Msg> {
             .shadow(ShadowToken::Lg)
             .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
             .children([header])
-            .children(m.content);
+            .children(m.content)
+            .semantics(Semantics::Dialog)
+            .label(title);
         if let Some(key) = &m.key {
             el = el.id(key);
         }
