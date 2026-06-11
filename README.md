@@ -55,8 +55,10 @@ impl App for Counter {
 fn main() { fenestra::run(Counter { n: 0 }, WindowOptions::titled("Counter")) }
 ```
 
-`cargo add fenestra`, paste, `cargo run`. The whole view is rebuilt, laid
-out, and repainted on every redraw — no diffing, no macros, everything
+`cargo add fenestra`, paste, `cargo run`. Or start from the template —
+`cargo generate richer-richard/fenestra-template` — which includes a
+headless UI test and CI. The whole view is rebuilt, laid out, and
+repainted on every redraw — no diffing, no macros, everything
 autocompletes.
 
 ## Agents can see what they build
