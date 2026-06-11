@@ -1,0 +1,82 @@
+name: Release
+
+# CD: pushing a v* tag runs the full gates, publishes any crate versions
+# not yet on crates.io (dependency order), and creates the GitHub release.
+# Both steps are idempotent, so re-running a failed release is safe.
+# Requires the CARGO_REGISTRY_TOKEN repository secret.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: "1"
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  gates:
+    # macOS is the golden-reference platform; the gates must pass on the
+    # tagged commit even if CI already ran elsewhere.
+    name: gates (macOS / Metal)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo fmt --all --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  publish:
+    name: publish to crates.io
+    needs: gates
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Publish crates in dependency order (skip published versions)
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          set -euo pipefail
+          for crate in fenestra-core fenestra-kit fenestra-shell fenestra; do
+            version=$(cargo pkgid -p "$crate" | sed 's/.*[@#]//')
+            if curl -sf -A "fenestra-release-ci" \
+              "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
+              echo "$crate $version already published; skipping"
+            else
+              cargo publish -p "$crate" --locked
+            fi
+          done
+
+  github-release:
+    name: GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - name: Create release if missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "release $tag already exists; skipping"
+          else
+            gh release create "$tag" --title "fenestra $tag" \
+              --generate-notes \
+              --notes "See [CHANGELOG.md](CHANGELOG.md) for details."
+          fi
