@@ -12,6 +12,7 @@ mod slider;
 mod switch;
 mod text_area;
 mod text_input;
+mod toast;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
 pub use checkbox::{Checkbox, checkbox};
@@ -25,6 +26,7 @@ pub use slider::{Slider, slider};
 pub use switch::{Switch, switch};
 pub use text_area::{TextArea, text_area};
 pub use text_input::{TextInput, text_input};
+pub use toast::{ToastStack, toast_stack};
 
 /// Control heights shared by buttons and inputs, logical px.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

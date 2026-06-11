@@ -722,6 +722,10 @@ pub fn build_frame<Msg>(
                         anchor_rect.y1 + gap,
                     )
                 }
+                OverlayPlacement::TopRight { margin } => {
+                    let m = f64::from(margin);
+                    Point::new((canvas.x1 - w - m).max(canvas.x0), canvas.y0 + m)
+                }
                 OverlayPlacement::Center => {
                     // Slide up 8px as the modal enters.
                     let dy = 8.0 * (1.0 - f64::from(progress));

@@ -108,6 +108,11 @@ pub enum OverlayPlacement {
     },
     /// Centered in the canvas.
     Center,
+    /// Pinned to the top-right of the canvas (toast stacks).
+    TopRight {
+        /// Margin from the canvas edges in logical px.
+        margin: f32,
+    },
 }
 
 /// Marks an element as an overlay child of its parent (the anchor):
@@ -153,6 +158,18 @@ impl Overlay {
             placement: OverlayPlacement::Center,
             backdrop: true,
             trap_focus: true,
+        }
+    }
+
+    /// An app-driven toast stack pinned to the top-right: no backdrop, no
+    /// focus trap, and nothing closes it from outside — dismissal is the
+    /// stack's own buttons (or the app removing items).
+    pub fn toasts() -> Self {
+        Self {
+            mode: OverlayMode::Open,
+            placement: OverlayPlacement::TopRight { margin: 16.0 },
+            backdrop: false,
+            trap_focus: false,
         }
     }
 }

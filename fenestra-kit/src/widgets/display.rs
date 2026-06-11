@@ -40,7 +40,7 @@ pub enum Status {
 }
 
 impl Status {
-    fn colors(self, t: &Theme) -> StatusColors {
+    pub(crate) fn colors(self, t: &Theme) -> StatusColors {
         match self {
             Self::Accent => StatusColors {
                 bg: t.accent_bg,
