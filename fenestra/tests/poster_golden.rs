@@ -6,6 +6,10 @@ use std::path::PathBuf;
 use fenestra::prelude::*;
 use fenestra::shell::{render_element_with, testing::assert_png_snapshot};
 
+#[cfg_attr(
+    target_os = "windows",
+    ignore = "WARP (software DX12) access-violates on large-canvas renders; covered on Metal/lavapipe"
+)]
 #[test]
 fn poster_golden() {
     let mut fonts = Fonts::embedded();
