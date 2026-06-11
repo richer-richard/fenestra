@@ -131,6 +131,9 @@ pub(crate) fn handle_key(
             }
             _ => IGNORED,
         },
+        // Control characters (Enter arriving as '\r', Tab, DEL, ...) never
+        // become text, matching the text-commit and paste path filters.
+        Key::Char(c) if c.is_control() => IGNORED,
         Key::Char(c) if !key.ctrl && !key.meta => {
             drv.insert_or_replace_selection(&c.to_string());
             HANDLED
@@ -217,6 +220,9 @@ pub(crate) fn handle_preedit(
     if text.is_empty() {
         drv.clear_compose();
     } else {
+        // Platform IMEs are not trusted to keep offsets in range, and
+        // parley debug-asserts on out-of-range compose cursors.
+        let cursor = cursor.map(|(a, b)| (a.min(text.len()), b.min(text.len())));
         drv.set_compose(text, cursor);
     }
 }

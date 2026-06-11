@@ -53,7 +53,9 @@ impl From<&SyntheticEvent> for InputEvent {
 
 /// Drives an app headlessly: dispatches each event against the current
 /// view, applies the emitted messages, then renders one settle frame.
-/// Deterministic: scale 1.0, reduced motion, embedded fonts only.
+/// Deterministic: scale 1.0, reduced motion, embedded fonts only. The
+/// requested size is clamped to the device-supported range (at least 1x1,
+/// at most the maximum texture dimension).
 ///
 /// # Panics
 /// If no compute-capable GPU adapter exists or rendering fails.
@@ -63,6 +65,9 @@ pub fn render_app<A: App>(
     size: (u32, u32),
     theme: &Theme,
 ) -> RgbaImage {
+    // Clamp before layout so the frames and the texture agree on the size.
+    let size =
+        with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
     let mut state = FrameState::new();
     state.reduced_motion = true;
     #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]

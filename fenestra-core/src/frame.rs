@@ -705,6 +705,7 @@ pub fn build_frame<Msg>(
     let frame_no = state.frame_no;
     state.anims.retain(|_, a| a.seen == frame_no);
     state.editors.retain(|_, e| e.seen == frame_no);
+    state.gc_scroll(frame_no);
 
     Frame {
         root: root_node,

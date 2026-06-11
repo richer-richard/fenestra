@@ -157,7 +157,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             trigger = trigger.on_key(move |k| match k.key {
                 Key::ArrowDown => (selected + 1 < count).then(|| f(selected + 1)),
                 Key::ArrowUp => (selected > 0).then(|| f(selected - 1)),
-                Key::Home => Some(f(0)),
+                Key::Home => (count > 0).then(|| f(0)),
                 Key::End => count.checked_sub(1).map(&*f),
                 // First-letter type-ahead, scanning forward from the
                 // current selection and wrapping.

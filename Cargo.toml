@@ -6,9 +6,13 @@ members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit"]
 version = "0.1.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/richard01172000/fenestra"
+repository = "https://github.com/richer-richard/fenestra"
 keywords = ["gui", "ui", "graphics"]
 categories = ["gui"]
+
+# No crate in this workspace uses unsafe code; keep it that way.
+[workspace.lints.rust]
+unsafe_code = "forbid"
 
 [workspace.dependencies]
 fenestra-core = { version = "0.1.0", path = "fenestra-core" }

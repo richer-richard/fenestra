@@ -22,13 +22,10 @@ pub enum Mode {
 pub struct Ramp(pub [Color; 12]);
 
 impl Ramp {
-    /// Returns step `n` (1-based, like the design spec tables).
-    ///
-    /// # Panics
-    /// If `n` is not in `1..=12`.
+    /// Returns step `n` (1-based, like the design spec tables). Out-of-range
+    /// values clamp to the nearest valid step.
     pub fn step(&self, n: usize) -> Color {
-        assert!((1..=12).contains(&n), "ramp steps are 1..=12, got {n}");
-        self.0[n - 1]
+        self.0[n.clamp(1, 12) - 1]
     }
 }
 

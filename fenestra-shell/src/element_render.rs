@@ -40,6 +40,10 @@ pub fn with_headless<R>(f: impl FnOnce(&mut Headless) -> R) -> Result<R, ShellEr
 /// background, using only the embedded fonts for determinism. This is
 /// fenestra's product thesis: agents render what they build and look at it.
 ///
+/// The requested size is clamped to the device-supported range (at least
+/// 1x1, at most the maximum texture dimension, typically 8192); check the
+/// returned image's dimensions when the input may be out of range.
+///
 /// # Panics
 /// If no compute-capable GPU adapter exists or rendering fails.
 pub fn render_element<Msg>(el: Element<Msg>, theme: &Theme, size: (u32, u32)) -> RgbaImage {
@@ -50,6 +54,7 @@ pub fn render_element<Msg>(el: Element<Msg>, theme: &Theme, size: (u32, u32)) ->
 
 /// Like [`render_element`], but with caller-provided retained state, so
 /// tests can render scrolled (and later focused/hovered) configurations.
+/// The requested size is clamped like [`render_element`]'s.
 ///
 /// # Panics
 /// If no compute-capable GPU adapter exists or rendering fails.
@@ -59,6 +64,9 @@ pub fn render_element_with_state<Msg>(
     size: (u32, u32),
     state: &mut FrameState,
 ) -> RgbaImage {
+    // Clamp before layout so the frame and the texture agree on the size.
+    let size =
+        with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
     let scene = with_fonts(|fonts| {
         #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
         let frame = build_frame(

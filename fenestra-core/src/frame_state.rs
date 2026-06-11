@@ -18,6 +18,8 @@ const SCROLLBAR_FADE_SECS: f64 = 0.3;
 struct Scroll {
     offset_y: f32,
     last_change: f64,
+    /// Frame stamp for garbage collection, like `Anim::seen`.
+    seen: u64,
 }
 
 /// Retained state for one UI surface (window or headless session).
@@ -154,15 +156,24 @@ impl FrameState {
     }
 
     /// Clamps a stored offset to `0..=max`, returning the clamped value.
-    /// Called during frame builds once the content height is known.
+    /// Called during frame builds once the content height is known; also
+    /// stamps the entry as alive for [`Self::gc_scroll`].
     pub(crate) fn clamp_scroll(&mut self, id: WidgetId, max: f32) -> f32 {
+        let frame_no = self.frame_no;
         match self.scroll.get_mut(&id) {
             Some(s) => {
                 s.offset_y = s.offset_y.clamp(0.0, max.max(0.0));
+                s.seen = frame_no;
                 s.offset_y
             }
             None => 0.0,
         }
+    }
+
+    /// Drops scroll entries whose container was not in the frame just built,
+    /// so dynamically keyed scrollables cannot grow the map without bound.
+    pub(crate) fn gc_scroll(&mut self, frame_no: u64) {
+        self.scroll.retain(|_, s| s.seen == frame_no);
     }
 
     /// Scrollbar opacity for an id: 1.0 while scrolling (held briefly), then

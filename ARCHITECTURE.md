@@ -310,3 +310,46 @@ vello 0.9 is the classic compute-shader renderer (`vello_encoding` +
 - **Spinner rotation.** `.spin(period_ms)` rotates a path element's paint
   transform from the frame clock (no per-frame view rebuild tricks);
   `reduced_motion` freezes it for deterministic goldens.
+
+## Hardening audit (post-M7)
+
+A security/robustness pass over the whole workspace, with the consumer
+threat model "AI agents pass arbitrary values to every public API". Each
+fix below is locked by a regression test in the crate's `tests/hardening.rs`
+(except the swapchain recovery, which cannot be induced headlessly).
+
+- **Clamp over panic at the API boundary.** Out-of-range inputs to
+  total-looking functions clamp to the valid range instead of asserting:
+  `Ramp::step` clamps to `1..=12`; headless render sizes clamp to
+  `1..=max_texture_dimension_2d` on both axes (a zero request yields a 1x1
+  image, an oversized one the device limit) — the clamp happens before
+  layout so the frame and the texture agree. Rationale: for agent consumers
+  a panic is a DoS, and a clamped result is still inspectable.
+- **Widget callbacks keep their index contract.** `select` with zero
+  options no longer emits `on_change(0)` on Home (hosts index into their
+  data with the emitted value, so an invalid index panics the app).
+- **One text-sanitization policy, three entry paths.** Control characters
+  are filtered from `Key::Char` exactly as on the text-commit and paste
+  paths (Enter arriving as `'\r'` can no longer embed into a single-line
+  value), and IME preedit cursor offsets clamp to the preedit length before
+  reaching parley (which debug-asserts on out-of-range compose cursors).
+- **All retained state is frame-stamped.** `FrameState.scroll` now carries
+  the same `seen` GC stamp as `anims` and `editors`: entries whose
+  container was not in the frame just built are dropped, so dynamically
+  keyed scrollables cannot grow the map without bound. Consequence (same as
+  editors): a scrollable unmounted for a frame loses its offset.
+- **Lost surfaces recover.** `CurrentSurfaceTexture::Lost` (GPU reset,
+  driver update, display change) rebuilds the swapchain on the same window
+  via the `activate()` path shared with `resumed()` instead of panicking.
+  `Validation` still panics: that one is a programming error.
+- **Byte-stability note.** Renders are logically deterministic (embedded
+  fonts, fixed scale, reduced motion), but GPU floating point can wobble
+  individual pixels run to run (observed on the dark dashboard's shadow
+  gradients). The PNG harness's 3/255-channel, 0.2%-pixel tolerance absorbs
+  this; raw byte equality of regenerated gallery art is not guaranteed.
+- **Supply chain.** CI actions are pinned to full commit SHAs, the
+  workflow token is read-only (`permissions: contents: read`), and a
+  `cargo audit` job runs on every push/PR plus a weekly schedule
+  (vulnerabilities fail; unmaintained-crate warnings stay advisory so
+  third-party churn cannot redden CI). `unsafe_code = "forbid"` is set
+  workspace-wide; no crate uses unsafe today.

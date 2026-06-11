@@ -20,6 +20,7 @@ pub struct Headless {
     context: RenderContext,
     dev_id: usize,
     renderer: Renderer,
+    max_dim: u32,
 }
 
 impl Headless {
@@ -29,6 +30,7 @@ impl Headless {
         let mut context = RenderContext::new();
         let dev_id = pollster::block_on(context.device(None)).ok_or(ShellError::NoDevice)?;
         let device = &context.devices[dev_id].device;
+        let max_dim = device.limits().max_texture_dimension_2d;
         let renderer = Renderer::new(
             device,
             RendererOptions {
@@ -43,11 +45,26 @@ impl Headless {
             context,
             dev_id,
             renderer,
+            max_dim,
         })
     }
 
+    /// The largest texture dimension the device supports; render sizes are
+    /// clamped to it.
+    pub fn max_dimension(&self) -> u32 {
+        self.max_dim
+    }
+
+    /// Clamps a requested render size on both axes to the supported
+    /// `1..=max_dimension()` range.
+    pub fn clamp_size(&self, width: u32, height: u32) -> (u32, u32) {
+        (width.clamp(1, self.max_dim), height.clamp(1, self.max_dim))
+    }
+
     /// Renders `scene` at the given pixel size over `base_color` and reads the
-    /// result back into an RGBA image.
+    /// result back into an RGBA image. The size is clamped to
+    /// `1..=max_dimension()` on both axes, so hostile dimensions cannot
+    /// trigger wgpu's fatal validation handler.
     pub fn render(
         &mut self,
         scene: &Scene,
@@ -55,7 +72,7 @@ impl Headless {
         height: u32,
         base_color: Color,
     ) -> Result<RgbaImage, ShellError> {
-        assert!(width > 0 && height > 0, "render size must be non-zero");
+        let (width, height) = self.clamp_size(width, height);
         let handle = &self.context.devices[self.dev_id];
         let (device, queue) = (&handle.device, &handle.queue);
 

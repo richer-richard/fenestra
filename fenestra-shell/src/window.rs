@@ -105,7 +105,12 @@ impl WindowShell {
                     .expect("failed to create window"),
             )
         });
+        self.activate(window);
+    }
 
+    /// Builds (or rebuilds, after a lost surface) the swapchain for `window`
+    /// and enters the active state.
+    fn activate(&mut self, window: Arc<Window>) {
         let size = window.inner_size();
         let surface = pollster::block_on(self.context.create_surface(
             window.clone(),
@@ -239,7 +244,14 @@ impl WindowShell {
                 window.request_redraw();
                 return;
             }
-            CurrentSurfaceTexture::Lost => panic!("wgpu surface was lost"),
+            CurrentSurfaceTexture::Lost => {
+                // Recoverable (GPU reset, driver update, display change):
+                // rebuild the swapchain on the same window and repaint.
+                let window = window.clone();
+                window.request_redraw();
+                self.activate(window);
+                return;
+            }
             CurrentSurfaceTexture::Validation => {
                 panic!("validation error acquiring wgpu surface texture")
             }
