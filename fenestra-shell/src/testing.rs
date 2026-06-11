@@ -5,6 +5,11 @@
 //! than 0.2 percent of pixels exceed that. `FENESTRA_UPDATE_SNAPSHOTS=1`
 //! regenerates goldens. On failure the actual image is written next to the
 //! golden as `<name>.actual.png` for inspection.
+//!
+//! Goldens are rendered on macOS/Metal; a software rasterizer (CI's
+//! lavapipe) antialiases slightly differently, so the pixel budget can be
+//! widened there with `FENESTRA_SNAPSHOT_BUDGET` (e.g. `0.006`) without
+//! loosening the reference platform.
 
 use std::path::Path;
 
@@ -12,11 +17,24 @@ use image::RgbaImage;
 
 /// Per-channel delta at or below this is identical enough.
 const CHANNEL_TOLERANCE: u8 = 3;
-/// Fraction of pixels allowed to exceed the channel tolerance.
+/// Fraction of pixels allowed to exceed the channel tolerance (default;
+/// see [`BUDGET_ENV`]).
 const MAX_DIFFERING_FRACTION: f64 = 0.002;
 
 /// Env var that regenerates goldens instead of comparing.
 pub const UPDATE_ENV: &str = "FENESTRA_UPDATE_SNAPSHOTS";
+
+/// Env var overriding the differing-pixel budget (a fraction, e.g.
+/// `0.006`), for runners whose rasterizer differs from the goldens'.
+pub const BUDGET_ENV: &str = "FENESTRA_SNAPSHOT_BUDGET";
+
+fn differing_budget() -> f64 {
+    std::env::var(BUDGET_ENV)
+        .ok()
+        .and_then(|v| v.parse::<f64>().ok())
+        .filter(|b| b.is_finite() && (0.0..=1.0).contains(b))
+        .unwrap_or(MAX_DIFFERING_FRACTION)
+}
 
 /// Compares `actual` against the golden `dir/name.png`.
 ///
@@ -73,7 +91,7 @@ pub fn assert_png_snapshot(dir: impl AsRef<Path>, name: &str, actual: &RgbaImage
 
     #[expect(clippy::cast_precision_loss, reason = "image pixel counts are small")]
     let fraction = differing as f64 / total as f64;
-    if fraction > MAX_DIFFERING_FRACTION {
+    if fraction > differing_budget() {
         let actual_path = dir.join(format!("{name}.actual.png"));
         actual.save(&actual_path).ok();
         panic!(

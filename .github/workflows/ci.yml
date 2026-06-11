@@ -80,6 +80,8 @@ jobs:
       - name: Run tests
         env:
           WGPU_BACKEND: vulkan
+          # Goldens are Metal-rendered; lavapipe AA differs slightly.
+          FENESTRA_SNAPSHOT_BUDGET: "0.006"
         run: cargo test --workspace
 
   audit:
