@@ -84,6 +84,10 @@ Headless rendering is deterministic (embedded fonts, fixed scale, reduced
 motion), which makes pixel-exact golden tests practical — fenestra's own
 widget kit is tested this way, on CI, with no GPU display attached.
 
+**Working with an AI agent?** [AGENTS.md](AGENTS.md) is the manual for the
+build → render → look → verify loop (and [llms.txt](llms.txt) for
+context loaders).
+
 ## Philosophy: web aesthetics without the web platform
 
 The web's *look* — soft elevation, tinted neutrals, OKLCH ramps, 4px-grid

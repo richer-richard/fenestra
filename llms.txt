@@ -1,0 +1,45 @@
+# fenestra
+
+> A pure-Rust native GUI framework (winit + wgpu + vello + parley + taffy)
+> with web-grade aesthetics and first-class deterministic headless
+> rendering: both humans and AI agents can build a UI, render it to pixels
+> without a display server, look at it, drive it with synthetic input, and
+> assert on its accessibility tree — all in ordinary tests.
+
+The API is macro-free, fully autocompletable, and small enough to memorize:
+element constructors (`row()`, `col()`, `text()`), fluent styling through
+design tokens (`.p(SP4)`, `.rounded(R_MD)`, `.shadow(ShadowToken::Sm)`),
+an Elm-shaped `App` trait (`update`/`view`), and a themed widget kit.
+Colors route through a `Theme` generated from accent hues; flip one value
+for dark mode. Rendering is a pure function of
+`(element tree, theme, size, scale)` plus one retained `FrameState`.
+
+## Docs
+
+- [AGENTS.md](AGENTS.md): how to author and verify fenestra UIs as an
+  agent — the build-render-look loop, synthetic input, accessibility
+  assertions, golden tests, vocabulary cheat sheet, pitfalls
+- [README.md](README.md): overview, quickstart, gallery art, workspace map
+- [ARCHITECTURE.md](ARCHITECTURE.md): the full pipeline and every
+  integration decision, recorded milestone by milestone
+- [CHANGELOG.md](CHANGELOG.md): release history
+
+## API reference
+
+- [docs.rs/fenestra](https://docs.rs/fenestra): facade crate (start here)
+- [docs.rs/fenestra-core](https://docs.rs/fenestra-core): element IR,
+  theme, layout, text, paint, input, transitions
+- [docs.rs/fenestra-shell](https://docs.rs/fenestra-shell): windowed
+  runner and the headless renderer/test harness
+- [docs.rs/fenestra-kit](https://docs.rs/fenestra-kit): the widget kit
+
+## Examples
+
+- [counter.rs](fenestra/examples/counter.rs): the canonical Elm-shaped app
+- [dashboard.rs](fenestra/examples/dashboard.rs): flagship SaaS dashboard
+  (sidebar, search, table, form, modal; `-- shot` renders PNGs headlessly)
+- [clock.rs](fenestra/examples/clock.rs): background-thread commands via
+  the `App::init` proxy
+- [toasts.rs](fenestra/examples/toasts.rs): toast stack with auto-dismiss
+- [gallery.rs](fenestra/examples/gallery.rs): renders every widget
+  headlessly to PNGs

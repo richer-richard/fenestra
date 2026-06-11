@@ -1,0 +1,21 @@
+name: Feature request
+description: A widget, capability, or API you need
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to build?
+      description: The concrete UI or behavior, not just the abstract feature.
+    validations:
+      required: true
+  - type: textarea
+    id: sketch
+    attributes:
+      label: API sketch (optional)
+      description: What would the builder calls look like?
+      render: rust
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Workarounds you considered
