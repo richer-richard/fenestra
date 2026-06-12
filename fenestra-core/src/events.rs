@@ -101,6 +101,18 @@ pub enum InputEvent {
         /// Vertical delta in logical px.
         dy: f32,
     },
+    /// Modifier keys changed (runners forward this so pointer gestures
+    /// can honor Shift — e.g. shift-click selection extension).
+    Modifiers {
+        /// Shift held.
+        shift: bool,
+        /// Control held.
+        ctrl: bool,
+        /// Alt/Option held.
+        alt: bool,
+        /// Command / Windows key held.
+        meta: bool,
+    },
     /// The pointer left the surface: hover state clears.
     PointerLeave,
     /// Focus next.
@@ -424,6 +436,14 @@ pub fn dispatch<Msg: Clone>(
 
             update_hover(&handlers, frame, state, point, &mut out);
         }
+        InputEvent::Modifiers {
+            shift,
+            ctrl,
+            alt,
+            meta,
+        } => {
+            state.mods = (shift, ctrl, alt, meta);
+        }
         InputEvent::PointerLeave => {
             state.pointer = None;
             if !state.hovered.is_empty() {
@@ -511,10 +531,21 @@ pub fn dispatch<Msg: Clone>(
                     }
                     if matches!(el.kind, Kind::Input(_)) {
                         let now = state.now();
+                        // Press chains: 1 = place caret, 2 = word, 3 = line
+                        // (platform convention: selection happens on press).
+                        let count = match state.last_press {
+                            Some((pid, at, c)) if pid == id && now - at <= 0.4 => (c % 3) + 1,
+                            _ => 1,
+                        };
+                        state.last_press = Some((id, now, count));
                         if let Some((lx, ly)) = input_local(frame, state, el, id, point)
                             && let Some(editor) = state.editors.get_mut(&id)
                         {
-                            input::pointer_down(editor, fonts, lx, ly, false);
+                            match count {
+                                2 => input::select_word_at(editor, fonts, lx, ly),
+                                3 => input::select_line_at(editor, fonts, lx, ly),
+                                _ => input::pointer_down(editor, fonts, lx, ly, state.mods.0),
+                            }
                             editor.last_activity = now;
                         }
                     } else if let Some(f) = &el.on_drag

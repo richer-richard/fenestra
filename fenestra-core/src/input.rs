@@ -27,6 +27,65 @@ pub(crate) struct EditorState {
     pub seen: u64,
     /// Multiline mode: wraps, accepts newlines, moves by line.
     pub multiline: bool,
+    /// Undo/redo history (QUndoStack semantics: coalesced runs,
+    /// boundaries on caret moves, redo cleared by new edits).
+    pub undo: UndoStack,
+}
+
+/// What kind of edit a coalescing run holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EditRun {
+    Insert,
+    Delete,
+}
+
+/// One restorable editor moment: text plus the selected byte range.
+#[derive(Debug, Clone)]
+struct Snapshot {
+    text: String,
+    selection: (usize, usize),
+}
+
+/// Bounded undo/redo stacks with typing-run coalescing.
+#[derive(Debug, Default)]
+pub(crate) struct UndoStack {
+    undos: Vec<Snapshot>,
+    redos: Vec<Snapshot>,
+    /// The open coalescing run; edits of the same kind merge into it.
+    run: Option<EditRun>,
+}
+
+/// History depth: plenty for a field, bounded so editors never grow
+/// without limit.
+const UNDO_LIMIT: usize = 100;
+
+fn snapshot(editor: &parley::PlainEditor<LayoutBrush>) -> Snapshot {
+    let range = editor.raw_selection().text_range();
+    Snapshot {
+        text: editor.raw_text().to_owned(),
+        selection: (range.start, range.end),
+    }
+}
+
+impl UndoStack {
+    /// Opens (or continues) a coalescing run of `kind`: the first edit
+    /// of a run snapshots the pre-edit state and clears redos.
+    fn begin(&mut self, editor: &parley::PlainEditor<LayoutBrush>, kind: EditRun) {
+        if self.run != Some(kind) {
+            self.undos.push(snapshot(editor));
+            if self.undos.len() > UNDO_LIMIT {
+                self.undos.remove(0);
+            }
+            self.redos.clear();
+            self.run = Some(kind);
+        }
+    }
+
+    /// Ends the open run: the next edit starts a fresh undo unit.
+    /// Called on caret/selection moves and external value changes.
+    pub(crate) fn break_run(&mut self) {
+        self.run = None;
+    }
 }
 
 impl EditorState {
@@ -40,6 +99,7 @@ impl EditorState {
             last_activity: now,
             seen: 0,
             multiline,
+            undo: UndoStack::default(),
         }
     }
 
@@ -47,6 +107,23 @@ impl EditorState {
     /// is the source of truth: external changes reset the buffer.
     pub(crate) fn sync(&mut self, value: &str, style: &ResolvedText) {
         if self.editor.raw_text() != value {
+            let fresh = self.editor.raw_text().is_empty()
+                && self.undo.undos.is_empty()
+                && self.undo.redos.is_empty();
+            if fresh {
+                // First fill of a brand-new editor: nothing to undo.
+                self.editor.set_text(value);
+                apply_style(&mut self.editor, style);
+                return;
+            }
+            // External (programmatic) change: its own undo unit, so
+            // undo can step back across it.
+            self.undo.undos.push(snapshot(&self.editor));
+            if self.undo.undos.len() > UNDO_LIMIT {
+                self.undo.undos.remove(0);
+            }
+            self.undo.redos.clear();
+            self.undo.break_run();
             self.editor.set_text(value);
         }
         apply_style(&mut self.editor, style);
@@ -104,6 +181,21 @@ pub(crate) fn handle_key(
     clipboard: &mut dyn Clipboard,
     key: &KeyInput,
 ) -> EditOutcome {
+    let outcome = handle_key_inner(state, fonts, clipboard, key);
+    if !outcome.changed {
+        // Caret/selection moves are coalescing boundaries: the next
+        // edit starts a fresh undo unit.
+        state.undo.break_run();
+    }
+    outcome
+}
+
+fn handle_key_inner(
+    state: &mut EditorState,
+    fonts: &mut Fonts,
+    clipboard: &mut dyn Clipboard,
+    key: &KeyInput,
+) -> EditOutcome {
     let multiline = state.multiline;
     let (font_cx, layout_cx) = fonts.editor_contexts();
     let mut drv = state.editor.driver(font_cx, layout_cx);
@@ -125,17 +217,44 @@ pub(crate) fn handle_key(
             'x' => {
                 if let Some(text) = drv.editor.selected_text() {
                     clipboard.set(text.to_owned());
+                    // Cut is its own undo unit, never coalesced.
+                    state.undo.break_run();
+                    state.undo.begin(&state.editor, EditRun::Delete);
+                    let (font_cx, layout_cx) = fonts.editor_contexts();
+                    let mut drv = state.editor.driver(font_cx, layout_cx);
                     drv.delete_selection();
+                    state.undo.break_run();
                     return HANDLED;
                 }
                 MOVED
             }
             'v' => {
                 if let Some(text) = clipboard.get() {
+                    // Paste is its own undo unit, never coalesced.
+                    state.undo.break_run();
+                    state.undo.begin(&state.editor, EditRun::Insert);
+                    let (font_cx, layout_cx) = fonts.editor_contexts();
+                    let mut drv = state.editor.driver(font_cx, layout_cx);
                     drv.insert_or_replace_selection(&sanitize(&text, multiline));
+                    state.undo.break_run();
                     return HANDLED;
                 }
                 MOVED
+            }
+            'z' => {
+                let applied = if key.shift {
+                    redo(state, fonts)
+                } else {
+                    undo(state, fonts)
+                };
+                if applied { HANDLED } else { MOVED }
+            }
+            'y' if key.ctrl => {
+                if redo(state, fonts) {
+                    HANDLED
+                } else {
+                    MOVED
+                }
             }
             _ => IGNORED,
         },
@@ -143,6 +262,9 @@ pub(crate) fn handle_key(
         // become text, matching the text-commit and paste path filters.
         Key::Char(c) if c.is_control() => IGNORED,
         Key::Char(c) if !key.ctrl && !key.meta => {
+            state.undo.begin(&state.editor, EditRun::Insert);
+            let (font_cx, layout_cx) = fonts.editor_contexts();
+            let mut drv = state.editor.driver(font_cx, layout_cx);
             drv.insert_or_replace_selection(&c.to_string());
             HANDLED
         }
@@ -185,6 +307,9 @@ pub(crate) fn handle_key(
             MOVED
         }
         Key::Enter if multiline => {
+            state.undo.begin(&state.editor, EditRun::Insert);
+            let (font_cx, layout_cx) = fonts.editor_contexts();
+            let mut drv = state.editor.driver(font_cx, layout_cx);
             drv.insert_or_replace_selection("\n");
             HANDLED
         }
@@ -205,6 +330,9 @@ pub(crate) fn handle_key(
             MOVED
         }
         Key::Backspace => {
+            state.undo.begin(&state.editor, EditRun::Delete);
+            let (font_cx, layout_cx) = fonts.editor_contexts();
+            let mut drv = state.editor.driver(font_cx, layout_cx);
             if word {
                 drv.backdelete_word();
             } else {
@@ -213,6 +341,9 @@ pub(crate) fn handle_key(
             HANDLED
         }
         Key::Delete => {
+            state.undo.begin(&state.editor, EditRun::Delete);
+            let (font_cx, layout_cx) = fonts.editor_contexts();
+            let mut drv = state.editor.driver(font_cx, layout_cx);
             if word {
                 drv.delete_word();
             } else {
@@ -240,7 +371,36 @@ fn sanitize(text: &str, multiline: bool) -> String {
 }
 
 /// Inserts committed text (typing or IME commit).
+/// Applies one undo step. Returns whether anything changed.
+pub(crate) fn undo(state: &mut EditorState, fonts: &mut Fonts) -> bool {
+    let Some(snap) = state.undo.undos.pop() else {
+        return false;
+    };
+    state.undo.redos.push(snapshot(&state.editor));
+    apply_snapshot(state, fonts, &snap);
+    true
+}
+
+/// Applies one redo step. Returns whether anything changed.
+pub(crate) fn redo(state: &mut EditorState, fonts: &mut Fonts) -> bool {
+    let Some(snap) = state.undo.redos.pop() else {
+        return false;
+    };
+    state.undo.undos.push(snapshot(&state.editor));
+    apply_snapshot(state, fonts, &snap);
+    true
+}
+
+fn apply_snapshot(state: &mut EditorState, fonts: &mut Fonts, snap: &Snapshot) {
+    state.editor.set_text(&snap.text);
+    let (font_cx, layout_cx) = fonts.editor_contexts();
+    let mut drv = state.editor.driver(font_cx, layout_cx);
+    drv.select_byte_range(snap.selection.0, snap.selection.1);
+    state.undo.break_run();
+}
+
 pub(crate) fn handle_text(state: &mut EditorState, fonts: &mut Fonts, text: &str) -> EditOutcome {
+    state.undo.begin(&state.editor, EditRun::Insert);
     let sanitized = sanitize(text, state.multiline);
     if sanitized.is_empty() {
         return IGNORED;
@@ -279,6 +439,7 @@ pub(crate) fn pointer_down(
     y: f64,
     shift: bool,
 ) {
+    state.undo.break_run();
     let (font_cx, layout_cx) = fonts.editor_contexts();
     let mut drv = state.editor.driver(font_cx, layout_cx);
     #[expect(clippy::cast_possible_truncation, reason = "text coords fit in f32")]
@@ -289,8 +450,27 @@ pub(crate) fn pointer_down(
     }
 }
 
+/// Selects the word at a pointer position (double-click).
+pub(crate) fn select_word_at(state: &mut EditorState, fonts: &mut Fonts, x: f64, y: f64) {
+    state.undo.break_run();
+    let (font_cx, layout_cx) = fonts.editor_contexts();
+    let mut drv = state.editor.driver(font_cx, layout_cx);
+    #[expect(clippy::cast_possible_truncation, reason = "text coords fit in f32")]
+    drv.select_word_at_point(x as f32, y as f32);
+}
+
+/// Selects the whole line at a pointer position (triple-click).
+pub(crate) fn select_line_at(state: &mut EditorState, fonts: &mut Fonts, x: f64, y: f64) {
+    state.undo.break_run();
+    let (font_cx, layout_cx) = fonts.editor_contexts();
+    let mut drv = state.editor.driver(font_cx, layout_cx);
+    #[expect(clippy::cast_possible_truncation, reason = "text coords fit in f32")]
+    drv.select_line_at_point(x as f32, y as f32);
+}
+
 /// Extends the selection during a drag.
 pub(crate) fn pointer_drag(state: &mut EditorState, fonts: &mut Fonts, x: f64, y: f64) {
+    state.undo.break_run();
     let (font_cx, layout_cx) = fonts.editor_contexts();
     let mut drv = state.editor.driver(font_cx, layout_cx);
     #[expect(clippy::cast_possible_truncation, reason = "text coords fit in f32")]

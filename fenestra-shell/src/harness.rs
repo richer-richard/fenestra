@@ -260,6 +260,37 @@ where
         self.click(q);
     }
 
+    /// Triple-clicks the matched node (text inputs select the line).
+    ///
+    /// # Panics
+    /// If the query matches zero or several nodes.
+    pub fn triple_click(&mut self, q: &Query) {
+        self.click(q);
+        self.click(q);
+        self.click(q);
+    }
+
+    /// Clicks with Shift held (text inputs extend the selection from
+    /// the caret to the click point).
+    ///
+    /// # Panics
+    /// If the query matches zero or several nodes.
+    pub fn shift_click(&mut self, q: &Query) {
+        self.input(InputEvent::Modifiers {
+            shift: true,
+            ctrl: false,
+            alt: false,
+            meta: false,
+        });
+        self.click(q);
+        self.input(InputEvent::Modifiers {
+            shift: false,
+            ctrl: false,
+            alt: false,
+            meta: false,
+        });
+    }
+
     /// Commits text to the focused element (like typing or IME commit).
     pub fn type_text(&mut self, text: impl Into<String>) {
         self.input(InputEvent::Text(text.into()));

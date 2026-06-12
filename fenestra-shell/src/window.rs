@@ -1060,7 +1060,20 @@ impl<A: App> AppRunner<A> {
                     w.request_redraw();
                 }
             }
-            WindowEvent::ModifiersChanged(mods) => self.modifiers = mods.state(),
+            WindowEvent::ModifiersChanged(mods) => {
+                self.modifiers = mods.state();
+                let m = self.modifiers;
+                self.secondary_input_main(
+                    key,
+                    event_loop,
+                    InputEvent::Modifiers {
+                        shift: m.shift_key(),
+                        ctrl: m.control_key(),
+                        alt: m.alt_key(),
+                        meta: m.super_key(),
+                    },
+                );
+            }
             WindowEvent::DroppedFile(path) => {
                 self.secondary_input_main(key, event_loop, InputEvent::FileDrop(path));
             }
@@ -1420,7 +1433,19 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                     w.request_redraw();
                 }
             }
-            WindowEvent::ModifiersChanged(mods) => self.modifiers = mods.state(),
+            WindowEvent::ModifiersChanged(mods) => {
+                self.modifiers = mods.state();
+                let m = self.modifiers;
+                self.input_main(
+                    event_loop,
+                    InputEvent::Modifiers {
+                        shift: m.shift_key(),
+                        ctrl: m.control_key(),
+                        alt: m.alt_key(),
+                        meta: m.super_key(),
+                    },
+                );
+            }
             WindowEvent::Occluded(occluded) => {
                 if !occluded && let Some(w) = self.shell.window() {
                     w.request_redraw();

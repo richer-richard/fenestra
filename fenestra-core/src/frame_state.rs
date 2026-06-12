@@ -57,6 +57,12 @@ pub struct FrameState {
     pub(crate) frame_no: u64,
     /// Last completed click (element, clock time), for double-click.
     pub(crate) last_click: Option<(WidgetId, f64)>,
+    /// Press-time click counting on inputs (word/line selection):
+    /// target, time, and how many presses in the chain (1..=3).
+    pub(crate) last_press: Option<(WidgetId, f64, u8)>,
+    /// Modifier keys as last reported by [`InputEvent::Modifiers`]:
+    /// (shift, ctrl, alt, meta).
+    pub(crate) mods: (bool, bool, bool, bool),
     /// The autofocus element and the frame it was last seen, so focus
     /// moves only when it newly appears.
     pub(crate) autofocus_last: Option<(WidgetId, u64)>,
@@ -88,6 +94,8 @@ impl Default for FrameState {
             clipboard: Box::new(MemoryClipboard::default()),
             frame_no: 0,
             last_click: None,
+            last_press: None,
+            mods: (false, false, false, false),
             autofocus_last: None,
             dragging: None,
             ime_caret: None,

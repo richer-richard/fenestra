@@ -37,6 +37,8 @@ pub enum SyntheticEvent {
     Tab,
     /// Focus previous.
     ShiftTab,
+    /// Modifier keys changed (shift, ctrl, alt, meta).
+    Modifiers(bool, bool, bool, bool),
 }
 
 impl From<&SyntheticEvent> for InputEvent {
@@ -53,6 +55,12 @@ impl From<&SyntheticEvent> for InputEvent {
             SyntheticEvent::Wheel { dy } => Self::Wheel { dy: *dy },
             SyntheticEvent::Tab => Self::Tab,
             SyntheticEvent::ShiftTab => Self::ShiftTab,
+            SyntheticEvent::Modifiers(shift, ctrl, alt, meta) => Self::Modifiers {
+                shift: *shift,
+                ctrl: *ctrl,
+                alt: *alt,
+                meta: *meta,
+            },
         }
     }
 }

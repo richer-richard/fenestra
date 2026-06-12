@@ -15,7 +15,8 @@
 //! ]}
 //! ```
 //!
-//! Verbs: `click`, `right_click`, `double_click`, `hover` (semantic
+//! Verbs: `click`, `right_click`, `double_click`, `triple_click`,
+//! `shift_click`, `hover` (semantic
 //! target inline); `type` (string); `key` (e.g. `"enter"`,
 //! `"cmd+z"`, `"ctrl+shift+a"`); `tab` / `shift_tab` (count);
 //! `wheel` `{target, dy}`; `drag` `{from, to}`; `drop_file`
@@ -76,6 +77,8 @@ enum Step {
     Click(QuerySpec),
     RightClick(QuerySpec),
     DoubleClick(QuerySpec),
+    TripleClick(QuerySpec),
+    ShiftClick(QuerySpec),
     Hover(QuerySpec),
     Type(String),
     Key(String),
@@ -265,6 +268,14 @@ where
             Step::DoubleClick(spec) => {
                 let q = target!(spec);
                 harness.double_click(&q);
+            }
+            Step::TripleClick(spec) => {
+                let q = target!(spec);
+                harness.triple_click(&q);
+            }
+            Step::ShiftClick(spec) => {
+                let q = target!(spec);
+                harness.shift_click(&q);
             }
             Step::Hover(spec) => {
                 let q = target!(spec);
