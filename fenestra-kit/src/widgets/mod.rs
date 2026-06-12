@@ -5,9 +5,12 @@
 mod button;
 mod checkbox;
 mod combobox;
+mod data_table;
 mod display;
 mod menu;
 mod overlay_widgets;
+mod palette;
+mod panes;
 mod radio;
 mod select;
 mod slider;
@@ -15,16 +18,20 @@ mod switch;
 mod text_area;
 mod text_input;
 mod toast;
+mod tree;
 mod virtual_list;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
 pub use checkbox::{Checkbox, checkbox};
 pub use combobox::{Combobox, combobox};
+pub use data_table::{DataTable, data_table};
 pub use display::{
     StatCard, Status, avatar, badge, callout, card, progress, spinner, stat_card, table, tabs,
 };
 pub use menu::{context_menu, dropdown_menu, menu, popover};
 pub use overlay_widgets::{Modal, modal, tooltip};
+pub use palette::{CommandPalette, command_palette};
+pub use panes::{SplitPane, split_pane};
 pub use radio::{Radio, radio};
 pub use select::{Select, select};
 pub use slider::{Slider, slider};
@@ -32,6 +39,7 @@ pub use switch::{Switch, switch};
 pub use text_area::{TextArea, text_area};
 pub use text_input::{TextInput, text_input};
 pub use toast::{ToastStack, toast_stack};
+pub use tree::{TreeNode, TreeView, tree_view};
 pub use virtual_list::virtual_list;
 
 /// Control heights shared by buttons and inputs, logical px.
