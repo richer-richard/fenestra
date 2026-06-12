@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           # Order matters: kit dev-depends on shell (golden tests), so
           # shell publishes before kit.
-          for crate in fenestra-core fenestra-charts fenestra-shell fenestra-kit fenestra; do
+          for crate in fenestra-core fenestra-shell fenestra-kit fenestra fenestra-charts; do
             version=$(cargo pkgid -p "$crate" | sed 's/.*[@#]//')
             if curl -sf -A "fenestra-release-ci" \
               "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
@@ -71,18 +71,39 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Provenance attestations: signed statements binding the .crate
+      # files to this repo, workflow, and commit (verify with
+      # `gh attestation verify <file> --repo <owner/repo>`).
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
-      - name: Create release if missing
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+        with:
+          toolchain: stable
+      - name: Package crates for attestation
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev pkg-config
+          for crate in fenestra-core fenestra-shell fenestra-kit fenestra fenestra-charts; do
+            cargo package -p "$crate" --no-verify
+          done
+      - name: Attest build provenance for the packaged crates
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4.1.0
+        with:
+          subject-path: target/package/*.crate
+      - name: Create release if missing and attach the crates
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME}"
           if gh release view "$tag" >/dev/null 2>&1; then
-            echo "release $tag already exists; skipping"
+            echo "release $tag already exists; skipping creation"
           else
             gh release create "$tag" --title "fenestra $tag" \
               --generate-notes \
               --notes "See [CHANGELOG.md](CHANGELOG.md) for details."
           fi
+          gh release upload "$tag" target/package/*.crate --clobber
