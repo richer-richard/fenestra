@@ -380,11 +380,8 @@ impl<Msg> Element<Msg> {
 
     /// Appends children. Anything convertible to an element works, so kit
     /// widget builders drop in next to `text()`/`div()` trees.
-    pub fn children<T: Into<Element<Msg>>>(
-        mut self,
-        children: impl IntoIterator<Item = T>,
-    ) -> Self {
-        self.children.extend(children.into_iter().map(Into::into));
+    pub fn children<M>(mut self, children: impl crate::IntoChildren<Msg, M>) -> Self {
+        self.children.extend(children.into_children());
         self
     }
 

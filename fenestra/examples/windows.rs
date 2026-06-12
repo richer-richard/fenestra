@@ -59,17 +59,15 @@ impl App for Fleet {
                     .rounded(R_MD)
                     .themed(|t: &Theme, s| s.bg(t.elevated_surface(1)).border(1.0, t.border_subtle))
                     .on_double_click(Msg::Inspect(i))
-                    .children([
+                    .children((
                         text(*name).weight(Weight::Medium).grow(),
                         text(format!("boost ×{}", self.boosts[i]))
                             .size(TextSize::Sm)
                             .themed(|t: &Theme, s| s.color(t.text_muted)),
-                        Element::from(
-                            button("Inspect")
-                                .variant(ButtonVariant::Secondary)
-                                .on_click(Msg::Inspect(i)),
-                        ),
-                    ])
+                        button("Inspect")
+                            .variant(ButtonVariant::Secondary)
+                            .on_click(Msg::Inspect(i)),
+                    ))
             })),
         ])
     }
@@ -98,7 +96,7 @@ impl App for Fleet {
             .filter(|&i| i < PROBES.len())
             .unwrap_or(0);
         let (name, blurb) = PROBES[i];
-        col().p(SP6).gap(SP4).children([
+        col().p(SP6).gap(SP4).children((
             text(name).size(TextSize::Xl).weight(Weight::Semibold),
             text(blurb).themed(|t: &Theme, s| s.color(t.text_muted)),
             text(format!("Signal boost: ×{}", self.boosts[i])),
@@ -108,7 +106,7 @@ impl App for Fleet {
                     .variant(ButtonVariant::Secondary)
                     .on_click(Msg::CloseInspector(i)),
             ]),
-        ])
+        ))
     }
 }
 
