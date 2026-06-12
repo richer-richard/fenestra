@@ -1,0 +1,12 @@
+---
+source: fenestra-core/tests/inspector.rs
+expression: stable
+---
+box (0,0 320x240)
+  text (8,8 304x24) text "Inbox"
+  input #draft (8,36 304x24) focusable textbox value="draft text"
+  box #actions (8,64 304x24)
+    box (8,64 60x24) focusable button "Send"
+    box (72,64 60x24) button "Discard"
+  box #log (8,92 304x40) scroll
+    box (8,92 304x200)

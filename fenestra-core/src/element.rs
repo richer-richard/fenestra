@@ -290,6 +290,10 @@ pub struct Element<Msg> {
     pub(crate) children: Vec<Element<Msg>>,
     /// User key for stable identity (`.id()`).
     pub(crate) key: Option<String>,
+    /// Where this element was constructed (file:line of the builder
+    /// call) — surfaced by `Frame::debug_tree` so dumps map back to
+    /// source. Captured via `#[track_caller]`, zero proc macros.
+    pub(crate) source: &'static std::panic::Location<'static>,
     /// Forces children of a z-stack into the same grid cell.
     pub(crate) stack: bool,
     pub(crate) focusable: bool,
@@ -330,12 +334,14 @@ pub struct Element<Msg> {
 }
 
 impl<Msg> Element<Msg> {
+    #[track_caller]
     fn new(kind: Kind) -> Self {
         Self {
             kind,
             style: Style::default(),
             children: Vec::new(),
             key: None,
+            source: std::panic::Location::caller(),
             stack: false,
             focusable: false,
             autofocus: false,
@@ -972,16 +978,19 @@ impl<Msg> Element<Msg> {
 }
 
 /// A plain container box (flex row by default, like taffy).
+#[track_caller]
 pub fn div<Msg>() -> Element<Msg> {
     Element::new(Kind::Box)
 }
 
 /// A flex row.
+#[track_caller]
 pub fn row<Msg>() -> Element<Msg> {
     Element::new(Kind::Box)
 }
 
 /// A flex column.
+#[track_caller]
 pub fn col<Msg>() -> Element<Msg> {
     let mut el = Element::new(Kind::Box);
     el.style.direction = crate::style::Direction::Column;
@@ -989,6 +998,7 @@ pub fn col<Msg>() -> Element<Msg> {
 }
 
 /// A z-stack: children occupy the same rect and paint in order.
+#[track_caller]
 pub fn stack<Msg>() -> Element<Msg> {
     let mut el = Element::new(Kind::Box);
     el.style.display = crate::style::Display::Grid;
@@ -997,17 +1007,20 @@ pub fn stack<Msg>() -> Element<Msg> {
 }
 
 /// A text run.
+#[track_caller]
 pub fn text<Msg>(content: impl Into<String>) -> Element<Msg> {
     Element::new(Kind::Text(content.into()))
 }
 
 /// Flexible empty space (flex grow 1).
+#[track_caller]
 pub fn spacer<Msg>() -> Element<Msg> {
     Element::new(Kind::Box).grow()
 }
 
 /// A horizontal hairline rule in `border_subtle`, 1px tall and full width.
 /// For a vertical rule, override with `.w(1.0)` and `.h_full()`.
+#[track_caller]
 pub fn divider<Msg>() -> Element<Msg> {
     Element::new(Kind::Divider).w_full().h(1.0).shrink0()
 }
@@ -1015,6 +1028,7 @@ pub fn divider<Msg>() -> Element<Msg> {
 /// A bare single-line text input leaf. Most apps want the styled
 /// `fenestra_kit` `text_input` instead; this is the primitive it wraps.
 /// Focusable, shows the text I-beam, and emits `on_input` per edit.
+#[track_caller]
 pub fn raw_input<Msg>(value: impl Into<String>, placeholder: impl Into<String>) -> Element<Msg> {
     Element::new(Kind::Input(InputData {
         value: value.into(),
@@ -1030,6 +1044,7 @@ pub fn raw_input<Msg>(value: impl Into<String>, placeholder: impl Into<String>) 
 /// with the wrapped content (constrain it with `.min_h`/`.max_h` plus an
 /// outer scroll container). Most apps want the styled `fenestra_kit`
 /// `text_area` instead; this is the primitive it wraps.
+#[track_caller]
 pub fn raw_text_area<Msg>(
     value: impl Into<String>,
     placeholder: impl Into<String>,
@@ -1049,6 +1064,7 @@ pub fn raw_text_area<Msg>(
 /// `.rounded_full()` crops a square source into a round avatar. If `pixels`
 /// holds fewer than `width * height` complete rows, the element shrinks to
 /// the rows actually provided instead of panicking.
+#[track_caller]
 pub fn image_rgba8<Msg>(width: u32, height: u32, mut pixels: Vec<u8>) -> Element<Msg> {
     let row = width as usize * 4;
     let rows = pixels
@@ -1076,6 +1092,7 @@ pub fn image_rgba8<Msg>(width: u32, height: u32, mut pixels: Vec<u8>) -> Element
 /// A vector path drawn in `viewbox` coordinates and scaled to the element
 /// rect (sized to the viewbox by default). `stroke` is a width in viewbox
 /// units; `None` fills instead. Painted in the resolved text color.
+#[track_caller]
 pub fn path<Msg>(bez: kurbo::BezPath, viewbox: (f64, f64), stroke: Option<f64>) -> Element<Msg> {
     #[expect(clippy::cast_possible_truncation, reason = "viewbox sizes are small")]
     Element::new(Kind::Path(PathData {
@@ -1117,6 +1134,7 @@ impl<Msg: 'static> Element<Msg> {
                 .map(|c| c.map(f.clone()))
                 .collect(),
             key: self.key,
+            source: self.source,
             stack: self.stack,
             focusable: self.focusable,
             autofocus: self.autofocus,

@@ -1,0 +1,10 @@
+---
+source: fenestra-core/tests/inspector.rs
+expression: frame.access_yaml()
+---
+- text "Inbox"
+- textbox [value="draft text"] #draft
+- generic #actions
+  - button "Send"
+  - button "Discard"
+- generic #log

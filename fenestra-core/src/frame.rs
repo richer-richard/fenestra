@@ -110,6 +110,8 @@ struct FrameNode {
         Option<String>,
         Option<String>,
     ),
+    /// Builder call site, for `debug_tree`.
+    source: &'static std::panic::Location<'static>,
     children: Vec<FrameNode>,
 }
 
@@ -184,6 +186,8 @@ struct BuiltNode {
         Option<String>,
         Option<String>,
     ),
+    /// Builder call site, for `debug_tree`.
+    source: &'static std::panic::Location<'static>,
     children: Vec<BuiltNode>,
 }
 
@@ -439,6 +443,7 @@ fn build<Msg>(
         spin: el.spin,
         stick_bottom: el.stick_bottom,
         access: (semantics, label, value, el.key.clone()),
+        source: el.source,
         children,
     }
 }
@@ -654,6 +659,7 @@ impl Realize<'_> {
             meta,
             spin: node.spin,
             access: node.access,
+            source: node.source,
             children,
         }
     }
@@ -1130,6 +1136,74 @@ impl Frame {
             root.children.push(project(&overlay.node));
         }
         root
+    }
+
+    /// A human- and agent-readable dump of the built frame: one line per
+    /// node — kind, `#key`, layout rect, flags (scroll/focusable/
+    /// disabled), semantics with label and value, and the builder call
+    /// site (`src=file:line`, captured via `#[track_caller]`). Open
+    /// overlays follow the root, marked `overlay`. The headless
+    /// equivalent of a visual-tree inspector; grep it.
+    pub fn debug_tree(&self) -> String {
+        fn fmt_rect(rect: Rect) -> String {
+            format!(
+                "({:.0},{:.0} {:.0}x{:.0})",
+                rect.x0,
+                rect.y0,
+                rect.width(),
+                rect.height()
+            )
+        }
+        fn emit(node: &FrameNode, depth: usize, tag: &str, out: &mut String) {
+            let kind = match &node.kind {
+                PaintKind::Box => "box",
+                PaintKind::Text { .. } => "text",
+                PaintKind::Path(_) => "path",
+                PaintKind::Input(_) => "input",
+                PaintKind::Image(_) => "image",
+            };
+            out.push_str(&"  ".repeat(depth));
+            out.push_str(kind);
+            let (semantics, label, value, key) = &node.access;
+            if let Some(key) = key {
+                out.push_str(&format!(" #{key}"));
+            }
+            out.push(' ');
+            out.push_str(&fmt_rect(node.rect));
+            if !tag.is_empty() {
+                out.push_str(&format!(" {tag}"));
+            }
+            if node.scroll.is_some() {
+                out.push_str(" scroll");
+            }
+            if node.meta.focusable {
+                out.push_str(" focusable");
+            }
+            if let Some(semantics) = semantics {
+                out.push_str(&format!(" {}", crate::query::role_name(semantics)));
+            }
+            if let Some(label) = label {
+                out.push_str(&format!(" {label:?}"));
+            }
+            if let Some(value) = value {
+                out.push_str(&format!(" value={value:?}"));
+            }
+            out.push_str(&format!(
+                " src={}:{}",
+                node.source.file(),
+                node.source.line()
+            ));
+            out.push('\n');
+            for child in &node.children {
+                emit(child, depth + 1, "", out);
+            }
+        }
+        let mut out = String::new();
+        emit(&self.root, 0, "", &mut out);
+        for overlay in &self.overlays {
+            emit(&overlay.node, 0, "overlay", &mut out);
+        }
+        out
     }
 
     /// The scrollable that keyboard paging should drive: the nearest
