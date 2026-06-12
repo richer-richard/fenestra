@@ -315,7 +315,7 @@ pub(crate) struct InputPaint {
 
 /// Paints an input's content (selection, text or placeholder, caret) inside
 /// `rect`, clipped, vertically centered, with horizontal follow-scroll.
-/// Returns `true` while the caret needs blink frames.
+/// Returns the focused caret rect (for IME positioning), if any.
 pub(crate) fn paint(
     scene: &mut Scene,
     fonts: &mut Fonts,
@@ -324,7 +324,7 @@ pub(crate) fn paint(
     rect: Rect,
     now: f64,
     reduced_motion: bool,
-) -> bool {
+) -> Option<Rect> {
     let content = Rect::new(rect.x0 + data.pad_x, rect.y0, rect.x1 - data.pad_x, rect.y1);
 
     // Multiline editors wrap to the content width (set before layout).
@@ -442,29 +442,33 @@ pub(crate) fn paint(
         }
     }
 
-    // The caret, blinking on a 530ms half-period.
-    let mut blinking = false;
+    // The caret, blinking on a 530ms half-period. The rect is computed
+    // whenever focused (even while blink-hidden) so the IME popup can
+    // anchor to it.
+    let mut caret_rect = None;
     if data.focused {
         let phase = ((now - state.last_activity).max(0.0) / BLINK_HALF_PERIOD) as u64;
         let visible = reduced_motion || phase.is_multiple_of(2);
-        blinking = !reduced_motion;
-        if visible && let Some(bb) = state.editor.cursor_geometry(1.0) {
+        if let Some(bb) = state.editor.cursor_geometry(1.0) {
             let caret = Rect::new(
                 (text_origin.0 + bb.x0 - CARET_WIDTH * 0.5).max(rect.x0),
                 text_origin.1 + bb.y0 + 1.0,
                 (text_origin.0 + bb.x0 + CARET_WIDTH * 0.5).max(rect.x0 + CARET_WIDTH),
                 text_origin.1 + bb.y1 - 1.0,
             );
-            scene.fill(
-                Fill::NonZero,
-                Affine::IDENTITY,
-                data.caret_color,
-                None,
-                &caret,
-            );
+            caret_rect = Some(caret);
+            if visible {
+                scene.fill(
+                    Fill::NonZero,
+                    Affine::IDENTITY,
+                    data.caret_color,
+                    None,
+                    &caret,
+                );
+            }
         }
     }
 
     scene.pop_layer();
-    blinking
+    caret_rect
 }

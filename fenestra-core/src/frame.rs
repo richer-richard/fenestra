@@ -966,6 +966,8 @@ impl Frame {
     /// Paints the frame into a fresh scene (logical coordinates). Needs the
     /// retained state for editor layouts and caret blink phase.
     pub fn paint(&self, fonts: &mut Fonts, state: &mut FrameState) -> Scene {
+        // Recomputed below when a focused editor paints its caret.
+        state.ime_caret = None;
         let mut scene = Scene::new();
         self.paint_node(&mut scene, fonts, state, &self.root);
         for overlay in &self.overlays {
@@ -1035,7 +1037,11 @@ impl Frame {
                 let now = state.now();
                 let reduced = state.reduced_motion;
                 if let Some(editor) = state.editors.get_mut(&node.id) {
-                    crate::input::paint(scene, fonts, editor, data, node.rect, now, reduced);
+                    let caret =
+                        crate::input::paint(scene, fonts, editor, data, node.rect, now, reduced);
+                    if caret.is_some() {
+                        state.ime_caret = caret;
+                    }
                 }
             }
             PaintKind::Image(data) => {

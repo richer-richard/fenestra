@@ -62,6 +62,9 @@ pub struct FrameState {
     pub(crate) autofocus_last: Option<(WidgetId, u64)>,
     /// In-flight internal drag payload (from `.drag_source`).
     pub(crate) dragging: Option<String>,
+    /// Caret rect of the focused editor from the last paint, in logical
+    /// coordinates — the runner positions the IME popup with it.
+    pub(crate) ime_caret: Option<kurbo::Rect>,
 }
 
 impl Default for FrameState {
@@ -84,6 +87,7 @@ impl Default for FrameState {
             last_click: None,
             autofocus_last: None,
             dragging: None,
+            ime_caret: None,
         }
     }
 }
@@ -167,6 +171,13 @@ impl FrameState {
     /// The persisted scroll offset for an id (0 when never scrolled).
     pub fn scroll_offset(&self, id: WidgetId) -> f32 {
         self.scroll.get(&id).map_or(0.0, |s| s.offset_y)
+    }
+
+    /// The focused editor's caret rect from the last paint (logical
+    /// coordinates); the windowed runner anchors the IME candidate window
+    /// to it.
+    pub fn ime_caret(&self) -> Option<kurbo::Rect> {
+        self.ime_caret
     }
 
     /// Sets a scrollable's offset absolutely (clamped to the content range

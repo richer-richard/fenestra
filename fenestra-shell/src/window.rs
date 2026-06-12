@@ -724,6 +724,15 @@ impl<A: App> AppRunner<A> {
             event_loop.set_control_flow(ControlFlow::Wait);
         }
         self.last = Some((view, frame));
+        // Anchor the IME candidate window to the focused caret.
+        if let Some(caret) = self.state.ime_caret()
+            && let Some(w) = self.shell.window()
+        {
+            w.set_ime_cursor_area(
+                winit::dpi::LogicalPosition::new(caret.x0, caret.y0),
+                winit::dpi::LogicalSize::new(1.0, caret.height()),
+            );
+        }
         #[cfg(not(target_arch = "wasm32"))]
         self.push_access_tree();
     }
