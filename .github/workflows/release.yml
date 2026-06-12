@@ -55,7 +55,7 @@ jobs:
           set -euo pipefail
           # Order matters: kit dev-depends on shell (golden tests), so
           # shell publishes before kit.
-          for crate in fenestra-core fenestra-shell fenestra-kit fenestra fenestra-charts; do
+          for crate in fenestra-core fenestra-shell fenestra-kit fenestra fenestra-charts fenestra-markdown; do
             version=$(cargo pkgid -p "$crate" | sed 's/.*[@#]//')
             if curl -sf -A "fenestra-release-ci" \
               "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
@@ -86,7 +86,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev pkg-config
-          for crate in fenestra-core fenestra-shell fenestra-kit fenestra fenestra-charts; do
+          for crate in fenestra-core fenestra-shell fenestra-kit fenestra fenestra-charts fenestra-markdown; do
             cargo package -p "$crate" --no-verify
           done
       - name: Attest build provenance for the packaged crates

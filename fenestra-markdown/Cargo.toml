@@ -1,0 +1,20 @@
+[package]
+name = "fenestra-markdown"
+description = "A markdown widget for the fenestra GUI framework — CommonMark rendered as native elements"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fenestra-core.workspace = true
+pulldown-cmark = { version = "0.13.4", default-features = false }
+
+[dev-dependencies]
+fenestra-shell.workspace = true
