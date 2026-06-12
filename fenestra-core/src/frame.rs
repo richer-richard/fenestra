@@ -1188,9 +1188,10 @@ impl Frame {
             if let Some(value) = value {
                 out.push_str(&format!(" value={value:?}"));
             }
+            // Normalized separators: dumps read the same on Windows.
             out.push_str(&format!(
                 " src={}:{}",
-                node.source.file(),
+                node.source.file().replace('\\', "/"),
                 node.source.line()
             ));
             out.push('\n');
