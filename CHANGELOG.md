@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.10.0 — 2026-06-13
+
+Performance honesty.
+
+### Added
+
+- **Variable-height virtualization**: `virtual_list_variable(count,
+  estimated_height, builder)` (kit) and `.virtual_rows_variable(..)`
+  (core) — rows place from a prefix-sum height index seeded with an
+  estimate; measured heights feed back so offsets, scrollbar geometry,
+  and the total self-correct as the user scrolls.
+- **Clean-frame memoization**: the windowed runner re-presents the
+  cached scene when nothing changed since the last paint (expose,
+  un-occlude, timer redraws) — idle apps cost ~zero CPU. Animation,
+  input, focus, resize, scale, and resume all invalidate; headless
+  paths never memoize, so goldens always exercise the full pipeline.
+- **Performance chapter** in the book; `BENCHMARKS.md` refreshed at
+  0.10.0.
+
+### Fixed
+
+- A programmatic `scroll_to` far past the end of a fixed-height
+  virtual list realizes the last page immediately instead of an empty
+  window for one frame.
+
+### Decided
+
+- Subtree scene caching is deferred until per-subtree resolve purity
+  can be tracked (stale pixels are the one failure mode a
+  verification-first framework cannot ship); vello sparse-strips
+  (`vello_cpu`/`vello_hybrid`) assessed as watch-don't-move with
+  explicit migrate-when conditions. Both in ARCHITECTURE.md.
+
+
 ## 0.9.0 — 2026-06-12
 
 Text grows up; looks arrive.

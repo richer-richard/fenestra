@@ -17,5 +17,6 @@
 - [Writing a widget crate](widget-crates.md)
 - [Accessibility](accessibility.md)
 - [Headless rendering and testing](headless.md)
+- [Performance](performance.md)
 - [The determinism contract](determinism.md)
 - [Trust and security](trust.md)

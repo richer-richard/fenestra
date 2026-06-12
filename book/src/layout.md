@@ -37,3 +37,13 @@ keeping scrollbar geometry exact. 100,000 rows cost ~0.09 ms per frame.
 Rows are keyed by index, so their retained state stays put while the
 window slides; handlers on rows dispatch normally. Constraints: fixed row
 height, no overlays inside rows.
+
+When row heights vary or are unknown,
+`virtual_list_variable(count, estimated_height, |i| row_element)` places
+rows from a prefix-sum height index seeded with your estimate; each
+realized row feeds its measured height back, so offsets, the scrollbar,
+and the total height self-correct as the user scrolls. Rows size
+themselves — give each a real height (or content that has one). The
+estimate only has to be in the right ballpark: it positions rows the
+first time they appear, before measurement corrects them. See the
+[performance chapter](performance.md) for the convergence model.
