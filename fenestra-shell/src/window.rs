@@ -732,6 +732,8 @@ where
         adapter: None,
         #[cfg(not(target_arch = "wasm32"))]
         proxy: access_proxy,
+        #[cfg(not(target_arch = "wasm32"))]
+        secondary: std::collections::HashMap::new(),
     };
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -765,6 +767,23 @@ struct AppRunner<A: App> {
     /// Loop proxy handed to the adapter for activation/action events.
     #[cfg(not(target_arch = "wasm32"))]
     proxy: EventLoopProxy<RunnerEvent>,
+    /// Secondary windows declared by [`App::windows`], keyed by their
+    /// stable key and reconciled after every update (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    secondary: std::collections::HashMap<String, SecondaryWindow<A>>,
+}
+
+/// One reconciled secondary window: its own surface, retained state, and
+/// accessibility adapter; app state and fonts are shared.
+#[cfg(not(target_arch = "wasm32"))]
+struct SecondaryWindow<A: App> {
+    shell: WindowShell,
+    state: FrameState,
+    cursor: Point,
+    last: Option<(Element<A::Msg>, fenestra_core::Frame)>,
+    on_close: A::Msg,
+    title: String,
+    adapter: Option<accesskit_winit::Adapter>,
 }
 
 impl<A: App> AppRunner<A> {
@@ -776,7 +795,7 @@ impl<A: App> AppRunner<A> {
         let theme = self.app.theme();
         self.shell.background = theme.bg;
         self.state.tick(self.started.elapsed().as_secs_f64());
-        let view = self.app.view();
+        let view = self.app.view_for(fenestra_core::MAIN_WINDOW);
         #[expect(clippy::cast_possible_truncation, reason = "window sizes fit in f32")]
         let frame = build_frame(
             &view,
@@ -806,7 +825,16 @@ impl<A: App> AppRunner<A> {
                 w.request_redraw();
             }
         } else {
-            event_loop.set_control_flow(ControlFlow::Wait);
+            #[cfg(not(target_arch = "wasm32"))]
+            let secondary_animating = self
+                .secondary
+                .values()
+                .any(|b| b.last.as_ref().is_some_and(|(_, f)| f.animating));
+            #[cfg(target_arch = "wasm32")]
+            let secondary_animating = false;
+            if !secondary_animating {
+                event_loop.set_control_flow(ControlFlow::Wait);
+            }
         }
         self.last = Some((view, frame));
         // Anchor the IME candidate window to the focused caret.
@@ -835,9 +863,9 @@ impl<A: App> AppRunner<A> {
         }
     }
 
-    fn input(&mut self, event: InputEvent) {
+    fn input(&mut self, event: InputEvent) -> bool {
         let Some((view, frame)) = &self.last else {
-            return;
+            return false;
         };
         let result = dispatch(view, frame, &mut self.state, &mut self.fonts, event);
         if let Some(cursor) = result.cursor
@@ -854,6 +882,307 @@ impl<A: App> AppRunner<A> {
         {
             w.request_redraw();
         }
+        had_msgs
+    }
+
+    /// Routes one input event into the main window, reconciling windows
+    /// afterwards if it produced messages.
+    fn input_main(&mut self, event_loop: &ActiveEventLoop, event: InputEvent) {
+        if self.input(event) {
+            self.after_update(event_loop);
+        }
+    }
+
+    /// Routes one input event into a secondary window, reconciling
+    /// windows afterwards if it produced messages.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn secondary_input_main(&mut self, key: &str, event_loop: &ActiveEventLoop, event: InputEvent) {
+        if self.secondary_input(key, event) {
+            self.after_update(event_loop);
+        }
+    }
+
+    /// Reconciles secondary windows against [`App::windows`] and asks
+    /// every window for a repaint — called whenever messages were applied.
+    fn after_update(&mut self, event_loop: &ActiveEventLoop) {
+        #[cfg(not(target_arch = "wasm32"))]
+        self.reconcile_windows(event_loop);
+        #[cfg(target_arch = "wasm32")]
+        let _ = event_loop;
+        if let Some(w) = self.shell.window() {
+            w.request_redraw();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        for bundle in self.secondary.values() {
+            if let Some(w) = bundle.shell.window() {
+                w.request_redraw();
+            }
+        }
+    }
+
+    /// Opens, closes, and retitles secondary windows to match the app's
+    /// declared list.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reconcile_windows(&mut self, event_loop: &ActiveEventLoop) {
+        let desired = self.app.windows();
+        self.secondary
+            .retain(|key, _| desired.iter().any(|d| &d.key == key));
+        for desc in desired {
+            match self.secondary.get_mut(&desc.key) {
+                Some(bundle) => {
+                    bundle.on_close = desc.on_close;
+                    if bundle.title != desc.title {
+                        bundle.title.clone_from(&desc.title);
+                        if let Some(w) = bundle.shell.window() {
+                            w.set_title(&desc.title);
+                        }
+                    }
+                }
+                None => {
+                    let mut shell = WindowShell::new(
+                        WindowOptions::titled(desc.title.clone())
+                            .with_size(desc.size.0, desc.size.1),
+                        self.shell.background,
+                    );
+                    let proxy = self.proxy.clone();
+                    let mut adapter = None;
+                    shell.resumed_with(event_loop, |el, window| {
+                        adapter = Some(accesskit_winit::Adapter::with_event_loop_proxy(
+                            el, window, proxy,
+                        ));
+                    });
+                    if let Some(w) = shell.window() {
+                        w.set_ime_allowed(true);
+                        w.request_redraw();
+                    }
+                    let mut state = FrameState::new();
+                    state.set_clipboard(Box::new(crate::OsClipboard::default()));
+                    self.secondary.insert(
+                        desc.key.clone(),
+                        SecondaryWindow {
+                            shell,
+                            state,
+                            cursor: Point::ORIGIN,
+                            last: None,
+                            on_close: desc.on_close,
+                            title: desc.title,
+                            adapter,
+                        },
+                    );
+                }
+            }
+        }
+    }
+
+    /// Redraws one secondary window: the same pipeline as the main one,
+    /// against its own retained state and `view_for(key)`.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn secondary_redraw(&mut self, key: &str, event_loop: &ActiveEventLoop) {
+        let theme = self.app.theme();
+        let now = self.started.elapsed().as_secs_f64();
+        let Some(bundle) = self.secondary.get_mut(key) else {
+            return;
+        };
+        bundle.shell.pump();
+        let Some((lw, lh, scale)) = bundle.shell.logical_size() else {
+            return;
+        };
+        bundle.shell.background = theme.bg;
+        bundle.state.tick(now);
+        let view = self.app.view_for(key);
+        #[expect(clippy::cast_possible_truncation, reason = "window sizes fit in f32")]
+        let frame = build_frame(
+            &view,
+            &theme,
+            &mut self.fonts,
+            &mut bundle.state,
+            (lw as f32, lh as f32),
+            scale,
+        );
+        let scene = frame.paint(&mut self.fonts, &mut bundle.state);
+        bundle.shell.present(&scene);
+        if refresh_hover(&view, &frame, &mut bundle.state)
+            && let Some(w) = bundle.shell.window()
+        {
+            w.request_redraw();
+        }
+        if frame.animating {
+            event_loop.set_control_flow(ControlFlow::WaitUntil(
+                Instant::now() + Duration::from_millis(16),
+            ));
+        }
+        if let Some(caret) = bundle.state.ime_caret()
+            && let Some(w) = bundle.shell.window()
+        {
+            w.set_ime_cursor_area(
+                winit::dpi::LogicalPosition::new(caret.x0, caret.y0),
+                winit::dpi::LogicalSize::new(1.0, caret.height()),
+            );
+        }
+        bundle.last = Some((view, frame));
+        let focus = bundle.state.focused();
+        if let Some(adapter) = &mut bundle.adapter
+            && let Some((_, frame)) = &bundle.last
+        {
+            adapter.update_if_active(|| crate::access::tree_update(frame, focus, scale));
+        }
+    }
+
+    /// The full event handler for one secondary window — the same arms as
+    /// the main window, against the bundle's own surface and state.
+    #[cfg(not(target_arch = "wasm32"))]
+    fn secondary_window_event(
+        &mut self,
+        key: &str,
+        event_loop: &ActiveEventLoop,
+        event: WindowEvent,
+    ) {
+        if let Some(bundle) = self.secondary.get_mut(key)
+            && let Some(window) = bundle.shell.window()
+            && let Some(adapter) = &mut bundle.adapter
+        {
+            adapter.process_event(window, &event);
+        }
+        match event {
+            WindowEvent::CloseRequested => {
+                if let Some(msg) = self.secondary.get(key).map(|b| b.on_close.clone()) {
+                    self.app.update(msg);
+                    self.after_update(event_loop);
+                }
+            }
+            WindowEvent::Resized(size) => {
+                if let Some(bundle) = self.secondary.get_mut(key) {
+                    bundle.shell.resized(size.width, size.height);
+                }
+            }
+            WindowEvent::ScaleFactorChanged { .. } | WindowEvent::Occluded(false) => {
+                if let Some(w) = self.secondary.get(key).and_then(|b| b.shell.window()) {
+                    w.request_redraw();
+                }
+            }
+            WindowEvent::ModifiersChanged(mods) => self.modifiers = mods.state(),
+            WindowEvent::DroppedFile(path) => {
+                self.secondary_input_main(key, event_loop, InputEvent::FileDrop(path));
+            }
+            WindowEvent::CursorLeft { .. } => {
+                self.secondary_input_main(key, event_loop, InputEvent::PointerLeave);
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                let Some(bundle) = self.secondary.get_mut(key) else {
+                    return;
+                };
+                let scale = bundle.shell.window().map_or(1.0, |w| w.scale_factor());
+                bundle.cursor = Point::new(position.x / scale, position.y / scale);
+                #[expect(clippy::cast_possible_truncation, reason = "positions fit in f32")]
+                let (x, y) = (bundle.cursor.x as f32, bundle.cursor.y as f32);
+                self.secondary_input_main(key, event_loop, InputEvent::PointerMove { x, y });
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: winit::event::MouseButton::Left,
+                ..
+            } => {
+                self.secondary_input_main(
+                    key,
+                    event_loop,
+                    match state {
+                        winit::event::ElementState::Pressed => InputEvent::PointerDown,
+                        winit::event::ElementState::Released => InputEvent::PointerUp,
+                    },
+                );
+            }
+            WindowEvent::MouseInput {
+                state,
+                button: winit::event::MouseButton::Right,
+                ..
+            } => {
+                self.secondary_input_main(
+                    key,
+                    event_loop,
+                    match state {
+                        winit::event::ElementState::Pressed => InputEvent::RightDown,
+                        winit::event::ElementState::Released => InputEvent::RightUp,
+                    },
+                );
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                let dy = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => f64::from(y) * LINE_SCROLL_PX,
+                    MouseScrollDelta::PixelDelta(pos) => {
+                        let scale = self
+                            .secondary
+                            .get(key)
+                            .and_then(|b| b.shell.window())
+                            .map_or(1.0, |w| w.scale_factor());
+                        pos.y / scale
+                    }
+                };
+                #[expect(clippy::cast_possible_truncation, reason = "deltas fit in f32")]
+                self.secondary_input_main(key, event_loop, InputEvent::Wheel { dy: dy as f32 });
+            }
+            WindowEvent::KeyboardInput { event, .. }
+                if event.state == winit::event::ElementState::Pressed =>
+            {
+                let mods = self.modifiers;
+                let printable = !mods.control_key()
+                    && !mods.super_key()
+                    && event
+                        .text
+                        .as_ref()
+                        .is_some_and(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()));
+                if printable {
+                    if let Some(t) = &event.text {
+                        self.secondary_input_main(key, event_loop, InputEvent::Text(t.to_string()));
+                    }
+                } else if let Some(input) = map_key(&event, mods) {
+                    self.secondary_input_main(key, event_loop, input);
+                }
+            }
+            WindowEvent::Ime(ime) => match ime {
+                winit::event::Ime::Preedit(text, cursor) => {
+                    self.secondary_input_main(
+                        key,
+                        event_loop,
+                        InputEvent::ImePreedit { text, cursor },
+                    );
+                }
+                winit::event::Ime::Commit(text) => {
+                    self.secondary_input_main(key, event_loop, InputEvent::Text(text));
+                }
+                winit::event::Ime::Enabled | winit::event::Ime::Disabled => {}
+            },
+            WindowEvent::RedrawRequested => self.secondary_redraw(key, event_loop),
+            _ => {}
+        }
+    }
+
+    /// Dispatches one input event against a secondary window. Returns
+    /// whether messages were applied (the caller then reconciles).
+    #[cfg(not(target_arch = "wasm32"))]
+    fn secondary_input(&mut self, key: &str, event: InputEvent) -> bool {
+        let Some(bundle) = self.secondary.get_mut(key) else {
+            return false;
+        };
+        let Some((view, frame)) = &bundle.last else {
+            return false;
+        };
+        let result = dispatch(view, frame, &mut bundle.state, &mut self.fonts, event);
+        if let Some(cursor) = result.cursor
+            && let Some(w) = bundle.shell.window()
+        {
+            w.set_cursor(winit::window::Cursor::Icon(map_cursor(cursor)));
+        }
+        let had_msgs = !result.msgs.is_empty();
+        if (result.redraw || had_msgs)
+            && let Some(w) = bundle.shell.window()
+        {
+            w.request_redraw();
+        }
+        let msgs = result.msgs;
+        for msg in msgs {
+            self.app.update(msg);
+        }
+        had_msgs
     }
 }
 
@@ -924,6 +1253,10 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         if let Some(w) = self.shell.window() {
             w.set_ime_allowed(true);
         }
+        for bundle in self.secondary.values_mut() {
+            bundle.shell.resumed(event_loop);
+        }
+        self.reconcile_windows(event_loop);
     }
 
     #[cfg(target_arch = "wasm32")]
@@ -934,62 +1267,124 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         }
     }
 
-    fn user_event(&mut self, _event_loop: &ActiveEventLoop, event: RunnerEvent) {
+    fn user_event(&mut self, event_loop: &ActiveEventLoop, event: RunnerEvent) {
         match event {
             RunnerEvent::App(msg) => {
                 if let Ok(msg) = msg.downcast::<A::Msg>() {
                     self.app.update(*msg);
-                    if let Some(w) = self.shell.window() {
-                        w.request_redraw();
-                    }
+                    self.after_update(event_loop);
                 }
             }
             #[cfg(not(target_arch = "wasm32"))]
-            RunnerEvent::Access(ev) => match ev.window_event {
-                accesskit_winit::WindowEvent::InitialTreeRequested => {
-                    if self.last.is_some() {
-                        self.push_access_tree();
-                    } else if let Some(w) = self.shell.window() {
-                        w.request_redraw();
-                    }
+            RunnerEvent::Access(ev) => {
+                // Route by window id: `None` is the main window, `Some(key)`
+                // a secondary one; unknown ids are stale events.
+                let is_main = self.shell.window().is_some_and(|w| w.id() == ev.window_id);
+                let skey = (!is_main)
+                    .then(|| {
+                        self.secondary
+                            .iter()
+                            .find(|(_, b)| b.shell.window().is_some_and(|w| w.id() == ev.window_id))
+                            .map(|(k, _)| k.clone())
+                    })
+                    .flatten();
+                if !is_main && skey.is_none() {
+                    return;
                 }
-                accesskit_winit::WindowEvent::ActionRequested(req) => {
-                    let id = fenestra_core::WidgetId(req.target_node.0);
-                    match req.action {
-                        accesskit::Action::Click => {
-                            if let Some((view, frame)) = &self.last
-                                && let Some(msg) =
-                                    fenestra_core::click_msg_of(view, frame, &self.state, id)
-                            {
-                                self.app.update(msg);
-                                if let Some(w) = self.shell.window() {
+                match ev.window_event {
+                    accesskit_winit::WindowEvent::InitialTreeRequested => match &skey {
+                        None => {
+                            if self.last.is_some() {
+                                self.push_access_tree();
+                            } else if let Some(w) = self.shell.window() {
+                                w.request_redraw();
+                            }
+                        }
+                        Some(key) => {
+                            if let Some(bundle) = self.secondary.get_mut(key) {
+                                let scale = bundle.shell.window().map_or(1.0, |w| w.scale_factor());
+                                let focus = bundle.state.focused();
+                                if let Some((_, frame)) = &bundle.last {
+                                    if let Some(adapter) = &mut bundle.adapter {
+                                        adapter.update_if_active(|| {
+                                            crate::access::tree_update(frame, focus, scale)
+                                        });
+                                    }
+                                } else if let Some(w) = bundle.shell.window() {
                                     w.request_redraw();
                                 }
                             }
                         }
-                        accesskit::Action::Focus => {
-                            self.state.set_focus(Some(id));
-                            if let Some(w) = self.shell.window() {
-                                w.request_redraw();
+                    },
+                    accesskit_winit::WindowEvent::ActionRequested(req) => {
+                        let id = fenestra_core::WidgetId(req.target_node.0);
+                        match req.action {
+                            accesskit::Action::Click => {
+                                let msg = match &skey {
+                                    None => self.last.as_ref().and_then(|(view, frame)| {
+                                        fenestra_core::click_msg_of(view, frame, &self.state, id)
+                                    }),
+                                    Some(key) => self.secondary.get(key).and_then(|bundle| {
+                                        bundle.last.as_ref().and_then(|(view, frame)| {
+                                            fenestra_core::click_msg_of(
+                                                view,
+                                                frame,
+                                                &bundle.state,
+                                                id,
+                                            )
+                                        })
+                                    }),
+                                };
+                                if let Some(msg) = msg {
+                                    self.app.update(msg);
+                                    self.after_update(event_loop);
+                                }
                             }
+                            accesskit::Action::Focus => match &skey {
+                                None => {
+                                    self.state.set_focus(Some(id));
+                                    if let Some(w) = self.shell.window() {
+                                        w.request_redraw();
+                                    }
+                                }
+                                Some(key) => {
+                                    if let Some(bundle) = self.secondary.get_mut(key) {
+                                        bundle.state.set_focus(Some(id));
+                                        if let Some(w) = bundle.shell.window() {
+                                            w.request_redraw();
+                                        }
+                                    }
+                                }
+                            },
+                            _ => {}
                         }
-                        _ => {}
                     }
+                    accesskit_winit::WindowEvent::AccessibilityDeactivated => {}
                 }
-                accesskit_winit::WindowEvent::AccessibilityDeactivated => {}
-            },
+            }
         }
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
         self.shell.suspended();
+        #[cfg(not(target_arch = "wasm32"))]
+        for bundle in self.secondary.values_mut() {
+            bundle.shell.suspended();
+        }
     }
 
     fn new_events(&mut self, _event_loop: &ActiveEventLoop, cause: StartCause) {
-        if matches!(cause, StartCause::ResumeTimeReached { .. })
-            && let Some(w) = self.shell.window()
-        {
+        if !matches!(cause, StartCause::ResumeTimeReached { .. }) {
+            return;
+        }
+        if let Some(w) = self.shell.window() {
             w.request_redraw();
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        for bundle in self.secondary.values() {
+            if let Some(w) = bundle.shell.window() {
+                w.request_redraw();
+            }
         }
     }
 
@@ -1000,6 +1395,15 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         event: WindowEvent,
     ) {
         if self.shell.window().is_none_or(|w| w.id() != window_id) {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some(key) = self
+                .secondary
+                .iter()
+                .find(|(_, b)| b.shell.window().is_some_and(|w| w.id() == window_id))
+                .map(|(k, _)| k.clone())
+            {
+                self.secondary_window_event(&key, event_loop, event);
+            }
             return;
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -1022,36 +1426,47 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                     w.request_redraw();
                 }
             }
-            WindowEvent::DroppedFile(path) => self.input(InputEvent::FileDrop(path)),
-            WindowEvent::CursorLeft { .. } => self.input(InputEvent::PointerLeave),
+            WindowEvent::DroppedFile(path) => {
+                self.input_main(event_loop, InputEvent::FileDrop(path))
+            }
+            WindowEvent::CursorLeft { .. } => self.input_main(event_loop, InputEvent::PointerLeave),
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
                 self.cursor = Point::new(position.x / scale, position.y / scale);
                 #[expect(clippy::cast_possible_truncation, reason = "positions fit in f32")]
-                self.input(InputEvent::PointerMove {
-                    x: self.cursor.x as f32,
-                    y: self.cursor.y as f32,
-                });
+                self.input_main(
+                    event_loop,
+                    InputEvent::PointerMove {
+                        x: self.cursor.x as f32,
+                        y: self.cursor.y as f32,
+                    },
+                );
             }
             WindowEvent::MouseInput {
                 state,
                 button: winit::event::MouseButton::Left,
                 ..
             } => {
-                self.input(match state {
-                    winit::event::ElementState::Pressed => InputEvent::PointerDown,
-                    winit::event::ElementState::Released => InputEvent::PointerUp,
-                });
+                self.input_main(
+                    event_loop,
+                    match state {
+                        winit::event::ElementState::Pressed => InputEvent::PointerDown,
+                        winit::event::ElementState::Released => InputEvent::PointerUp,
+                    },
+                );
             }
             WindowEvent::MouseInput {
                 state,
                 button: winit::event::MouseButton::Right,
                 ..
             } => {
-                self.input(match state {
-                    winit::event::ElementState::Pressed => InputEvent::RightDown,
-                    winit::event::ElementState::Released => InputEvent::RightUp,
-                });
+                self.input_main(
+                    event_loop,
+                    match state {
+                        winit::event::ElementState::Pressed => InputEvent::RightDown,
+                        winit::event::ElementState::Released => InputEvent::RightUp,
+                    },
+                );
             }
             WindowEvent::MouseWheel { delta, .. } => {
                 let dy = match delta {
@@ -1062,7 +1477,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                     }
                 };
                 #[expect(clippy::cast_possible_truncation, reason = "deltas fit in f32")]
-                self.input(InputEvent::Wheel { dy: dy as f32 });
+                self.input_main(event_loop, InputEvent::Wheel { dy: dy as f32 });
             }
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == winit::event::ElementState::Pressed =>
@@ -1079,19 +1494,19 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                             .is_some_and(|t| !t.is_empty() && t.chars().all(|c| !c.is_control()));
                     if printable {
                         if let Some(t) = &event.text {
-                            self.input(InputEvent::Text(t.to_string()));
+                            self.input_main(event_loop, InputEvent::Text(t.to_string()));
                         }
                     } else if let Some(input) = map_key(&event, mods) {
-                        self.input(input);
+                        self.input_main(event_loop, input);
                     }
                 }
             }
             WindowEvent::Ime(ime) => match ime {
                 winit::event::Ime::Preedit(text, cursor) => {
-                    self.input(InputEvent::ImePreedit { text, cursor });
+                    self.input_main(event_loop, InputEvent::ImePreedit { text, cursor });
                 }
                 winit::event::Ime::Commit(text) => {
-                    self.input(InputEvent::Text(text));
+                    self.input_main(event_loop, InputEvent::Text(text));
                 }
                 winit::event::Ime::Enabled | winit::event::Ime::Disabled => {}
             },

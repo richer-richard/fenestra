@@ -21,7 +21,7 @@ mod text;
 mod theme;
 mod tokens;
 
-pub use app::App;
+pub use app::{App, MAIN_WINDOW, WindowDesc};
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
     Cursor, Element, ImageData, InputData, Kind, Overlay, OverlayMode, OverlayPlacement, PathData,

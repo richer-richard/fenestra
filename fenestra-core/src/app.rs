@@ -4,6 +4,40 @@ use crate::element::Element;
 use crate::proxy::Proxy;
 use crate::theme::Theme;
 
+/// A secondary window the app wants open: presence in
+/// [`App::windows`]'s list opens it, removal closes it (exactly like
+/// modal state). The OS close button emits `on_close` — remove the desc
+/// in `update` to actually close.
+#[derive(Debug, Clone)]
+pub struct WindowDesc<Msg> {
+    /// Stable identity: per-window state (focus, scroll, editors) keys
+    /// off it, and [`App::view_for`] receives it.
+    pub key: String,
+    /// Window title (live-updated when it changes).
+    pub title: String,
+    /// Inner size in logical pixels, applied at open.
+    pub size: (f64, f64),
+    /// Emitted when the user closes the window via the OS.
+    pub on_close: Msg,
+}
+
+impl<Msg> WindowDesc<Msg> {
+    /// A window description.
+    pub fn new(
+        key: impl Into<String>,
+        title: impl Into<String>,
+        size: (f64, f64),
+        on_close: Msg,
+    ) -> Self {
+        Self {
+            key: key.into(),
+            title: title.into(),
+            size,
+            on_close,
+        }
+    }
+}
+
 /// An application: state, a pure view of it, and a message-driven update.
 ///
 /// ```
@@ -58,4 +92,23 @@ pub trait App {
     fn theme(&self) -> Theme {
         Theme::light()
     }
+
+    /// Secondary windows to keep open, reconciled after every update:
+    /// new keys open, missing keys close, changed titles apply. The
+    /// default is none — single-window apps never see this API.
+    /// (Native only; the web runner ignores secondary windows.)
+    fn windows(&self) -> Vec<WindowDesc<Self::Msg>> {
+        Vec::new()
+    }
+
+    /// The view for one window: `view_for("main")` is the main window,
+    /// other keys come from [`Self::windows`]. Defaults to [`Self::view`]
+    /// everywhere, so single-window apps only implement `view`.
+    fn view_for(&self, key: &str) -> Element<Self::Msg> {
+        let _ = key;
+        self.view()
+    }
 }
+
+/// The key [`App::view_for`] receives for the main window.
+pub const MAIN_WINDOW: &str = "main";
