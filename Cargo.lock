@@ -854,7 +854,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fenestra-core",
  "fenestra-kit",
@@ -866,7 +866,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-core"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "color",
  "fontique",
@@ -882,7 +882,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-kit"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "fenestra-core",
  "fenestra-shell",
@@ -893,7 +893,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-shell"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",

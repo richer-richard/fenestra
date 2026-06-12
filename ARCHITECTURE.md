@@ -410,26 +410,56 @@ fix below is locked by a regression test in the crate's `tests/hardening.rs`
   hidden for one frame). Screen-reader text editing and live regions are
   out of scope this release.
 
-## Multi-window: design (not yet implemented)
+## 0.4: apps feel native
 
-Declarative windows, Elm-pure, mirroring how modals already work:
-
-- `App` gains `fn windows(&self) -> Vec<WindowDesc>` (default: one main
-  window from `WindowOptions`). `WindowDesc { key: String, title, size }`
-  — presence in the list means open, removal means close, exactly like
-  toast/modal state.
-- `view` gains a per-window form: `fn view_for(&self, key: &str) ->
-  Element<Msg>` with `view()` delegating for the main window, so
-  single-window apps never see the API.
-- The runner reconciles winit windows against the list after every
-  update (open/close/title), holding one `WindowShell` + `FrameState`
-  per key; input dispatch and accessibility trees stay per-window, app
-  state stays shared. Proxied messages repaint every open window.
-- Constraints to decide at implementation time: per-window themes (the
-  current `theme(&self)` is global), focus across windows (winit reports
-  per-window focus; `state.focus` is per-FrameState already), and
-  whether `render_app` should grow a multi-window headless form.
-
-The design is additive (defaults preserve today's API). Tracked as a
-help-wanted issue; the windowed runner refactor (RunnerEvent, per-shell
-plumbing) from the WASM port already isolates most of what it touches.
+- **Input depth rides the existing dispatch, no new systems.**
+  Right-click is two events (`RightDown`/`RightUp`) resolved to the
+  deepest enabled `.on_right_click` in the hit chain. Double-click is
+  detected in `FrameState` (same target twice within 0.4 s); both single
+  clicks still fire, so selection-then-open composes. PageUp/PageDown/
+  Home/End scroll the container nearest the focused element by 90%
+  viewport pages — but only when the focused element didn't consume the
+  key, so text inputs keep Home/End for the caret.
+- **Drag-and-drop is payload strings, not a type system.** Sources carry
+  `.drag_source("payload")`; `PointerDown` records the payload in
+  `FrameState::dragging`, `PointerUp` over an `.on_drop` target delivers
+  it. OS file drops hit-test at the last pointer position, falling back
+  to the first `.on_file_drop` in tree order because some platforms
+  report drops with no position.
+- **`.autofocus()` is newly-appearing, not always.** The frame records
+  which autofocus id it saw last; focus moves only when the id differs
+  or skipped a frame — so a dialog's field focuses on open without
+  stealing focus on every rebuild.
+- **Sticky scroll is a cleared flag, not a position check.** A
+  `.stick_to_bottom()` container records "was at bottom" in its scroll
+  entry; the per-frame clamp re-pins while the flag holds, and every
+  manual setter (`scroll_to`, `scroll_by`) clears it. New entries start
+  pinned so chat logs open at their tail.
+- **IME positioning is paint-derived.** The input painter returns the
+  caret rect (even mid-blink); the frame stores it in `FrameState`, and
+  the runner calls `set_ime_cursor_area` after present — the candidate
+  window tracks the caret with no extra layout pass.
+- **Context menus pin at the pointer.** `OverlayPlacement::Pointer{gap}`
+  captures the pointer position into `FrameState::pointer_pins` when the
+  overlay opens and reuses it until close — the menu must not follow the
+  mouse. `Overlay::context()` = app-driven open, pointer placement, no
+  backdrop. Kit: `menu` (styled panel) composed into `dropdown_menu`,
+  `context_menu`, `popover`, and `combobox` (text input + filtered
+  listbox, Elm-pure: the app owns value and open flag).
+- **Multi-window is reconciliation, exactly like modals.** `App::windows`
+  declares the open set (`WindowDesc {key, title, size, on_close}`);
+  after every update the runner opens new keys, closes missing ones, and
+  retitles live. Each `SecondaryWindow` bundles its own `WindowShell`,
+  `FrameState`, cursor, last frame, and AccessKit adapter; app state and
+  fonts stay shared. Every event handler routes by `window_id` (input,
+  IME, wheel, file drop, redraw, access actions); animation timers wake
+  every window, and the main window's idle `Wait` defers to any
+  animating secondary. The OS close button only emits `on_close` — apps
+  decide (confirm/veto) by keeping or removing the desc. Native only:
+  the web runner ignores `windows()`. `view_for(key)` defaults to
+  `view()`, so single-window apps never see any of it.
+- **Window polish lives in `WindowOptions`.** `with_min_size`,
+  `with_resizable`, `maximized`, `fullscreen` (borderless), `with_icon`
+  (RGBA8; malformed data opens without an icon, never panics), and
+  `with_font` — per-window custom faces registered on the system font
+  stack, closing the "windowed custom fonts" gap (#9).

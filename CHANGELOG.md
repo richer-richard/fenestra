@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.4.0 — 2026-06-12
+
+Apps feel native.
+
+### Added
+
+- **Multi-window** (#10): `App::windows()` declares the open set as
+  `WindowDesc {key, title, size, on_close}` — new keys open, removed
+  keys close, titles live-update, exactly like modal state.
+  `App::view_for(key)` routes per-window views; each window keeps its
+  own focus/scroll/editor state and accessibility tree while app state
+  stays shared. The OS close button emits `on_close` (interceptable).
+  Native only; defaults preserve single-window apps. `examples/windows.rs`.
+- **Right-click and double-click**: `.on_right_click(msg)`,
+  `.on_double_click(msg)` (0.4 s window; single clicks still fire).
+- **Drag-and-drop**: OS file drops via `.on_file_drop(|path| ..)`
+  (pointer-position hit with tree-order fallback); internal drags via
+  `.drag_source("payload")` + `.on_drop(|payload| ..)`.
+- **Programmatic focus**: `.autofocus()` focuses an element when it
+  newly appears (dialogs, search fields) without stealing focus on
+  rebuilds.
+- **Scrolling depth**: `.stick_to_bottom()` (chat-log pin, released by
+  scrolling up), `FrameState::scroll_to(id, offset)` (absolute;
+  `f32::MAX` = bottom), and keyboard paging — PageUp/PageDown/Home/End
+  target the scroll container nearest the focused element when the
+  element itself doesn't consume the key.
+- **IME candidate-window positioning**: the runner anchors the OS
+  candidate window to the caret (every window), derived from paint with
+  no extra layout pass.
+- **Kit menus**: `menu` (styled action panel), `dropdown_menu`,
+  `context_menu` (pins at the right-click position via
+  `Overlay::context()` / `OverlayPlacement::Pointer`), `popover`, and
+  `combobox` (filtering text input + pickable listbox, Elm-pure).
+- **Window polish** (#7, #9): `WindowOptions::{with_min_size,
+  with_resizable, maximized, fullscreen, with_icon, with_font}` — the
+  last registers custom faces for windowed apps (the poster example now
+  opens in a window by default).
+
+### Changed
+
+- `fenestra-core` internals: `input::paint` returns the caret rect;
+  `dispatch` handles `RightDown`/`RightUp`/`FileDrop` and records drag
+  payloads. Additive for users of the public API.
+
 ## 0.3.0 — 2026-06-12
 
 ### Added

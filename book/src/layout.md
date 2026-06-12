@@ -18,6 +18,17 @@ scrollable that actually overflows. Scroll offsets persist per `.id(..)`
 across rebuilds and clamp to the content range each frame. Scrollbars
 fade in while scrolling and out after.
 
+`.stick_to_bottom()` is the chat-log pattern: while the container sits
+at its bottom edge, appended content keeps it pinned there; scrolling up
+releases the pin; returning to the bottom re-pins.
+
+Keyboard: PageUp/PageDown page the scroll container nearest the focused
+element by 90% of its viewport; Home/End jump to its ends. Both defer to
+the focused element first (text inputs keep Home/End for the caret).
+
+In tests and headless runs, `FrameState::scroll_to(id, offset)` sets an
+absolute offset (`f32::MAX` means "the bottom").
+
 ## Virtualization
 
 For long lists, `virtual_list(count, row_height, |i| row_element)`

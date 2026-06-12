@@ -21,3 +21,9 @@ characters are filtered on every path. The app owns the value.
 width, accepts Enter as a newline, moves by line with the arrows, and
 grows with its content from `min_height`. Cap growth with an outer scroll
 container.
+
+## IME
+
+Composition works in both inputs: preedit shows inline with an
+underline, commit inserts atomically. The windowed runner anchors the
+OS candidate window to the caret as you type, in every window.

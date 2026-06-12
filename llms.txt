@@ -41,5 +41,7 @@ for dark mode. Rendering is a pure function of
 - [clock.rs](fenestra/examples/clock.rs): background-thread commands via
   the `App::init` proxy
 - [toasts.rs](fenestra/examples/toasts.rs): toast stack with auto-dismiss
+- [windows.rs](fenestra/examples/windows.rs): multi-window — `App::windows`
+  declares the open set, `view_for(key)` routes views, state is shared
 - [gallery.rs](fenestra/examples/gallery.rs): renders every widget
   headlessly to PNGs

@@ -11,5 +11,6 @@
 - [Overlays](overlays.md)
 - [Images and icons](images-icons.md)
 - [Commands and async](commands.md)
+- [Multiple windows](windows.md)
 - [Accessibility](accessibility.md)
 - [Headless rendering and testing](headless.md)

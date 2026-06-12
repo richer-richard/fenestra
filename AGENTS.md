@@ -97,14 +97,16 @@ Layout: `.p/.px/.py/.pt/.pr/.pb/.pl(f32)` padding, `.m*` margins,
 .h_full() .grow() .shrink0() .wrap()`, `.items_start/center/end/baseline()`,
 `.justify_start/center/end/between()`, `.absolute() .top/.right/.bottom/
 .left(f32)`, `.grid_cols/.grid_rows(tracks) .grid_col/.grid_row(start, span)`,
-`.overflow_hidden() .scroll_y()`
+`.overflow_hidden() .scroll_y() .stick_to_bottom()`
 
 Style: `.bg(paint) .border(w, color) .rounded(r) .rounded_full()
 .shadow(ShadowToken) .opacity(f32)`; text: `.size(TextSize) .weight(Weight)
 .color(c) .mono() .truncate() .text_align(..)`
 
-Interaction: `.on_click(msg) .on_hover(msg) .on_key(f) .on_drag(f)
-.on_input(f) .on_close(msg) .focusable(true) .disabled(b) .cursor(..)`;
+Interaction: `.on_click(msg) .on_right_click(msg) .on_double_click(msg)
+.on_hover(msg) .on_key(f) .on_drag(f) .on_input(f) .on_close(msg)
+.on_file_drop(f) .drag_source(s) .on_drop(f) .focusable(true)
+.autofocus() .disabled(b) .cursor(..)`;
 variants `.hover/.active/.focus(f)` (+ `_themed`); `.transition(Transition::colors())`;
 `.keyframes(Keyframes::new(ms).stop(at, f))`; `.spin(ms)`; `.overlay(Overlay::menu())`
 
@@ -113,7 +115,8 @@ Composition: `.semantics(..) .label(..) .id("stable-key")`,
 
 Kit: `button checkbox switch radio slider text_input text_area select
 tooltip modal toast_stack tabs card stat_card badge avatar progress
-spinner table callout icons::* icons::lucide::*`
+spinner table callout virtual_list menu dropdown_menu context_menu
+popover combobox icons::* icons::lucide::*`
 
 Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
 `TextSize::{Xs..Xl2}`, `Weight::{Regular,Medium,Semibold}`,
@@ -140,6 +143,11 @@ Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
   messages drain deterministically before each event.
 - **Long lists**: the whole tree rebuilds every frame; for thousands of
   rows use the virtualized list widget rather than mapping every row.
+- **Multiple windows**: `App::windows()` declares the open set
+  (`WindowDesc::new(key, title, size, on_close_msg)`), `view_for(key)`
+  routes views; the OS close button only emits `on_close` — remove the
+  desc in `update` to actually close. Native-only; headless testing
+  drives `view_for` + `windows()` directly (they're plain methods).
 - Sizes are clamped headlessly to the device texture limit (≥1, typically
   ≤8192) — check `image.dimensions()` if you requested something unusual.
 - **Fonts**: `Fonts::embedded()` (headless default) is deterministic and
