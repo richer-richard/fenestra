@@ -213,6 +213,25 @@ pub(crate) fn role_name(semantics: &Semantics) -> &'static str {
     }
 }
 
+/// Why a strict lookup failed — the non-panicking form used by
+/// machine-driven harnesses (scenario scripts).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum QueryError {
+    /// Nothing matched.
+    NoMatch,
+    /// Several nodes matched (the count) — refine the query.
+    Ambiguous(usize),
+}
+
+impl std::fmt::Display for QueryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoMatch => write!(f, "no node matches"),
+            Self::Ambiguous(n) => write!(f, "{n} nodes match (ambiguous)"),
+        }
+    }
+}
+
 fn collect<'t>(node: &'t AccessNode, q: &Query, out: &mut Vec<&'t AccessNode>) {
     if q.matches(node) {
         out.push(node);
@@ -231,6 +250,21 @@ impl Frame {
         out.into_iter().cloned().collect()
     }
 
+    /// The single matching node, without panicking — scenario runners
+    /// and other machine drivers turn the error into their own report.
+    ///
+    /// # Errors
+    /// [`QueryError::NoMatch`] when nothing matches,
+    /// [`QueryError::Ambiguous`] when several nodes do.
+    pub fn try_get(&self, q: &Query) -> Result<AccessNode, QueryError> {
+        let mut all = self.get_all(q);
+        match all.len() {
+            0 => Err(QueryError::NoMatch),
+            1 => Ok(all.pop().expect("len checked")),
+            n => Err(QueryError::Ambiguous(n)),
+        }
+    }
+
     /// The single matching node, or `None` when nothing matches. Use to
     /// assert absence; panics if the query is ambiguous (several
     /// matches), because a test that silently picks one is lying.
@@ -238,11 +272,10 @@ impl Frame {
     /// # Panics
     /// If more than one node matches.
     pub fn query(&self, q: &Query) -> Option<AccessNode> {
-        let mut all = self.get_all(q);
-        match all.len() {
-            0 => None,
-            1 => all.pop(),
-            n => panic!(
+        match self.try_get(q) {
+            Ok(node) => Some(node),
+            Err(QueryError::NoMatch) => None,
+            Err(QueryError::Ambiguous(n)) => panic!(
                 "query [{q}] is ambiguous: {n} matches\n\
                  accessibility tree:\n{}",
                 self.access_yaml()

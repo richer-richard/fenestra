@@ -34,7 +34,7 @@ pub use frame::{AccessNode, Frame, build_frame, build_scene};
 pub use frame_state::FrameState;
 pub use id::WidgetId;
 pub use proxy::Proxy;
-pub use query::{Query, TextMatch, by};
+pub use query::{Query, QueryError, TextMatch, by};
 pub use style::*;
 pub use text::Fonts;
 pub use theme::{Mode, Ramp, StatusColors, Theme};

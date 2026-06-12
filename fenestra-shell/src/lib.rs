@@ -18,6 +18,8 @@ mod headless;
 #[cfg(not(target_arch = "wasm32"))]
 mod os_clipboard;
 #[cfg(not(target_arch = "wasm32"))]
+mod scenario;
+#[cfg(not(target_arch = "wasm32"))]
 mod synthetic;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
@@ -33,6 +35,8 @@ pub use harness::Harness;
 pub use headless::Headless;
 #[cfg(not(target_arch = "wasm32"))]
 pub use os_clipboard::OsClipboard;
+#[cfg(not(target_arch = "wasm32"))]
+pub use scenario::{ScenarioError, ScenarioReport, run_scenario};
 #[cfg(not(target_arch = "wasm32"))]
 pub use synthetic::{SyntheticEvent, render_app};
 pub use window::{WindowOptions, run_app};

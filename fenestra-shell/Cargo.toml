@@ -21,6 +21,8 @@ vello.workspace = true
 # Native-only: headless rendering/readback, OS clipboard, AccessKit.
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 accesskit.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 accesskit_winit.workspace = true
 image.workspace = true
 pollster.workspace = true

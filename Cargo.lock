@@ -918,6 +918,8 @@ dependencies = [
  "image",
  "kurbo",
  "pollster",
+ "serde",
+ "serde_json",
  "vello",
  "wasm-bindgen-futures",
  "web-time",
