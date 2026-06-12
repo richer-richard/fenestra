@@ -387,6 +387,8 @@ pub struct Element<Msg> {
     pub(crate) live: bool,
     /// Static text: users can drag-select and copy it.
     pub(crate) selectable: bool,
+    /// Fade-in transition seeded when the id first appears.
+    pub(crate) enter: Option<crate::style::Transition>,
     /// Accessible name (screen-reader label).
     pub(crate) label: Option<String>,
     pub(crate) themed: Option<ThemedFn>,
@@ -429,6 +431,7 @@ impl<Msg> Element<Msg> {
             semantics: None,
             live: false,
             selectable: false,
+            enter: None,
             label: None,
             themed: None,
             hover_style: None,
@@ -634,6 +637,18 @@ impl<Msg> Element<Msg> {
 
     /// Sets the accessible role and state projected into the accessibility
     /// tree. Text, image, and input leaves project automatically.
+    /// Animates the element in when it first appears (a fade from
+    /// opacity 0 through the given transition — give stateful entries a
+    /// stable `.id` so reorders don't retrigger it). Exit animations
+    /// are not supported yet: removal is immediate.
+    pub fn enter(mut self, transition: crate::style::Transition) -> Self {
+        self.enter = Some(crate::style::Transition {
+            opacity: true,
+            ..transition
+        });
+        self
+    }
+
     /// Makes static text selectable: drag (or double/triple-click)
     /// selects, Cmd/Ctrl+C copies. For text and rich-text elements.
     pub fn selectable(mut self) -> Self {
@@ -1266,6 +1281,7 @@ impl<Msg: 'static> Element<Msg> {
             semantics: self.semantics,
             live: self.live,
             selectable: self.selectable,
+            enter: self.enter,
             label: self.label,
             themed: self.themed,
             hover_style: self.hover_style,

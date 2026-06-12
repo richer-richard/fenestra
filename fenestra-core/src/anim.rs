@@ -41,10 +41,19 @@ impl Anim {
         seen: u64,
     ) -> (Style, bool) {
         self.seen = seen;
-        let duration = f64::from(transition.duration_ms.max(1.0)) / 1000.0;
-        let elapsed = ((now - self.t0) / duration).clamp(0.0, 1.0);
-        #[expect(clippy::cast_possible_truncation, reason = "progress is 0..=1")]
-        let eased = transition.easing.eval(elapsed as f32);
+        let (eased, done) = match transition.spring {
+            Some(spring) =>
+            {
+                #[expect(clippy::cast_possible_truncation, reason = "short time spans")]
+                spring_progress(spring, (now - self.t0).max(0.0) as f32)
+            }
+            None => {
+                let duration = f64::from(transition.duration_ms.max(1.0)) / 1000.0;
+                let elapsed = ((now - self.t0) / duration).clamp(0.0, 1.0);
+                #[expect(clippy::cast_possible_truncation, reason = "progress is 0..=1")]
+                (transition.easing.eval(elapsed as f32), elapsed >= 1.0)
+            }
+        };
         let current = lerp_style(&self.from, &self.to, eased, transition);
 
         if *target != self.to {
@@ -57,7 +66,7 @@ impl Anim {
             return (lerp_style(&self.from, &self.to, 0.0, transition), true);
         }
         // A segment whose endpoints agree is settled regardless of elapsed.
-        let running = elapsed < 1.0 && self.from != self.to;
+        let running = !done && self.from != self.to;
         if !running && self.from != self.to {
             self.from = self.to.clone();
         }
@@ -108,34 +117,59 @@ pub(crate) fn sample_keyframes(
     lerp_style(&resolve(prev), &resolve(next), kf.easing.eval(local), all)
 }
 
+/// Closed-form unit step response of a damped spring: returns the
+/// progress (may overshoot 1.0 when underdamped) and whether the
+/// motion has settled (envelope below 0.1%).
+pub(crate) fn spring_progress(spring: crate::style::SpringSpec, t: f32) -> (f32, bool) {
+    let stiffness = spring.stiffness.max(1.0);
+    let damping = spring.damping.max(0.1);
+    let omega = stiffness.sqrt();
+    let zeta = damping / (2.0 * omega);
+    let x = if zeta < 1.0 {
+        // Underdamped: decaying oscillation (the overshoot case).
+        let wd = omega * (1.0 - zeta * zeta).sqrt();
+        let envelope = (-zeta * omega * t).exp();
+        1.0 - envelope * ((wd * t).cos() + (zeta * omega / wd) * (wd * t).sin())
+    } else {
+        // Critically/overdamped: monotonic approach.
+        let envelope = (-omega * t).exp();
+        1.0 - envelope * (1.0 + omega * t)
+    };
+    let settled = (-zeta.min(1.0) * omega * t).exp() < 0.001;
+    if settled { (1.0, true) } else { (x, false) }
+}
+
 /// Interpolates the animatable properties enabled by `transition`; all other
 /// properties snap to `b`.
+/// `t` may exceed 1.0 (spring overshoot): geometry extrapolates, while
+/// colors, opacity, and shadows clamp at the target.
 fn lerp_style(a: &Style, b: &Style, t: f32, transition: Transition) -> Style {
-    if t >= 1.0 {
+    let t_vis = t.clamp(0.0, 1.0);
+    if t_vis >= 1.0 && (t - 1.0).abs() < 1e-6 {
         return b.clone();
     }
     let mut out = b.clone();
     if transition.colors {
         out.fill = match (&a.fill, &b.fill) {
             (Some(Paint::Solid(ca)), Some(Paint::Solid(cb))) => {
-                Some(Paint::Solid(lerp_color(*ca, *cb, t)))
+                Some(Paint::Solid(lerp_color(*ca, *cb, t_vis)))
             }
             _ => b.fill.clone(),
         };
         out.border = match (a.border, b.border) {
             (Some(ba), Some(bb)) => Some(crate::style::Border {
-                width: lerp_f32(ba.width, bb.width, t),
-                color: lerp_color(ba.color, bb.color, t),
+                width: lerp_f32(ba.width, bb.width, t_vis),
+                color: lerp_color(ba.color, bb.color, t_vis),
             }),
             _ => b.border,
         };
         out.text.color = match (a.text.color, b.text.color) {
-            (Some(ca), Some(cb)) => Some(lerp_color(ca, cb, t)),
+            (Some(ca), Some(cb)) => Some(lerp_color(ca, cb, t_vis)),
             _ => b.text.color,
         };
     }
     if transition.opacity {
-        out.opacity = lerp_f32(a.opacity, b.opacity, t);
+        out.opacity = lerp_f32(a.opacity, b.opacity, t_vis);
     }
     if transition.shadows {
         // Shadow layers lerp alpha (and geometry) pairwise where both sides
@@ -146,11 +180,11 @@ fn lerp_style(a: &Style, b: &Style, t: f32, transition: Transition) -> Style {
             .enumerate()
             .map(|(i, sb)| match a.shadows.get(i) {
                 Some(sa) => crate::style::Shadow {
-                    dx: lerp_f32(sa.dx, sb.dx, t),
-                    dy: lerp_f32(sa.dy, sb.dy, t),
-                    blur: lerp_f32(sa.blur, sb.blur, t),
-                    spread: lerp_f32(sa.spread, sb.spread, t),
-                    color: lerp_color(sa.color, sb.color, t),
+                    dx: lerp_f32(sa.dx, sb.dx, t_vis),
+                    dy: lerp_f32(sa.dy, sb.dy, t_vis),
+                    blur: lerp_f32(sa.blur, sb.blur, t_vis),
+                    spread: lerp_f32(sa.spread, sb.spread, t_vis),
+                    color: lerp_color(sa.color, sb.color, t_vis),
                 },
                 None => *sb,
             })

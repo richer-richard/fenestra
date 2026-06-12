@@ -421,6 +421,15 @@ impl Default for Style {
 /// widgets' deferred base styling both use this shape.
 pub type ThemedFn = Box<dyn Fn(&crate::theme::Theme, Style) -> Style>;
 
+/// Spring parameters for physical motion (see [`Transition::spring`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpringSpec {
+    /// Stiffness (ω² scale): higher = snappier. 170 is gentle, 380 brisk.
+    pub stiffness: f32,
+    /// Damping: lower overshoots more. Critical damping ≈ 2·√stiffness.
+    pub damping: f32,
+}
+
 /// Declares which properties animate between style states, and how.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Transition {
@@ -438,6 +447,10 @@ pub struct Transition {
     pub duration_ms: f32,
     /// Easing curve.
     pub easing: crate::tokens::CubicBezier,
+    /// Physical spring response instead of the duration+curve pair.
+    /// Lengths and offsets may overshoot; colors, opacity, and shadows
+    /// clamp at the target (extrapolated colors aren't colors).
+    pub spring: Option<SpringSpec>,
 }
 
 /// A looping keyframe timeline: style stops at fractional times across one
@@ -498,6 +511,7 @@ impl Transition {
             shadows: true,
             duration_ms: crate::tokens::MotionDuration::Fast.ms(),
             easing: crate::tokens::EASE_STANDARD,
+            spring: None,
         }
     }
 
@@ -511,7 +525,27 @@ impl Transition {
             shadows: true,
             duration_ms: crate::tokens::MotionDuration::Base.ms(),
             easing: crate::tokens::EASE_STANDARD,
+            spring: None,
         }
+    }
+
+    /// Every property on a brisk spring with a touch of overshoot
+    /// (stiffness 380, damping 26). Lengths and offsets carry the
+    /// bounce; colors clamp at the target.
+    pub fn spring() -> Self {
+        Self {
+            spring: Some(SpringSpec {
+                stiffness: 380.0,
+                damping: 26.0,
+            }),
+            ..Self::all()
+        }
+    }
+
+    /// Overrides the spring parameters (and switches to spring motion).
+    pub fn with_spring(mut self, stiffness: f32, damping: f32) -> Self {
+        self.spring = Some(SpringSpec { stiffness, damping });
+        self
     }
 
     /// Overrides the duration with a token.

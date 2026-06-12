@@ -279,15 +279,29 @@ fn resolve<Msg>(
     }
 
     let mut animating = false;
-    if let Some(transition) = el.transition
+    let transition = match (el.transition, el.enter) {
+        (Some(t), _) => Some(t),
+        // Enter-only elements still need a transition to play through.
+        (None, Some(enter)) => Some(enter),
+        (None, None) => None,
+    };
+    if let Some(transition) = transition
         && !state.reduced_motion
     {
         let now = state.now();
         let seen = state.frame_no;
-        let anim = state
-            .anims
-            .entry(id)
-            .or_insert_with(|| crate::anim::Anim::new(style.clone(), now, seen));
+        let anim = state.anims.entry(id).or_insert_with(|| {
+            // First appearance: enter-animated elements seed from the
+            // target faded out, so they play in toward it.
+            let seed = if el.enter.is_some() {
+                let mut from = style.clone();
+                from.opacity = 0.0;
+                from
+            } else {
+                style.clone()
+            };
+            crate::anim::Anim::new(seed, now, seen)
+        });
         let (animated, running) = anim.advance(&style, transition, now, seen);
         style = animated;
         animating = running;

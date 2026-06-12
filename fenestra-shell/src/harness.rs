@@ -55,6 +55,8 @@ pub struct Harness<A: App> {
     /// Open windows by key; reconciled against [`App::windows`] after
     /// every update, exactly like the windowed runner.
     slots: HashMap<String, WindowSlot<A::Msg>>,
+    /// Animations snap by default (deterministic); motion tests opt in.
+    reduced_motion: bool,
     /// The window verbs and queries currently target.
     active: String,
 }
@@ -88,10 +90,11 @@ where
             pending,
             slots: HashMap::new(),
             active: MAIN_WINDOW.to_owned(),
+            reduced_motion: true,
         };
         harness.slots.insert(
             MAIN_WINDOW.to_owned(),
-            Self::new_slot(&harness.app, &harness.theme, MAIN_WINDOW, size, 0.0),
+            Self::new_slot(&harness.app, &harness.theme, MAIN_WINDOW, size, 0.0, true),
         );
         harness.rebuild();
         harness
@@ -103,11 +106,12 @@ where
         key: &str,
         size: (u32, u32),
         clock: f64,
+        reduced_motion: bool,
     ) -> WindowSlot<A::Msg> {
         let size =
             with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
         let mut state = FrameState::new();
-        state.reduced_motion = true;
+        state.reduced_motion = reduced_motion;
         state.tick(clock);
         #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
         let logical = (size.0 as f32, size.1 as f32);
@@ -147,7 +151,14 @@ where
                     reason = "logical window sizes are small positive numbers"
                 )]
                 let size = (desc.size.0.max(1.0) as u32, desc.size.1.max(1.0) as u32);
-                let slot = Self::new_slot(&self.app, &self.theme, &desc.key, size, self.clock);
+                let slot = Self::new_slot(
+                    &self.app,
+                    &self.theme,
+                    &desc.key,
+                    size,
+                    self.clock,
+                    self.reduced_motion,
+                );
                 self.slots.insert(desc.key.clone(), slot);
             }
         }
@@ -174,6 +185,17 @@ where
 
     fn slot(&self) -> &WindowSlot<A::Msg> {
         self.slots.get(&self.active).expect("active slot exists")
+    }
+
+    /// Enables or disables real animation. The harness defaults to
+    /// reduced motion (everything snaps — deterministic pixels); motion
+    /// tests opt into physics and drive it with [`Self::pump`].
+    pub fn set_reduced_motion(&mut self, reduced: bool) {
+        self.reduced_motion = reduced;
+        for slot in self.slots.values_mut() {
+            slot.state.reduced_motion = reduced;
+        }
+        self.rebuild();
     }
 
     /// Switches which window the verbs and queries target. Open windows
