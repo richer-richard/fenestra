@@ -880,6 +880,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fenestra-charts"
+version = "0.6.0"
+dependencies = [
+ "fenestra-core",
+ "fenestra-shell",
+ "kurbo",
+]
+
+[[package]]
 name = "fenestra-core"
 version = "0.6.0"
 dependencies = [

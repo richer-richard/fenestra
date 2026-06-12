@@ -1,0 +1,20 @@
+[package]
+name = "fenestra-charts"
+description = "Sparklines, line charts, and bar charts for the fenestra GUI framework — the reference third-party widget crate"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+# The whole point: a widget crate needs ONLY fenestra-core's public API.
+[dependencies]
+fenestra-core.workspace = true
+kurbo.workspace = true
+
+[dev-dependencies]
+fenestra-shell.workspace = true

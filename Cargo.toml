@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit"]
+members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts"]
 
 [workspace.package]
 version = "0.6.0"
