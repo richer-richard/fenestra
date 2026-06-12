@@ -15,6 +15,10 @@ pub(crate) type KeyFn<Msg> = Box<dyn Fn(&KeyInput) -> Option<Msg>>;
 pub(crate) type DragFn<Msg> = Box<dyn Fn(f32, f32) -> Option<Msg>>;
 /// Maps the edited text to a message.
 pub(crate) type InputFn<Msg> = Box<dyn Fn(&str) -> Msg>;
+/// Maps a dropped OS file path to a message.
+pub(crate) type FileDropFn<Msg> = Box<dyn Fn(&std::path::Path) -> Msg>;
+/// Maps an internal drag payload to an optional message on drop.
+pub(crate) type DropFn<Msg> = Box<dyn Fn(&str) -> Option<Msg>>;
 
 /// What an element fundamentally is.
 #[derive(Debug, Clone, PartialEq)]
@@ -284,6 +288,10 @@ pub struct Element<Msg> {
     pub(crate) on_drag: Option<DragFn<Msg>>,
     pub(crate) on_input: Option<InputFn<Msg>>,
     pub(crate) on_close: Option<Msg>,
+    pub(crate) on_file_drop: Option<FileDropFn<Msg>>,
+    /// Payload announced when a pointer drag starts on this element.
+    pub(crate) drag_source: Option<String>,
+    pub(crate) on_drop: Option<DropFn<Msg>>,
     pub(crate) overlay: Option<Overlay>,
     /// Continuous rotation period in ms (spinners); paint-time, clock-driven.
     pub(crate) spin: Option<f32>,
@@ -323,6 +331,9 @@ impl<Msg> Element<Msg> {
             on_drag: None,
             on_input: None,
             on_close: None,
+            on_file_drop: None,
+            drag_source: None,
+            on_drop: None,
             overlay: None,
             spin: None,
             keyframes: None,
@@ -460,6 +471,29 @@ impl<Msg> Element<Msg> {
     /// Maps each text edit of an input element to a message.
     pub fn on_input(mut self, f: impl Fn(&str) -> Msg + 'static) -> Self {
         self.on_input = Some(Box::new(f));
+        self
+    }
+
+    /// Maps an OS file dropped onto this element to a message (delivered
+    /// at the last pointer position; with no hit, the first handler in the
+    /// tree receives it). The OS sends one event per dropped file.
+    pub fn on_file_drop(mut self, f: impl Fn(&std::path::Path) -> Msg + 'static) -> Self {
+        self.on_file_drop = Some(Box::new(f));
+        self
+    }
+
+    /// Marks this element as an internal drag source carrying a string
+    /// payload: pressing on it starts a drag, and releasing over an
+    /// element with [`Self::on_drop`] delivers the payload there.
+    pub fn drag_source(mut self, payload: impl Into<String>) -> Self {
+        self.drag_source = Some(payload.into());
+        self
+    }
+
+    /// Receives internal drag payloads released over this element; return
+    /// `None` to reject. Style the drag with `.active(..)` on the source.
+    pub fn on_drop(mut self, f: impl Fn(&str) -> Option<Msg> + 'static) -> Self {
+        self.on_drop = Some(Box::new(f));
         self
     }
 
@@ -1087,6 +1121,15 @@ impl<Msg: 'static> Element<Msg> {
                 Box::new(move |s: &str| f(i(s))) as InputFn<B>
             }),
             on_close: self.on_close.map(&f),
+            on_file_drop: self.on_file_drop.map(|d| {
+                let f = f.clone();
+                Box::new(move |p: &std::path::Path| f(d(p))) as FileDropFn<B>
+            }),
+            drag_source: self.drag_source,
+            on_drop: self.on_drop.map(|d| {
+                let f = f.clone();
+                Box::new(move |payload: &str| d(payload).map(&f)) as DropFn<B>
+            }),
             overlay: self.overlay,
             spin: self.spin,
             keyframes: self.keyframes,

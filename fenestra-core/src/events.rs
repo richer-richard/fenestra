@@ -93,6 +93,8 @@ pub enum InputEvent {
     RightDown,
     /// Secondary (right) button released.
     RightUp,
+    /// An OS file was dropped onto the window (one event per file).
+    FileDrop(std::path::PathBuf),
     /// Wheel / trackpad scroll. Winit convention: positive `dy` moves the
     /// content down (scrolling toward the top of the document).
     Wheel {
@@ -369,6 +371,14 @@ pub fn click_msg_of<Msg: Clone>(
         .and_then(|el| el.on_click.clone())
 }
 
+/// The first element in tree order carrying an OS file-drop handler.
+fn first_file_drop<Msg>(el: &Element<Msg>) -> Option<&(dyn Fn(&std::path::Path) -> Msg + '_)> {
+    if let Some(f) = &el.on_file_drop {
+        return Some(&**f);
+    }
+    el.children.iter().find_map(first_file_drop)
+}
+
 /// Dispatches one event against the last laid-out frame, updating retained
 /// interaction state and collecting emitted messages.
 pub fn dispatch<Msg: Clone>(
@@ -429,6 +439,13 @@ pub fn dispatch<Msg: Clone>(
             };
             let point = Point::new(f64::from(px), f64::from(py));
             let chain = frame.hit_chain(point);
+            // Internal drag: the deepest drag source under the press.
+            state.dragging = chain.iter().rev().find_map(|id| {
+                handlers
+                    .get(*id)
+                    .filter(|el| !el.disabled)
+                    .and_then(|el| el.drag_source.clone())
+            });
 
             // Outside-click handling for open overlays: clicking outside an
             // open toggle (menu) closes it and swallows the press; clicking
@@ -516,6 +533,33 @@ pub fn dispatch<Msg: Clone>(
             }
             out.cursor = Some(cursor_of(&handlers, &chain));
         }
+        InputEvent::FileDrop(path) => {
+            // Deepest enabled handler under the pointer, else the first
+            // handler in the declared tree (predictable fallback).
+            let hit = state.pointer.and_then(|(px, py)| {
+                frame
+                    .hit_chain(Point::new(f64::from(px), f64::from(py)))
+                    .iter()
+                    .rev()
+                    .find_map(|id| {
+                        handlers
+                            .get(*id)
+                            .filter(|el| !el.disabled && el.on_file_drop.is_some())
+                            .map(|_| *id)
+                    })
+            });
+            let msg = match hit {
+                Some(id) => handlers
+                    .get(id)
+                    .and_then(|el| el.on_file_drop.as_ref())
+                    .map(|f| f(&path)),
+                None => first_file_drop(root).map(|f| f(&path)),
+            };
+            if let Some(msg) = msg {
+                out.msgs.push(msg);
+                out.redraw = true;
+            }
+        }
         InputEvent::RightDown => {
             if let Some((px, py)) = state.pointer {
                 let chain = frame.hit_chain(Point::new(f64::from(px), f64::from(py)));
@@ -533,6 +577,25 @@ pub fn dispatch<Msg: Clone>(
         }
         InputEvent::RightUp => {}
         InputEvent::PointerUp => {
+            // Internal drag completion: deliver the payload to the deepest
+            // drop target under the release, if any.
+            if let Some(payload) = state.dragging.take()
+                && let Some((px, py)) = state.pointer
+                && let Some(msg) = frame
+                    .hit_chain(Point::new(f64::from(px), f64::from(py)))
+                    .iter()
+                    .rev()
+                    .find_map(|id| {
+                        handlers
+                            .get(*id)
+                            .filter(|el| !el.disabled)
+                            .and_then(|el| el.on_drop.as_ref())
+                            .and_then(|f| f(&payload))
+                    })
+            {
+                out.msgs.push(msg);
+                out.redraw = true;
+            }
             if let Some(active) = state.active.take() {
                 // Click = press + release on the same element.
                 if let Some((px, py)) = state.pointer

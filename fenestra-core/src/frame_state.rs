@@ -60,6 +60,8 @@ pub struct FrameState {
     /// The autofocus element and the frame it was last seen, so focus
     /// moves only when it newly appears.
     pub(crate) autofocus_last: Option<(WidgetId, u64)>,
+    /// In-flight internal drag payload (from `.drag_source`).
+    pub(crate) dragging: Option<String>,
 }
 
 impl Default for FrameState {
@@ -81,6 +83,7 @@ impl Default for FrameState {
             frame_no: 0,
             last_click: None,
             autofocus_last: None,
+            dragging: None,
         }
     }
 }

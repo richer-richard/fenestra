@@ -928,6 +928,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                     w.request_redraw();
                 }
             }
+            WindowEvent::DroppedFile(path) => self.input(InputEvent::FileDrop(path)),
             WindowEvent::CursorLeft { .. } => self.input(InputEvent::PointerLeave),
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());

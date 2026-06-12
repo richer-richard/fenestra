@@ -27,6 +27,8 @@ pub enum SyntheticEvent {
     RightDown,
     /// Release the secondary (right) button.
     RightUp,
+    /// Drop an OS file at the current pointer position.
+    FileDrop(std::path::PathBuf),
     /// Press a key.
     Key(KeyInput),
     /// Commit text (M5).
@@ -50,6 +52,7 @@ impl From<&SyntheticEvent> for InputEvent {
             SyntheticEvent::MouseUp => Self::PointerUp,
             SyntheticEvent::RightDown => Self::RightDown,
             SyntheticEvent::RightUp => Self::RightUp,
+            SyntheticEvent::FileDrop(p) => Self::FileDrop(p.clone()),
             SyntheticEvent::Key(k) => Self::Key(*k),
             SyntheticEvent::Text(s) => Self::Text(s.clone()),
             SyntheticEvent::Wheel { dy } => Self::Wheel { dy: *dy },
