@@ -237,12 +237,13 @@ impl Fonts {
         // parley's line breaker overflows (and asserts) on enormous or
         // non-finite advances; clamp at the boundary.
         let max_advance = max_advance.and_then(|w| w.is_finite().then(|| w.clamp(0.0, 1.0e9)));
-        let family = match style.family {
-            FamilyRole::Sans => FontFamily::named("Inter"),
-            FamilyRole::Mono => FontFamily::Single(GenericFamily::Monospace.into()),
-            FamilyRole::Display | FamilyRole::Serif => match self.roles.get(&style.family) {
-                Some(name) => FontFamily::named(name),
-                None => FontFamily::named("Inter"),
+        // Registered faces win for every role; Sans falls back to the
+        // embedded Inter, Mono to the generic system monospace.
+        let family = match self.roles.get(&style.family) {
+            Some(name) => FontFamily::named(name),
+            None => match style.family {
+                FamilyRole::Mono => FontFamily::Single(GenericFamily::Monospace.into()),
+                _ => FontFamily::named("Inter"),
             },
         };
         let mut builder = self
@@ -311,13 +312,11 @@ impl Fonts {
         // Family names resolve to owned strings first, so the builder
         // can borrow them for ranged pushes.
         let resolve_family =
-            |role: FamilyRole, roles: &std::collections::HashMap<FamilyRole, String>| match role {
-                FamilyRole::Sans => "Inter".to_owned(),
-                FamilyRole::Mono => String::new(), // marker: generic monospace
-                FamilyRole::Display | FamilyRole::Serif => roles
-                    .get(&role)
-                    .cloned()
-                    .unwrap_or_else(|| "Inter".to_owned()),
+            |role: FamilyRole, roles: &std::collections::HashMap<FamilyRole, String>| {
+                roles.get(&role).cloned().unwrap_or_else(|| match role {
+                    FamilyRole::Mono => String::new(), // marker: generic monospace
+                    _ => "Inter".to_owned(),
+                })
             };
         let base_family = resolve_family(style.family, &self.roles);
         let span_families: Vec<Option<String>> = spans

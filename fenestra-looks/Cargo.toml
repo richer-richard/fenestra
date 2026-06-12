@@ -1,0 +1,23 @@
+[package]
+name = "fenestra-looks"
+description = "Expert-crafted design languages for the fenestra GUI framework — complete looks with themes and typefaces, applied in one call"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT OR Apache-2.0"
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+# Vendored OFL typefaces (licenses in assets/): Playfair Display,
+# JetBrains Mono.
+include = ["src/**", "assets/**"]
+
+[lints]
+workspace = true
+
+[dependencies]
+fenestra-core.workspace = true
+
+[dev-dependencies]
+fenestra-shell.workspace = true
+image.workspace = true
