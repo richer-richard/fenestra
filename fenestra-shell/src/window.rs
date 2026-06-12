@@ -727,6 +727,8 @@ where
         cursor: Point::ORIGIN,
         started: Instant::now(),
         last: None,
+        dirty: true,
+        cached_scene: None,
         modifiers: winit::keyboard::ModifiersState::empty(),
         #[cfg(not(target_arch = "wasm32"))]
         adapter: None,
@@ -760,6 +762,12 @@ struct AppRunner<A: App> {
     started: Instant,
     /// View and frame from the last redraw, for input routing.
     last: Option<(Element<A::Msg>, fenestra_core::Frame)>,
+    /// Anything changed since the last full frame? OS-driven redraws
+    /// (expose, un-occlude) re-present the cached scene when clean —
+    /// the whole build/layout/paint pipeline is skipped.
+    dirty: bool,
+    /// The last painted scene with its (logical w, h, scale) key.
+    cached_scene: Option<(Scene, (f64, f64, f64))>,
     modifiers: winit::keyboard::ModifiersState,
     /// The AccessKit adapter, created before the window first shows.
     #[cfg(not(target_arch = "wasm32"))]
@@ -792,6 +800,15 @@ impl<A: App> AppRunner<A> {
         let Some((lw, lh, scale)) = self.shell.logical_size() else {
             return;
         };
+        // Clean frame at the same size: re-present the cached scene and
+        // skip build/layout/paint entirely (expose/un-occlude redraws).
+        if !self.dirty
+            && let Some((scene, key)) = &self.cached_scene
+            && *key == (lw, lh, scale)
+        {
+            self.shell.present(scene);
+            return;
+        }
         let theme = self.app.theme();
         self.shell.background = theme.bg;
         self.state.tick(self.started.elapsed().as_secs_f64());
@@ -807,11 +824,16 @@ impl<A: App> AppRunner<A> {
         );
         let scene = frame.paint(&mut self.fonts, &mut self.state);
         self.shell.present(&scene);
+        // The frame is clean until something changes it; animation and
+        // hover refresh keep it dirty so the pipeline runs again.
+        self.cached_scene = Some((scene, (lw, lh, scale)));
+        self.dirty = frame.animating;
         // Content may have moved under a stationary pointer (scroll,
         // layout change): refresh hover and repaint once more if it did.
         if refresh_hover(&view, &frame, &mut self.state)
             && let Some(w) = self.shell.window()
         {
+            self.dirty = true;
             w.request_redraw();
         }
         if frame.animating {
@@ -877,10 +899,11 @@ impl<A: App> AppRunner<A> {
         for msg in result.msgs {
             self.app.update(msg);
         }
-        if (result.redraw || had_msgs)
-            && let Some(w) = self.shell.window()
-        {
-            w.request_redraw();
+        if result.redraw || had_msgs {
+            self.dirty = true;
+            if let Some(w) = self.shell.window() {
+                w.request_redraw();
+            }
         }
         had_msgs
     }
@@ -905,6 +928,7 @@ impl<A: App> AppRunner<A> {
     /// Reconciles secondary windows against [`App::windows`] and asks
     /// every window for a repaint — called whenever messages were applied.
     fn after_update(&mut self, event_loop: &ActiveEventLoop) {
+        self.dirty = true;
         #[cfg(not(target_arch = "wasm32"))]
         self.reconcile_windows(event_loop);
         #[cfg(target_arch = "wasm32")]
@@ -1253,6 +1277,9 @@ pub(crate) fn map_key(
 impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
     #[cfg(not(target_arch = "wasm32"))]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        // Fresh surface, possibly fresh scale: rebuild rather than trust
+        // a scene cached across the suspend.
+        self.dirty = true;
         let adapter = &mut self.adapter;
         let proxy = self.proxy.clone();
         self.shell.resumed_with(event_loop, |el, window| {
@@ -1274,6 +1301,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
 
     #[cfg(target_arch = "wasm32")]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        self.dirty = true;
         self.shell.resumed(event_loop);
         if let Some(w) = self.shell.window() {
             w.set_ime_allowed(true);
@@ -1356,6 +1384,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                             accesskit::Action::Focus => match &skey {
                                 None => {
                                     self.state.set_focus(Some(id));
+                                    self.dirty = true;
                                     if let Some(w) = self.shell.window() {
                                         w.request_redraw();
                                     }
@@ -1427,8 +1456,14 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         }
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
-            WindowEvent::Resized(size) => self.shell.resized(size.width, size.height),
+            WindowEvent::Resized(size) => {
+                // The cache key also guards size, but coalesced resizes can
+                // land back on the cached geometry mid-drag.
+                self.dirty = true;
+                self.shell.resized(size.width, size.height);
+            }
             WindowEvent::ScaleFactorChanged { .. } => {
+                self.dirty = true;
                 if let Some(w) = self.shell.window() {
                     w.request_redraw();
                 }
