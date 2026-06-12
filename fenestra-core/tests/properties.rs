@@ -32,12 +32,26 @@ enum Mod {
     Scroll,
 }
 
+/// Mostly sane values, sometimes hostile ones (NaN/infinite/negative)
+/// — the boundary must sanitize, never panic.
+fn arb_len() -> impl Strategy<Value = f32> {
+    prop_oneof![
+        8 => 0f32..1.0e6,
+        1 => Just(f32::NAN),
+        1 => Just(f32::INFINITY),
+        1 => Just(f32::NEG_INFINITY),
+        1 => Just(-100.0f32),
+    ]
+}
+
 fn arb_mod() -> impl Strategy<Value = Mod> {
     prop_oneof![
         (0f32..200.0).prop_map(Mod::Pad),
+        arb_len().prop_map(Mod::Pad),
         (0f32..200.0).prop_map(Mod::Gap),
-        (0f32..1.0e6).prop_map(Mod::Width),
-        (0f32..1.0e6).prop_map(Mod::Height),
+        arb_len().prop_map(Mod::Gap),
+        arb_len().prop_map(Mod::Width),
+        arb_len().prop_map(Mod::Height),
         Just(Mod::Grow),
         Just(Mod::Shrink0),
         Just(Mod::Wrap),
@@ -238,4 +252,37 @@ proptest! {
             Ok(())
         })?;
     }
+}
+
+/// Non-finite style values must not reach the text pipeline: parley's
+/// line breaker hard-asserts on inconsistent max_advance (found by the
+/// layout fuzzer, 2026-06-12). The boundary sanitizes them instead.
+#[test]
+fn non_finite_dimensions_never_panic() {
+    FONTS.with(|fonts| {
+        let mut fonts = fonts.borrow_mut();
+        for w in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -5.0] {
+            for case in 0..4 {
+                let tree: Element<()> = match case {
+                    0 => col().w(w).children([text("wrap me across lines please")]),
+                    1 => col().p(w).children([text("padded text body")]),
+                    2 => row().gap(w).children([text("a"), text("b c d e f g")]),
+                    _ => col()
+                        .w(200.0)
+                        .children([div().w(w).h(w).child(text("nested hostile width"))]),
+                };
+                let mut state = FrameState::new();
+                state.reduced_motion = true;
+                let frame = build_frame(
+                    &tree,
+                    &Theme::light(),
+                    &mut fonts,
+                    &mut state,
+                    (300.0, 200.0),
+                    1.0,
+                );
+                let _ = frame.paint(&mut fonts, &mut state);
+            }
+        }
+    });
 }

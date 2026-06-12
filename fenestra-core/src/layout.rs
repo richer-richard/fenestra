@@ -43,20 +43,20 @@ pub(crate) fn to_taffy(style: &Style, in_stack: bool) -> taffy::Style {
             AlignContent::SpaceBetween => taffy::style::AlignContent::SpaceBetween,
         }),
         gap: Size {
-            width: length(style.gap),
-            height: length(style.gap),
+            width: length(finite(style.gap)),
+            height: length(finite(style.gap)),
         },
         padding: taffy::geometry::Rect {
-            left: length(style.padding.left),
-            right: length(style.padding.right),
-            top: length(style.padding.top),
-            bottom: length(style.padding.bottom),
+            left: length(finite(style.padding.left)),
+            right: length(finite(style.padding.right)),
+            top: length(finite(style.padding.top)),
+            bottom: length(finite(style.padding.bottom)),
         },
         margin: taffy::geometry::Rect {
-            left: length(style.margin.left),
-            right: length(style.margin.right),
-            top: length(style.margin.top),
-            bottom: length(style.margin.bottom),
+            left: length(finite(style.margin.left)),
+            right: length(finite(style.margin.right)),
+            top: length(finite(style.margin.top)),
+            bottom: length(finite(style.margin.bottom)),
         },
         inset: taffy::geometry::Rect {
             left: inset(style.inset.left),
@@ -119,18 +119,26 @@ fn align_items(v: AlignItems) -> taffy::style::AlignItems {
     }
 }
 
+/// Non-finite or negative sizes are hostile input, not geometry: NaN
+/// spreads through taffy and trips parley's line-breaker assertion
+/// (found by the layout fuzzer). They resolve to `auto`/zero instead.
+fn finite(v: f32) -> f32 {
+    if v.is_finite() { v.max(0.0) } else { 0.0 }
+}
+
 fn dimension(l: Length) -> taffy::style::Dimension {
     match l {
-        Length::Px(v) => length(v),
-        Length::Pct(v) => percent(v / 100.0),
+        Length::Px(v) if !v.is_finite() => auto(),
+        Length::Px(v) => length(v.max(0.0)),
+        Length::Pct(v) => percent(finite(v) / 100.0),
         Length::Auto => auto(),
     }
 }
 
 fn inset(v: Option<f32>) -> taffy::style::LengthPercentageAuto {
     match v {
-        Some(v) => length(v),
-        None => auto(),
+        Some(v) if v.is_finite() => length(v),
+        Some(_) | None => auto(),
     }
 }
 
@@ -144,8 +152,8 @@ fn overflow(v: Overflow) -> taffy::style::Overflow {
 
 fn track<T: taffy::style_helpers::FromLength + taffy::style_helpers::FromFr>(t: Track) -> T {
     match t {
-        Track::Px(v) => length(v),
-        Track::Fr(f) => fr(f),
+        Track::Px(v) => length(finite(v)),
+        Track::Fr(f) => fr(finite(f)),
     }
 }
 

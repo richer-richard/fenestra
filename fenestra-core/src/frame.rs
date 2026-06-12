@@ -555,11 +555,15 @@ fn expand_virtual<Msg>(
 
 /// Wrap width for a text leaf given taffy's measure inputs.
 fn wrap_width(known: Option<f32>, available: AvailableSpace) -> Option<f32> {
-    known.or(match available {
-        AvailableSpace::Definite(w) => Some(w),
-        AvailableSpace::MaxContent => None,
-        AvailableSpace::MinContent => Some(0.0),
-    })
+    known
+        .or(match available {
+            AvailableSpace::Definite(w) => Some(w),
+            AvailableSpace::MaxContent => None,
+            AvailableSpace::MinContent => Some(0.0),
+        })
+        // A non-finite width would put parley's line breaker in an
+        // inconsistent state (hard assert); measure unbounded instead.
+        .filter(|w| w.is_finite())
 }
 
 /// The baseline of a child for `items_baseline` rows: true first-line
