@@ -595,3 +595,41 @@ lives in the book's Influences section. Decisions:
 - **Per-window themes**: `App::theme_for(key)` defaulting to `theme()`;
   the runner consults it per window, the harness deliberately does not
   (single explicit theme = deterministic goldens).
+
+## 0.8: trusted, formally
+
+- **cargo-deny joins cargo-audit.** License allowlist (everything in
+  the tree resolves to permissive licenses; BSL-1.0 is Boost, not
+  BUSL), `wildcards = "deny"`, crates.io-only sources, yanked = deny.
+  Unencountered allowances are trimmed so the list documents reality.
+- **Fuzzing complements the property tests.** Three libFuzzer targets
+  through the *public* API only (no fuzzing feature holes): theme-file
+  parsing, arbitrary-driven layout/paint totality, and the text-input
+  pipeline (arbitrary text commits + key chords against a focused
+  editor, value threaded back Elm-style). Weekly + on-demand via
+  workflow_dispatch; the fuzz crate sits outside the workspace
+  (nightly-only) and never publishes.
+- **MSRV is empirical**: 1.88, the maximum declared rust-version in
+  the dependency graph (image) — and what edition-2024 let-chains need
+  anyway. Declared in every crate, proven by a dedicated CI job
+  building the workspace on exactly that toolchain.
+- **Perf gates are ceilings, not benchmarks.** Plain timed tests
+  (median of N) with generous absolute limits (~20x the M3 Pro numbers
+  in BENCHMARKS.md), `#[ignore]`d locally, run in release mode on the
+  macOS CI runner. They catch order-of-magnitude regressions; criterion
+  was considered and skipped — its statistics don't survive shared-
+  runner variance, and the dependency isn't worth a detector that only
+  needs one digit of precision.
+- **The coverage floor is measured, not aspired.** fenestra-core's own
+  suite covers 47.28% of core lines (kit/shell suites exercise much of
+  the rest but don't count toward it); the CI floor sits at 45 and
+  ratchets up, never down without a recorded decision.
+- **Releases attest provenance.** The release workflow packages every
+  crate, generates GitHub build-provenance attestations binding the
+  .crate files to repo+workflow+commit, and attaches both to the
+  GitHub release (`gh attestation verify <file> --repo ...`). The
+  id-token/attestations permissions are scoped to that single job.
+- **Private vulnerability reporting is on** (GitHub Security tab);
+  SECURITY.md states scope — hostile-input panics ARE in scope
+  (scenario JSON, theme files, element trees, font/image bytes) —
+  response expectations, and the credit policy.

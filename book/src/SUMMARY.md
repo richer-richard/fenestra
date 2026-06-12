@@ -17,3 +17,4 @@
 - [Accessibility](accessibility.md)
 - [Headless rendering and testing](headless.md)
 - [The determinism contract](determinism.md)
+- [Trust and security](trust.md)

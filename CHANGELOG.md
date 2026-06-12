@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.8.0 — 2026-06-12
+
+Trusted, formally.
+
+### Added
+
+- **cargo-deny** in CI: license allowlist, registry pinning, ban rules,
+  yanked-crate denial (alongside the existing cargo-audit job).
+- **Fuzzing**: three libFuzzer targets over the public API (theme-file
+  parsing, layout/paint totality on arbitrary trees, the text-input
+  pipeline), weekly and on demand.
+- **MSRV policy**: `rust-version = "1.88"` declared everywhere and
+  enforced by a CI job; minor releases may raise it (recorded here).
+- **Perf regression gates**: release-mode ceiling tests on the macOS
+  reference runner (counter/dashboard/virtual-100k scale).
+- **Coverage floor**: fenestra-core line coverage ≥ 45% enforced in CI
+  (measured baseline 47.28%; ratchets up).
+- **Release provenance attestations**: .crate files attached to GitHub
+  releases with build-provenance attestations
+  (`gh attestation verify`).
+- **SECURITY.md** + GitHub private vulnerability reporting enabled.
+- Book: **Trust and security** page tying it together.
+
+
 ## 0.7.0 — 2026-06-12
 
 Ecosystem seams.
