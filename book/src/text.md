@@ -43,6 +43,14 @@ paragraph, per-span weight/color/size/family/italic, spans flowing
 together across line breaks. Display-only (inputs stay plain), and the
 spans concatenate into one accessible label.
 
+## Emoji
+
+Color emoji (COLR/sbix) render through system-font fallback
+(`Fonts::with_system`, the windowed default) — pixel-proven on macOS.
+Embedded fonts have no emoji (determinism trades for coverage, same as
+CJK). Known caveat: VS16 emoji-presentation sequences (like ❤️ =
+U+2764+FE0F) currently select the monochrome text glyph.
+
 ## Bidi and RTL
 
 parley shapes mixed-direction text (Arabic/Hebrew embedded in Latin

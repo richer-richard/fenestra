@@ -190,8 +190,9 @@ Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
   Latin-only; the windowed runner uses `Fonts::with_system()`, which
   falls back through system fonts per script (CJK works). Custom faces:
   `fonts.register(FamilyRole::Display, bytes)` + `render_element_with`.
-  Color emoji coverage depends on vello's COLR support — treat it as
-  unreliable for now.
+  Color emoji render through system fonts (pixel-proven on macOS);
+  embedded fonts have none, and VS16 sequences (❤️) fall back to
+  monochrome text presentation.
 
 ## Workspace map
 
