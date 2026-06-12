@@ -119,17 +119,25 @@ fn align_items(v: AlignItems) -> taffy::style::AlignItems {
     }
 }
 
-/// Non-finite or negative sizes are hostile input, not geometry: NaN
-/// spreads through taffy and trips parley's line-breaker assertion
-/// (found by the layout fuzzer). They resolve to `auto`/zero instead.
+/// Hostile sizes are sanitized, not laid out: NaN spreads through
+/// taffy and panics parley's line breaker, and near-f32::MAX values
+/// overflow its advance arithmetic to infinity with the same result
+/// (both found by the layout fuzzer). A billion logical px is beyond
+/// any real canvas and leaves ~29 orders of magnitude before overflow.
+const MAX_DIMENSION: f32 = 1.0e9;
+
 fn finite(v: f32) -> f32 {
-    if v.is_finite() { v.max(0.0) } else { 0.0 }
+    if v.is_finite() {
+        v.clamp(0.0, MAX_DIMENSION)
+    } else {
+        0.0
+    }
 }
 
 fn dimension(l: Length) -> taffy::style::Dimension {
     match l {
         Length::Px(v) if !v.is_finite() => auto(),
-        Length::Px(v) => length(v.max(0.0)),
+        Length::Px(v) => length(v.clamp(0.0, MAX_DIMENSION)),
         Length::Pct(v) => percent(finite(v) / 100.0),
         Length::Auto => auto(),
     }
@@ -137,7 +145,8 @@ fn dimension(l: Length) -> taffy::style::Dimension {
 
 fn inset(v: Option<f32>) -> taffy::style::LengthPercentageAuto {
     match v {
-        Some(v) if v.is_finite() => length(v),
+        // Insets are legitimately negative (offsets), so clamp both ways.
+        Some(v) if v.is_finite() => length(v.clamp(-MAX_DIMENSION, MAX_DIMENSION)),
         Some(_) | None => auto(),
     }
 }

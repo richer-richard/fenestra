@@ -41,6 +41,7 @@ fn arb_len() -> impl Strategy<Value = f32> {
         1 => Just(f32::INFINITY),
         1 => Just(f32::NEG_INFINITY),
         1 => Just(-100.0f32),
+        1 => Just(3.2e38f32),
     ]
 }
 
@@ -261,7 +262,14 @@ proptest! {
 fn non_finite_dimensions_never_panic() {
     FONTS.with(|fonts| {
         let mut fonts = fonts.borrow_mut();
-        for w in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY, -5.0] {
+        for w in [
+            f32::NAN,
+            f32::INFINITY,
+            f32::NEG_INFINITY,
+            -5.0,
+            3.2e38,
+            1.9e28,
+        ] {
             for case in 0..4 {
                 let tree: Element<()> = match case {
                     0 => col().w(w).children([text("wrap me across lines please")]),

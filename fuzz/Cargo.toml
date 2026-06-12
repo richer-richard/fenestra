@@ -32,3 +32,10 @@ path = "fuzz_targets/text_input.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "decode"
+path = "fuzz_targets/decode.rs"
+test = false
+doc = false
+bench = false

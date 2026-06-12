@@ -1,0 +1,14 @@
+/Users/richardhuang/GitHub/fenestra/fuzz/target/debug/deps/serde-56455959ef885c2b.d: /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/richardhuang/GitHub/fenestra/fuzz/target/debug/build/serde-258665a108843663/out/private.rs
+
+/Users/richardhuang/GitHub/fenestra/fuzz/target/debug/deps/libserde-56455959ef885c2b.rlib: /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/richardhuang/GitHub/fenestra/fuzz/target/debug/build/serde-258665a108843663/out/private.rs
+
+/Users/richardhuang/GitHub/fenestra/fuzz/target/debug/deps/libserde-56455959ef885c2b.rmeta: /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs /Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs /Users/richardhuang/GitHub/fenestra/fuzz/target/debug/build/serde-258665a108843663/out/private.rs
+
+/Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/lib.rs:
+/Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/integer128.rs:
+/Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/mod.rs:
+/Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/de.rs:
+/Users/richardhuang/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde-1.0.228/src/private/ser.rs:
+/Users/richardhuang/GitHub/fenestra/fuzz/target/debug/build/serde-258665a108843663/out/private.rs:
+
+# env-dep:OUT_DIR=/Users/richardhuang/GitHub/fenestra/fuzz/target/debug/build/serde-258665a108843663/out

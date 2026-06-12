@@ -234,6 +234,9 @@ impl Fonts {
         style: &ResolvedText,
         max_advance: Option<f32>,
     ) -> Layout<LayoutBrush> {
+        // parley's line breaker overflows (and asserts) on enormous or
+        // non-finite advances; clamp at the boundary.
+        let max_advance = max_advance.and_then(|w| w.is_finite().then(|| w.clamp(0.0, 1.0e9)));
         let family = match style.family {
             FamilyRole::Sans => FontFamily::named("Inter"),
             FamilyRole::Mono => FontFamily::Single(GenericFamily::Monospace.into()),
@@ -328,6 +331,7 @@ impl Fonts {
                 FontFamily::named(name)
             }
         }
+        let max_advance = max_advance.and_then(|w| w.is_finite().then(|| w.clamp(0.0, 1.0e9)));
         let mut builder = self
             .layout_cx
             .ranged_builder(&mut self.font_cx, &text, 1.0, true);
