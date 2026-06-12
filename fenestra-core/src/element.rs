@@ -385,6 +385,8 @@ pub struct Element<Msg> {
     pub(crate) semantics: Option<Semantics>,
     /// Announce content changes to assistive technology (polite).
     pub(crate) live: bool,
+    /// Static text: users can drag-select and copy it.
+    pub(crate) selectable: bool,
     /// Accessible name (screen-reader label).
     pub(crate) label: Option<String>,
     pub(crate) themed: Option<ThemedFn>,
@@ -426,6 +428,7 @@ impl<Msg> Element<Msg> {
             virtual_rows: None,
             semantics: None,
             live: false,
+            selectable: false,
             label: None,
             themed: None,
             hover_style: None,
@@ -631,6 +634,13 @@ impl<Msg> Element<Msg> {
 
     /// Sets the accessible role and state projected into the accessibility
     /// tree. Text, image, and input leaves project automatically.
+    /// Makes static text selectable: drag (or double/triple-click)
+    /// selects, Cmd/Ctrl+C copies. For text and rich-text elements.
+    pub fn selectable(mut self) -> Self {
+        self.selectable = true;
+        self
+    }
+
     /// Marks a live region: assistive technology announces content
     /// changes inside it without focus moving there (status lines,
     /// toasts — the kit's toast stack sets this itself).
@@ -1255,6 +1265,7 @@ impl<Msg: 'static> Element<Msg> {
             }),
             semantics: self.semantics,
             live: self.live,
+            selectable: self.selectable,
             label: self.label,
             themed: self.themed,
             hover_style: self.hover_style,

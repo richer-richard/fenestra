@@ -158,6 +158,24 @@ pub struct AccessNode {
     pub children: Vec<AccessNode>,
 }
 
+/// A static text payload borrowed from the frame (plain or rich).
+pub(crate) enum StaticText<'a> {
+    Plain(&'a str),
+    Rich(&'a [crate::element::Span]),
+}
+
+impl StaticText<'_> {
+    /// The full string spans shape over (owned only for rich text).
+    pub(crate) fn to_text(&self) -> std::borrow::Cow<'_, str> {
+        match self {
+            Self::Plain(s) => std::borrow::Cow::Borrowed(s),
+            Self::Rich(spans) => {
+                std::borrow::Cow::Owned(spans.iter().map(|s| s.text.as_str()).collect())
+            }
+        }
+    }
+}
+
 /// One realized overlay, painted above the root in stack order.
 struct OverlayFrame {
     id: WidgetId,
@@ -182,6 +200,8 @@ pub struct Frame {
     scale: f64,
     thumb_color: crate::Color,
     ring_color: crate::Color,
+    /// Static-text selection highlight (matches input selections).
+    selection_color: crate::Color,
     /// `true` while any scrollbar fade, style transition, caret blink, or
     /// overlay animation is running; the runner keeps scheduling frames.
     pub animating: bool,
@@ -489,6 +509,13 @@ fn build<Msg>(
                 let range = editor.editor.raw_selection().text_range();
                 (range.start, range.end)
             }),
+            Kind::Text(_) | Kind::Rich(_) if el.selectable => state
+                .static_sel
+                .filter(|(sid, ..)| *sid == id)
+                .map(|(_, sel, _)| {
+                    let range = sel.text_range();
+                    (range.start, range.end)
+                }),
             _ => None,
         },
         source: el.source,
@@ -1043,6 +1070,7 @@ pub fn build_frame<Msg>(
         scale,
         thumb_color: theme.text_subtle,
         ring_color: theme.accent.with_alpha(FOCUS_RING.alpha),
+        selection_color: theme.accent.with_alpha(0.25),
         animating,
     }
 }
@@ -1131,8 +1159,20 @@ impl Frame {
             painter::focus_ring(scene, node.rect, node.style.corner_radius, self.ring_color);
         }
         match &node.kind {
-            PaintKind::Text { text, style } => fonts.paint(scene, text, style, node.rect),
-            PaintKind::Rich { spans, style } => fonts.paint_rich(scene, spans, style, node.rect),
+            PaintKind::Text { text, style } => {
+                let selection = state
+                    .static_sel
+                    .filter(|(sid, ..)| *sid == node.id)
+                    .map(|(_, sel, _)| (sel, self.selection_color));
+                fonts.paint(scene, text, style, node.rect, selection);
+            }
+            PaintKind::Rich { spans, style } => {
+                let selection = state
+                    .static_sel
+                    .filter(|(sid, ..)| *sid == node.id)
+                    .map(|(_, sel, _)| (sel, self.selection_color));
+                fonts.paint_rich(scene, spans, style, node.rect, selection);
+            }
             PaintKind::Path(data) => {
                 let color = node.style.text.color.unwrap_or(self.thumb_color);
                 let rotation = node
@@ -1285,6 +1325,26 @@ impl Frame {
             emit(&overlay.node, 0, "overlay", &mut out);
         }
         out
+    }
+
+    /// The text payload of a static text/rich node, with its resolved
+    /// style — what static selection shapes against.
+    pub(crate) fn static_text_of(&self, id: WidgetId) -> Option<(StaticText<'_>, &ResolvedText)> {
+        fn find(node: &FrameNode, id: WidgetId) -> Option<(StaticText<'_>, &ResolvedText)> {
+            if node.id == id {
+                return match &node.kind {
+                    PaintKind::Text { text, style } => Some((StaticText::Plain(text), style)),
+                    PaintKind::Rich { spans, style } => Some((StaticText::Rich(spans), style)),
+                    _ => None,
+                };
+            }
+            node.children.iter().find_map(|c| find(c, id))
+        }
+        find(&self.root, id).or_else(|| {
+            self.overlays
+                .iter()
+                .find_map(|overlay| find(&overlay.node, id))
+        })
     }
 
     /// The scrollable that keyboard paging should drive: the nearest

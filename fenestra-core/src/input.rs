@@ -583,7 +583,7 @@ pub(crate) fn paint(
                 text_y + layout_height
             };
             let ph_rect = Rect::new(content.x0, text_y, content.x1, ph_bottom);
-            fonts.paint(scene, &data.placeholder, &placeholder_style, ph_rect);
+            fonts.paint(scene, &data.placeholder, &placeholder_style, ph_rect, None);
         }
     } else {
         let transform = Affine::translate(text_origin);

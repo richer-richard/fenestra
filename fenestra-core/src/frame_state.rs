@@ -63,6 +63,9 @@ pub struct FrameState {
     /// Modifier keys as last reported by [`InputEvent::Modifiers`]:
     /// (shift, ctrl, alt, meta).
     pub(crate) mods: (bool, bool, bool, bool),
+    /// Active static-text selection (one at a time, like a browser):
+    /// element, parley selection, and whether a drag is extending it.
+    pub(crate) static_sel: Option<(WidgetId, parley::Selection, bool)>,
     /// The autofocus element and the frame it was last seen, so focus
     /// moves only when it newly appears.
     pub(crate) autofocus_last: Option<(WidgetId, u64)>,
@@ -96,6 +99,7 @@ impl Default for FrameState {
             last_click: None,
             last_press: None,
             mods: (false, false, false, false),
+            static_sel: None,
             autofocus_last: None,
             dragging: None,
             ime_caret: None,

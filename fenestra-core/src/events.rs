@@ -423,6 +423,27 @@ pub fn dispatch<Msg: Clone>(
                             }
                             out.redraw = true;
                         }
+                    } else if el.selectable && matches!(el.kind, Kind::Text(_) | Kind::Rich(_)) {
+                        if let Some((sid, sel, true)) = state.static_sel
+                            && sid == active
+                            && let Some((text, style)) = frame.static_text_of(active)
+                            && let Some(rect) = frame.rect_of(active)
+                        {
+                            #[expect(
+                                clippy::cast_possible_truncation,
+                                reason = "text coords fit in f32"
+                            )]
+                            let sel = fonts.static_extend(
+                                &text,
+                                style,
+                                Some(rect.width() as f32),
+                                sel,
+                                (point.x - rect.x0) as f32,
+                                (point.y - rect.y0) as f32,
+                            );
+                            state.static_sel = Some((active, sel, true));
+                            out.redraw = true;
+                        }
                     } else if let Some(f) = &el.on_drag
                         && let Some((fx, fy)) = frame.fraction_in(active, point)
                         && let Some(msg) = f(fx, fy)
@@ -503,12 +524,18 @@ pub fn dispatch<Msg: Clone>(
                 return out;
             }
             // Deepest interactive node wins the press.
+            // A press anywhere ends the previous static selection;
+            // selecting below re-establishes one.
+            if state.static_sel.take().is_some() {
+                out.redraw = true;
+            }
             let target = chain.iter().rev().copied().find(|id| {
                 handlers.get(*id).is_some_and(|el| {
                     !el.disabled
                         && (el.on_click.is_some()
                             || el.on_drag.is_some()
                             || el.focusable
+                            || el.selectable
                             || frame.toggle_overlay_of(*id).is_some())
                 })
             });
@@ -547,6 +574,30 @@ pub fn dispatch<Msg: Clone>(
                                 _ => input::pointer_down(editor, fonts, lx, ly, state.mods.0),
                             }
                             editor.last_activity = now;
+                        }
+                    } else if el.selectable && matches!(el.kind, Kind::Text(_) | Kind::Rich(_)) {
+                        let now = state.now();
+                        let count = match state.last_press {
+                            Some((pid, at, c)) if pid == id && now - at <= 0.4 => (c % 3) + 1,
+                            _ => 1,
+                        };
+                        state.last_press = Some((id, now, count));
+                        if let Some((text, style)) = frame.static_text_of(id)
+                            && let Some(rect) = frame.rect_of(id)
+                        {
+                            #[expect(
+                                clippy::cast_possible_truncation,
+                                reason = "text coords fit in f32"
+                            )]
+                            let sel = fonts.static_select(
+                                &text,
+                                style,
+                                Some(rect.width() as f32),
+                                count,
+                                (point.x - rect.x0) as f32,
+                                (point.y - rect.y0) as f32,
+                            );
+                            state.static_sel = Some((id, sel, true));
                         }
                     } else if let Some(f) = &el.on_drag
                         && let Some((fx, fy)) = frame.fraction_in(id, point)
@@ -608,6 +659,9 @@ pub fn dispatch<Msg: Clone>(
         }
         InputEvent::RightUp => {}
         InputEvent::PointerUp => {
+            if let Some((sid, sel, true)) = state.static_sel {
+                state.static_sel = Some((sid, sel, false));
+            }
             // Internal drag completion: deliver the payload to the deepest
             // drop target under the release, if any.
             if let Some(payload) = state.dragging.take()
@@ -746,6 +800,24 @@ pub fn dispatch<Msg: Clone>(
                     }
                 }
             }
+            // Cmd/Ctrl+C copies an active static-text selection when no
+            // focused editor consumed the chord.
+            if !key_handled
+                && (key.meta || key.ctrl)
+                && matches!(key.key, Key::Char(c) if c.eq_ignore_ascii_case(&'c'))
+                && let Some((sid, sel, _)) = state.static_sel
+            {
+                let range = sel.text_range();
+                if range.start < range.end
+                    && let Some((text, _)) = frame.static_text_of(sid)
+                {
+                    let full = text.to_text();
+                    if let Some(slice) = full.get(range) {
+                        state.clipboard.as_mut().set(slice.to_owned());
+                    }
+                }
+            }
+
             // Keyboard paging drives the focused element's nearest
             // scrollable (or the first one) unless on_key consumed the key.
             if !key_handled

@@ -415,10 +415,21 @@ impl Fonts {
         spans: &[crate::element::Span],
         style: &ResolvedText,
         rect: Rect,
+        selection: Option<(parley::Selection, Color)>,
     ) {
         #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
         let max_advance = Some(rect.width() as f32);
         let transform = Affine::translate((rect.x0, rect.y0));
+        if let Some((sel, highlight)) = selection {
+            for r in self.static_selection_rects(
+                &crate::frame::StaticText::Rich(spans),
+                style,
+                max_advance,
+                sel,
+            ) {
+                scene.fill(Fill::NonZero, transform, highlight, None, &r);
+            }
+        }
         let layout = self.shape_rich(spans, style, max_advance);
         for line in layout.lines() {
             for item in line.items() {
@@ -459,6 +470,72 @@ impl Fonts {
         }
     }
 
+    /// The layout a static text node shapes with (cached for plain
+    /// text; rich paragraphs shape per call).
+    fn static_layout(
+        &mut self,
+        text: &crate::frame::StaticText<'_>,
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+    ) -> std::borrow::Cow<'_, Layout<LayoutBrush>> {
+        match text {
+            crate::frame::StaticText::Plain(s) => {
+                std::borrow::Cow::Borrowed(self.layout(s, style, max_advance))
+            }
+            crate::frame::StaticText::Rich(spans) => {
+                std::borrow::Cow::Owned(self.shape_rich(spans, style, max_advance))
+            }
+        }
+    }
+
+    /// Starts a static selection at a local point: press count 1 places
+    /// a collapsed selection, 2 selects the word, 3 the line.
+    pub(crate) fn static_select(
+        &mut self,
+        text: &crate::frame::StaticText<'_>,
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+        count: u8,
+        x: f32,
+        y: f32,
+    ) -> parley::Selection {
+        let layout = self.static_layout(text, style, max_advance);
+        match count {
+            2 => parley::Selection::word_from_point(layout.as_ref(), x, y),
+            3 => parley::Selection::line_from_point(layout.as_ref(), x, y),
+            _ => parley::Selection::from_point(layout.as_ref(), x, y),
+        }
+    }
+
+    /// Extends a static selection to a local point (drag).
+    pub(crate) fn static_extend(
+        &mut self,
+        text: &crate::frame::StaticText<'_>,
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+        sel: parley::Selection,
+        x: f32,
+        y: f32,
+    ) -> parley::Selection {
+        let layout = self.static_layout(text, style, max_advance);
+        sel.extend_to_point(layout.as_ref(), x, y)
+    }
+
+    /// Selection highlight rects for painting, in layout-local coords.
+    pub(crate) fn static_selection_rects(
+        &mut self,
+        text: &crate::frame::StaticText<'_>,
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+        sel: parley::Selection,
+    ) -> Vec<Rect> {
+        let layout = self.static_layout(text, style, max_advance);
+        sel.geometry(layout.as_ref())
+            .into_iter()
+            .map(|(bb, _)| Rect::new(bb.x0, bb.y0, bb.x1, bb.y1))
+            .collect()
+    }
+
     /// Measured size of `text` at the given wrap width, for taffy.
     pub(crate) fn measure(
         &mut self,
@@ -491,11 +568,22 @@ impl Fonts {
         text: &str,
         style: &ResolvedText,
         rect: Rect,
+        selection: Option<(parley::Selection, Color)>,
     ) {
         #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
         let max_advance = Some(rect.width() as f32);
         let color = style.color;
         let transform = Affine::translate((rect.x0, rect.y0));
+        if let Some((sel, highlight)) = selection {
+            for r in self.static_selection_rects(
+                &crate::frame::StaticText::Plain(text),
+                style,
+                max_advance,
+                sel,
+            ) {
+                scene.fill(Fill::NonZero, transform, highlight, None, &r);
+            }
+        }
         let layout = self.layout(text, style, max_advance);
         for line in layout.lines() {
             for item in line.items() {
