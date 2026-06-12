@@ -43,7 +43,7 @@ pub use text_area::{TextArea, text_area};
 pub use text_input::{TextInput, text_input};
 pub use toast::{ToastStack, toast_stack};
 pub use tree::{TreeNode, TreeView, tree_view};
-pub use virtual_list::virtual_list;
+pub use virtual_list::{virtual_list, virtual_list_variable};
 
 /// Control heights shared by buttons and inputs, logical px.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

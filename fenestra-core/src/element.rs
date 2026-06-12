@@ -49,6 +49,9 @@ pub enum Kind {
 pub struct VirtualData<Msg> {
     pub(crate) count: usize,
     pub(crate) row_height: f32,
+    /// Rows size themselves; `row_height` is the estimate for
+    /// unmaterialized ones (heights are measured and corrected).
+    pub(crate) variable: bool,
     pub(crate) builder: std::rc::Rc<dyn Fn(usize) -> Element<Msg>>,
 }
 
@@ -57,6 +60,7 @@ impl<Msg> Clone for VirtualData<Msg> {
         Self {
             count: self.count,
             row_height: self.row_height,
+            variable: self.variable,
             builder: std::rc::Rc::clone(&self.builder),
         }
     }
@@ -634,6 +638,26 @@ impl<Msg> Element<Msg> {
         self.virtual_rows = Some(VirtualData {
             count,
             row_height,
+            variable: false,
+            builder: std::rc::Rc::new(builder),
+        });
+        self
+    }
+
+    /// Like [`Self::virtual_rows`], but rows size themselves:
+    /// `estimated_height` positions unmaterialized rows, and real
+    /// heights are measured as rows appear (offsets self-correct over
+    /// the next frame). Constraints: no overlays inside rows.
+    pub fn virtual_rows_variable(
+        mut self,
+        count: usize,
+        estimated_height: f32,
+        builder: impl Fn(usize) -> Element<Msg> + 'static,
+    ) -> Self {
+        self.virtual_rows = Some(VirtualData {
+            count,
+            row_height: estimated_height,
+            variable: true,
             builder: std::rc::Rc::new(builder),
         });
         self
@@ -1292,6 +1316,7 @@ impl<Msg: 'static> Element<Msg> {
                 VirtualData {
                     count: v.count,
                     row_height: v.row_height,
+                    variable: v.variable,
                     builder: std::rc::Rc::new(move |i| builder(i).map(f.clone())),
                 }
             }),

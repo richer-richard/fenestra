@@ -361,7 +361,7 @@ fn build<Msg>(
     let generated: Vec<Element<Msg>>;
     let child_slice: &[Element<Msg>] = match &el.virtual_rows {
         Some(v) => {
-            generated = expand_virtual(v, state.scroll_offset(id), viewport);
+            generated = expand_virtual(v, id, state, viewport);
             &generated
         }
         None => &el.children,
@@ -577,9 +577,37 @@ pub(crate) fn materialize_virtual_row<Msg>(
 /// Expands a virtual container into spacer + visible rows + spacer.
 fn expand_virtual<Msg>(
     v: &crate::element::VirtualData<Msg>,
-    offset: f32,
+    id: WidgetId,
+    state: &mut FrameState,
     viewport: f32,
 ) -> Vec<Element<Msg>> {
+    let offset = state.scroll_offset(id);
+    if v.variable {
+        const OVERSCAN: usize = 8;
+        let index = state
+            .virtual_heights
+            .entry(id)
+            .or_insert_with(|| crate::frame_state::HeightIndex::new_with(v.count, v.row_height));
+        index.ensure(v.count, v.row_height);
+        let first = index.index_at(offset).saturating_sub(OVERSCAN);
+        let last = (index.index_at(offset + viewport.max(0.0)) + 1 + OVERSCAN).min(v.count);
+        let window = first..last;
+        let top = index.offset_of(window.start);
+        let bottom = (index.total() - index.offset_of(window.end)).max(0.0);
+        state.virtual_windows.insert(id, window.clone());
+        let mut out = Vec::with_capacity(window.len() + 2);
+        out.push(crate::element::div().h(top).w_full().shrink0());
+        for i in window {
+            // Rows size themselves; estimates only place the spacers.
+            let mut row = (v.builder)(i);
+            if row.key.is_none() {
+                row = row.id(&format!("v{i}"));
+            }
+            out.push(row.shrink0());
+        }
+        out.push(crate::element::div().h(bottom).w_full().shrink0());
+        return out;
+    }
     let window = virtual_window(v.count, v.row_height, offset, viewport);
     let mut out = Vec::with_capacity(window.len() + 2);
     #[expect(clippy::cast_precision_loss, reason = "row counts fit in f32")]
@@ -724,7 +752,8 @@ impl Realize<'_> {
                     .collect()
             });
 
-        let children = node
+        let virtual_window = self.state.virtual_windows.get(&node.id).cloned();
+        let children: Vec<FrameNode> = node
             .children
             .into_iter()
             .enumerate()
@@ -737,6 +766,17 @@ impl Realize<'_> {
                 )
             })
             .collect();
+        // Variable-height virtual lists: record the materialized rows'
+        // real heights (children are spacer + rows + spacer); offsets
+        // self-correct on the next frame.
+        if let Some(window) = virtual_window
+            && let Some(index) = self.state.virtual_heights.get_mut(&node.id)
+        {
+            for (row, child) in window.zip(children.iter().skip(1)) {
+                #[expect(clippy::cast_possible_truncation, reason = "row heights fit in f32")]
+                index.record(row, child.rect.height() as f32);
+            }
+        }
 
         let meta = NodeMeta {
             focusable: node.focusable && !node.disabled,
@@ -773,6 +813,7 @@ pub fn build_frame<Msg>(
     size: (f32, f32),
     scale: f64,
 ) -> Frame {
+    state.virtual_windows.clear();
     let mut tree: TaffyTree<MeasureCtx> = TaffyTree::new();
     state.frame_no += 1;
     let mut transitions_running = false;

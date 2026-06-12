@@ -221,10 +221,23 @@ impl<'a, Msg> Handlers<'a, Msg> {
         let Some(v) = &el.virtual_rows else {
             return;
         };
-        let window =
-            crate::frame::virtual_window(v.count, v.row_height, state.scroll_offset(id), viewport);
+        // Variable lists: reuse the exact window the frame materialized
+        // (stashed at build), so handler ids line up with painted rows.
+        let window = if v.variable {
+            state.virtual_windows.get(&id).cloned().unwrap_or(0..0)
+        } else {
+            crate::frame::virtual_window(v.count, v.row_height, state.scroll_offset(id), viewport)
+        };
         for (j, i) in window.enumerate() {
-            let row = std::rc::Rc::new(crate::frame::materialize_virtual_row(v, i));
+            let row = if v.variable {
+                let mut row = (v.builder)(i);
+                if row.key.is_none() {
+                    row = row.id(&format!("v{i}"));
+                }
+                std::rc::Rc::new(row.shrink0())
+            } else {
+                std::rc::Rc::new(crate::frame::materialize_virtual_row(v, i))
+            };
             let rid = id.child(1 + j, row.key.as_deref());
             self.walk_owned(&row, Vec::new(), rid, state, viewport);
         }

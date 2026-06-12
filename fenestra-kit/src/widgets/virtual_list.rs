@@ -38,3 +38,19 @@ pub fn virtual_list<Msg: 'static>(
         .scroll_y()
         .virtual_rows(count, row_height, builder)
 }
+
+/// Like [`virtual_list`], but rows size themselves: `estimated_height`
+/// positions unmaterialized rows, real heights are measured as rows
+/// appear, and offsets self-correct over the next frame. Give the list
+/// a stable `.id`.
+pub fn virtual_list_variable<Msg: 'static>(
+    count: usize,
+    estimated_height: f32,
+    builder: impl Fn(usize) -> Element<Msg> + 'static,
+) -> Element<Msg> {
+    col()
+        .w_full()
+        .h_full()
+        .scroll_y()
+        .virtual_rows_variable(count, estimated_height, builder)
+}

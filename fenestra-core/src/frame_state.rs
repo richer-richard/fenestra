@@ -68,6 +68,12 @@ pub struct FrameState {
     pub(crate) static_sel: Option<(WidgetId, parley::Selection, bool)>,
     /// Focused-element type-ahead: target, buffer, last keystroke time.
     pub(crate) type_ahead: Option<(WidgetId, String, f64)>,
+    /// Variable-height virtual lists: measured row heights per
+    /// container, estimates for the rest (self-correcting offsets).
+    pub(crate) virtual_heights: HashMap<WidgetId, HeightIndex>,
+    /// Materialized windows this frame (container -> row range), so the
+    /// post-layout pass knows which child maps to which row index.
+    pub(crate) virtual_windows: HashMap<WidgetId, std::ops::Range<usize>>,
     /// The autofocus element and the frame it was last seen, so focus
     /// moves only when it newly appears.
     pub(crate) autofocus_last: Option<(WidgetId, u64)>,
@@ -103,6 +109,8 @@ impl Default for FrameState {
             mods: (false, false, false, false),
             static_sel: None,
             type_ahead: None,
+            virtual_heights: HashMap::new(),
+            virtual_windows: HashMap::new(),
             autofocus_last: None,
             dragging: None,
             ime_caret: None,
@@ -281,5 +289,94 @@ impl FrameState {
             let age = self.now - s.last_change;
             age > 0.0 && age <= SCROLLBAR_HOLD_SECS + SCROLLBAR_FADE_SECS
         })
+    }
+}
+
+/// Row-height bookkeeping for one variable-height virtual list:
+/// measured heights where rows have materialized, the estimate
+/// elsewhere, and a prefix-sum index for offset math.
+#[derive(Debug)]
+pub(crate) struct HeightIndex {
+    estimate: f32,
+    heights: Vec<f32>,
+    /// prefix[i] = offset of row i; prefix[count] = total height.
+    prefix: Vec<f32>,
+    dirty: bool,
+}
+
+impl HeightIndex {
+    pub(crate) fn ensure(&mut self, count: usize, estimate: f32) {
+        let estimate = if estimate.is_finite() && estimate > 0.0 {
+            estimate
+        } else {
+            1.0
+        };
+        if self.heights.len() != count || (self.estimate - estimate).abs() > f32::EPSILON {
+            self.estimate = estimate;
+            self.heights = vec![estimate; count];
+            self.dirty = true;
+        }
+        if self.dirty {
+            self.prefix.clear();
+            self.prefix.reserve(count + 1);
+            let mut acc = 0.0;
+            self.prefix.push(0.0);
+            for h in &self.heights {
+                acc += h;
+                self.prefix.push(acc);
+            }
+            self.dirty = false;
+        }
+    }
+
+    pub(crate) fn new_with(count: usize, estimate: f32) -> Self {
+        let mut index = Self {
+            estimate: 1.0,
+            heights: Vec::new(),
+            prefix: Vec::new(),
+            dirty: true,
+        };
+        index.ensure(count, estimate);
+        index
+    }
+
+    /// Offset of a row's top edge.
+    pub(crate) fn offset_of(&self, i: usize) -> f32 {
+        self.prefix.get(i).copied().unwrap_or_default()
+    }
+
+    /// Total content height.
+    pub(crate) fn total(&self) -> f32 {
+        self.prefix.last().copied().unwrap_or_default()
+    }
+
+    /// The row containing `offset` (binary search over the prefix).
+    pub(crate) fn index_at(&self, offset: f32) -> usize {
+        if self.heights.is_empty() {
+            return 0;
+        }
+        let offset = offset.max(0.0);
+        match self
+            .prefix
+            .binary_search_by(|p| p.partial_cmp(&offset).unwrap_or(std::cmp::Ordering::Less))
+        {
+            Ok(i) => i.min(self.heights.len().saturating_sub(1)),
+            Err(i) => i
+                .saturating_sub(1)
+                .min(self.heights.len().saturating_sub(1)),
+        }
+    }
+
+    /// Records a measured row height; offsets correct on the next
+    /// frame's `ensure`.
+    pub(crate) fn record(&mut self, i: usize, height: f32) {
+        if height.is_finite()
+            && height > 0.0
+            && let Some(slot) = self.heights.get_mut(i)
+            && (*slot - height).abs() > 0.25
+        {
+            *slot = height;
+            self.dirty = true;
+        }
     }
 }
