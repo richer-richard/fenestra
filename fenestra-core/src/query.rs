@@ -323,13 +323,17 @@ impl Frame {
             {
                 out.push_str(&format!(" [value={value:?}]"));
             }
+            if node.live {
+                out.push_str(" [live]");
+            }
             out
         }
         fn emit(node: &AccessNode, depth: usize, out: &mut String) {
             let interesting = node.semantics.is_some()
                 || node.label.is_some()
                 || node.value.is_some()
-                || node.key.is_some();
+                || node.key.is_some()
+                || node.live;
             let child_depth = if interesting {
                 let role = node
                     .semantics

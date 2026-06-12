@@ -383,6 +383,8 @@ pub struct Element<Msg> {
     pub(crate) virtual_rows: Option<VirtualData<Msg>>,
     /// Accessible role and state (kit widgets set it; leaves auto-project).
     pub(crate) semantics: Option<Semantics>,
+    /// Announce content changes to assistive technology (polite).
+    pub(crate) live: bool,
     /// Accessible name (screen-reader label).
     pub(crate) label: Option<String>,
     pub(crate) themed: Option<ThemedFn>,
@@ -423,6 +425,7 @@ impl<Msg> Element<Msg> {
             keyframes: None,
             virtual_rows: None,
             semantics: None,
+            live: false,
             label: None,
             themed: None,
             hover_style: None,
@@ -628,6 +631,14 @@ impl<Msg> Element<Msg> {
 
     /// Sets the accessible role and state projected into the accessibility
     /// tree. Text, image, and input leaves project automatically.
+    /// Marks a live region: assistive technology announces content
+    /// changes inside it without focus moving there (status lines,
+    /// toasts — the kit's toast stack sets this itself).
+    pub fn live(mut self) -> Self {
+        self.live = true;
+        self
+    }
+
     pub fn semantics(mut self, semantics: Semantics) -> Self {
         self.semantics = Some(semantics);
         self
@@ -1243,6 +1254,7 @@ impl<Msg: 'static> Element<Msg> {
                 }
             }),
             semantics: self.semantics,
+            live: self.live,
             label: self.label,
             themed: self.themed,
             hover_style: self.hover_style,

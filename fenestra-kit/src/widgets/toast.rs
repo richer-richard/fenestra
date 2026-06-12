@@ -82,6 +82,7 @@ fn toast_row<Msg: 'static>(
         .shadow(ShadowToken::Lg)
         .shrink0()
         .semantics(Semantics::Alert)
+        .live()
         .label(message.clone())
         .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
         .children([

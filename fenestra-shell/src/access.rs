@@ -37,6 +37,9 @@ fn push_node(nodes: &mut Vec<(NodeId, Node)>, an: &AccessNode, is_root: bool, sc
     if let Some(value) = &an.value {
         node.set_value(value.clone());
     }
+    if an.live {
+        node.set_live(accesskit::Live::Polite);
+    }
     match an.semantics {
         Some(Semantics::Checkbox { checked }) => node.set_toggled(toggled(checked)),
         Some(Semantics::Switch { on }) => node.set_toggled(toggled(on)),

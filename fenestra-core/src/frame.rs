@@ -121,6 +121,10 @@ struct FrameNode {
         Option<String>,
         Option<String>,
     ),
+    /// Live region (polite announcements).
+    live: bool,
+    /// Text inputs: selected byte range (collapsed = caret position).
+    selection: Option<(usize, usize)>,
     /// Builder call site, for `debug_tree`.
     source: &'static std::panic::Location<'static>,
     children: Vec<FrameNode>,
@@ -145,6 +149,11 @@ pub struct AccessNode {
     pub focusable: bool,
     /// The stable key assigned via `.id("...")`, when one was set.
     pub key: Option<String>,
+    /// Live region: content changes are announced politely.
+    pub live: bool,
+    /// Text inputs: the selected byte range in the value (collapsed =
+    /// caret position). Headlessly testable selection state.
+    pub selection: Option<(usize, usize)>,
     /// Children in paint order.
     pub children: Vec<AccessNode>,
 }
@@ -197,6 +206,10 @@ struct BuiltNode {
         Option<String>,
         Option<String>,
     ),
+    /// Live region (polite announcements).
+    live: bool,
+    /// Text inputs: selected byte range (collapsed = caret position).
+    selection: Option<(usize, usize)>,
     /// Builder call site, for `debug_tree`.
     source: &'static std::panic::Location<'static>,
     children: Vec<BuiltNode>,
@@ -470,6 +483,14 @@ fn build<Msg>(
         spin: el.spin,
         stick_bottom: el.stick_bottom,
         access: (semantics, label, value, el.key.clone()),
+        live: el.live,
+        selection: match &el.kind {
+            Kind::Input(_) => state.editors.get(&id).map(|editor| {
+                let range = editor.editor.raw_selection().text_range();
+                (range.start, range.end)
+            }),
+            _ => None,
+        },
         source: el.source,
         children,
     }
@@ -689,6 +710,8 @@ impl Realize<'_> {
             meta,
             spin: node.spin,
             access: node.access,
+            live: node.live,
+            selection: node.selection,
             source: node.source,
             children,
         }
@@ -1178,6 +1201,8 @@ impl Frame {
                 rect: node.rect,
                 focusable: node.meta.focusable,
                 key,
+                live: node.live,
+                selection: node.selection,
                 children: node.children.iter().map(project).collect(),
             }
         }
