@@ -3,7 +3,7 @@ resolver = "3"
 members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/richer-richard/fenestra"
@@ -15,9 +15,9 @@ categories = ["gui"]
 unsafe_code = "forbid"
 
 [workspace.dependencies]
-fenestra-core = { version = "0.6.0", path = "fenestra-core" }
-fenestra-shell = { version = "0.6.0", path = "fenestra-shell" }
-fenestra-kit = { version = "0.6.0", path = "fenestra-kit" }
+fenestra-core = { version = "0.7.0", path = "fenestra-core" }
+fenestra-shell = { version = "0.7.0", path = "fenestra-shell" }
+fenestra-kit = { version = "0.7.0", path = "fenestra-kit" }
 
 winit = "0.30.13"
 wgpu = "29.0.3"

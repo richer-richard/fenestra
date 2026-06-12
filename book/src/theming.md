@@ -36,3 +36,18 @@ text("Evolution").family(FamilyRole::Display).size_px(148.0);
 The repository's `poster` example reproduces an editorial study-guide
 cover this way — golden-tested like everything else. The point: design
 languages are code, and beauty is testable.
+
+## Theme files
+
+Themes serialize as *recipes* — the few numbers a theme generates from,
+not hundreds of resolved colors:
+
+```json
+{"mode": "dark", "duotone": {"neutral_hue": 152.0, "chroma": 6.0, "accent_hue": 72.0}}
+```
+
+`ThemeSpec::from_json(s)?.theme()` resolves through the same builders
+(`Theme::dark`, `from_accent`, `duotone`); `spec.to_json()` writes one.
+Unknown fields are errors, so a typo'd recipe fails loudly instead of
+silently falling back. Recipes stay tiny, hand-editable, and stable
+across fenestra versions.

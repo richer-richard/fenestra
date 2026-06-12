@@ -45,8 +45,10 @@ alignment `.items_start/center/end/baseline()`,
 
 **Kit widgets** — `button checkbox switch radio slider text_input
 text_area select tooltip modal toast_stack tabs card stat_card badge
-avatar progress spinner table callout virtual_list menu dropdown_menu
-context_menu popover combobox icons::* icons::lucide::*`.
+avatar progress spinner table data_table callout virtual_list menu
+dropdown_menu context_menu popover combobox command_palette split_pane
+tree_view icons::* icons::lucide::*`; charts live in the
+`fenestra-charts` crate (`sparkline line_chart bar_chart`).
 
 **Tokens** — spacing `SP0..SP16`, radii `R_SM..R_FULL`, `TextSize`,
 `Weight`, `ShadowToken`, `MotionDuration`, themes via

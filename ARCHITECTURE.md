@@ -554,3 +554,44 @@ lives in the book's Influences section. Decisions:
   selected byte range headlessly on `AccessNode::selection`. The
   per-run inline-text-box protocol stays out of scope and the docs say
   so explicitly.
+
+## 0.7: ecosystem seams
+
+- **Embedded mode is egui's narrow waist, adapted to a compute
+  rasterizer.** `Embedded::new(app, theme, &device, target_format)`
+  builds the vello renderer on the caller's device; `render` paints
+  into an internal premultiplied-alpha Rgba8 texture and composites
+  onto any target view via wgpu's `TextureBlitter` with
+  `PREMULTIPLIED_ALPHA_BLENDING` (vello output is premultiplied — a
+  transparent base color makes the UI a floating layer). egui hands
+  back meshes for the caller's pass; vello is compute-first, so the
+  texture+blit contract replaces the mesh contract, with
+  `texture_view()` as the custom-compositing escape. `EventResponse
+  {consumed, repaint}` arbitration: pointer-over-content (hit chain
+  deeper than the root) or focused-keystroke. The shell re-exports
+  wgpu/winit/vello so integration code can't version-skew. Proven by a
+  readback test on a headless device: caller pixels intact outside the
+  panel, composite verified, consumption contract asserted.
+- **`fenestra-charts` exists to prove the widget-crate path.** It
+  depends on fenestra-core alone, follows every rule the new
+  widget-crate guide states (theme tokens, semantics+labels, builders,
+  no panics on hostile data, golden tests), and joins the publish order
+  right after core. Charts are paths-in-viewboxes (sparkline, line) and
+  flexbox bars (bar chart) — no plotting engine, deliberately.
+- **Theme files serialize the recipe, not the palette.** `ThemeSpec
+  {mode, accent_hue?, duotone?}` resolves through the same builders
+  apps call; files stay tiny and survive theme-generation changes.
+  `deny_unknown_fields` keeps typos loud.
+- **Kit v2 stays Elm-pure.** split_pane emits fractions (drag lives on
+  the container; interactive content wins hit-testing, so only inert
+  areas resize — documented v1 tradeoff); tree_view renders from the
+  app's expanded/selected state; command_palette is a modal with an
+  autofocused filter input where Enter runs the first match;
+  data_table emits sort-column and row-select messages and only draws
+  the indicators — sorting itself happens in `update`. The
+  QAbstractItemModel-style pull-based model trait was considered and
+  deferred: Vec rows + virtual_list cover current scale; revisit when
+  a real app outgrows them.
+- **Per-window themes**: `App::theme_for(key)` defaulting to `theme()`;
+  the runner consults it per window, the harness deliberately does not
+  (single explicit theme = deterministic goldens).

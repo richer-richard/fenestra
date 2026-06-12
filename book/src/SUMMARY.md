@@ -12,6 +12,8 @@
 - [Images and icons](images-icons.md)
 - [Commands and async](commands.md)
 - [Multiple windows](windows.md)
+- [Embedding in your wgpu app](embedding.md)
+- [Writing a widget crate](widget-crates.md)
 - [Accessibility](accessibility.md)
 - [Headless rendering and testing](headless.md)
 - [The determinism contract](determinism.md)

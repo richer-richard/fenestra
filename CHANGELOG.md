@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.7.0 — 2026-06-12
+
+Ecosystem seams.
+
+### Added
+
+- **Embedded mode**: `Embedded` runs a fenestra app inside a
+  caller-owned wgpu world — your event loop, device, surface, and
+  frame pacing. Renders on your device, composites onto any target
+  view with premultiplied-alpha blending (transparent clear = floating
+  UI layer), `EventResponse {consumed, repaint}` arbitration,
+  `texture_view()` for custom compositing, `frame()` for semantic
+  queries. wgpu/winit/vello re-exported for version-matched
+  integration. `examples/embedded.rs` is a full host app.
+- **`fenestra-charts`** (new crate): sparkline, line chart, bar chart —
+  and the reference third-party widget crate (fenestra-core only,
+  theme tokens, golden-tested, panic-free on hostile data).
+- **Widget-crate guide**: a book chapter with the authoring contract.
+- **Theme files**: `ThemeSpec` recipes ⇄ JSON (`{"mode": "dark",
+  "accent_hue": 265.0}`), resolving through the stock builders; typos
+  fail loudly.
+- **Kit v2**: `split_pane` (draggable divider, app-owned fraction),
+  `tree_view` (disclosure + selection + arrow-key collapse/expand),
+  `command_palette` (modal filter launcher, Enter runs first match),
+  `data_table` (sortable headers, row selection — Elm-pure, app sorts).
+- **Per-window themes**: `App::theme_for(key)`, consulted by the
+  windowed runner.
+
+
 ## 0.6.0 — 2026-06-12
 
 Text is real.

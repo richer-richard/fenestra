@@ -39,3 +39,8 @@ save, or veto by keeping the desc in the list.
 Notes: native only (the web runner ignores `windows()`); `view_for`
 defaults to `view()`, so single-window apps never see this API.
 `examples/windows.rs` is the working pattern.
+
+Per-window themes: override `theme_for(&self, key) -> Theme` (defaults
+to `theme()` everywhere) — a dark inspector next to a light main window
+is one match away. The runner consults it per window; the test harness
+keeps its single explicit theme for determinism.
