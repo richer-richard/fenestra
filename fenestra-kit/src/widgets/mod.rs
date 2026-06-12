@@ -4,7 +4,9 @@
 
 mod button;
 mod checkbox;
+mod combobox;
 mod display;
+mod menu;
 mod overlay_widgets;
 mod radio;
 mod select;
@@ -17,9 +19,11 @@ mod virtual_list;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
 pub use checkbox::{Checkbox, checkbox};
+pub use combobox::{Combobox, combobox};
 pub use display::{
     StatCard, Status, avatar, badge, callout, card, progress, spinner, stat_card, table, tabs,
 };
+pub use menu::{context_menu, dropdown_menu, menu, popover};
 pub use overlay_widgets::{Modal, modal, tooltip};
 pub use radio::{Radio, radio};
 pub use select::{Select, select};

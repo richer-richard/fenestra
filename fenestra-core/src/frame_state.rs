@@ -65,6 +65,9 @@ pub struct FrameState {
     /// Caret rect of the focused editor from the last paint, in logical
     /// coordinates — the runner positions the IME popup with it.
     pub(crate) ime_caret: Option<kurbo::Rect>,
+    /// Pointer position captured when a pointer-placed overlay opened, so
+    /// context menus stay pinned while the mouse moves.
+    pub(crate) pointer_pins: std::collections::HashMap<WidgetId, (f32, f32)>,
 }
 
 impl Default for FrameState {
@@ -88,6 +91,7 @@ impl Default for FrameState {
             autofocus_last: None,
             dragging: None,
             ime_caret: None,
+            pointer_pins: std::collections::HashMap::new(),
         }
     }
 }
@@ -135,6 +139,7 @@ impl FrameState {
     pub(crate) fn close_overlay(&mut self, id: WidgetId) {
         self.overlays.retain(|o| *o != id);
         self.overlay_opened.remove(&id);
+        self.pointer_pins.remove(&id);
     }
 
     /// Whether the id is pressed.

@@ -840,6 +840,7 @@ pub fn build_frame<Msg>(
                 animating = true;
             }
 
+            let state_pointer = state.pointer;
             let origin = match p.def.placement {
                 OverlayPlacement::Below { gap } => {
                     let gap = f64::from(gap);
@@ -863,6 +864,28 @@ pub fn build_frame<Msg>(
                 OverlayPlacement::TopRight { margin } => {
                     let m = f64::from(margin);
                     Point::new((canvas.x1 - w - m).max(canvas.x0), canvas.y0 + m)
+                }
+                OverlayPlacement::Pointer { gap } => {
+                    // Pin where the pointer was when the overlay opened.
+                    let fallback = (
+                        #[expect(clippy::cast_possible_truncation, reason = "logical px")]
+                        {
+                            anchor_rect.x0 as f32
+                        },
+                        #[expect(clippy::cast_possible_truncation, reason = "logical px")]
+                        {
+                            anchor_rect.y1 as f32
+                        },
+                    );
+                    let (px, py) = *state
+                        .pointer_pins
+                        .entry(p.id)
+                        .or_insert_with(|| state_pointer.unwrap_or(fallback));
+                    let g = f64::from(gap);
+                    Point::new(
+                        (f64::from(px) + g).clamp(canvas.x0, (canvas.x1 - w).max(canvas.x0)),
+                        (f64::from(py) + g).clamp(canvas.y0, (canvas.y1 - h).max(canvas.y0)),
+                    )
                 }
                 OverlayPlacement::Center => {
                     // Slide up 8px as the modal enters.

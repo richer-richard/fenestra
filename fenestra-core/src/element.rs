@@ -135,6 +135,12 @@ pub enum OverlayPlacement {
         /// Margin from the canvas edges in logical px.
         margin: f32,
     },
+    /// At the pointer position when the overlay opened (context menus);
+    /// pinned there until it closes.
+    Pointer {
+        /// Offset from the pointer in logical px.
+        gap: f32,
+    },
 }
 
 /// Marks an element as an overlay child of its parent (the anchor):
@@ -180,6 +186,19 @@ impl Overlay {
             placement: OverlayPlacement::Center,
             backdrop: true,
             trap_focus: true,
+        }
+    }
+
+    /// An app-driven context menu pinned at the right-click position:
+    /// pair with `.on_right_click(open_msg)` on the target and
+    /// `.on_close(close_msg)` on the menu; item clicks are the app's cue
+    /// to close.
+    pub fn context() -> Self {
+        Self {
+            mode: OverlayMode::Open,
+            placement: OverlayPlacement::Pointer { gap: 2.0 },
+            backdrop: false,
+            trap_focus: false,
         }
     }
 
