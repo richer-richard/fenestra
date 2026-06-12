@@ -13,7 +13,7 @@ reference: read its source next to this checklist.
 
    ```toml
    [dependencies]
-   fenestra-core = "0.7"
+   fenestra-core = "0.10"
 
    [dev-dependencies]
    fenestra-shell = "0.7"
@@ -64,6 +64,6 @@ reference: read its source next to this checklist.
 
 ## Versioning
 
-Track fenestra's minor version (`fenestra-core = "0.7"`) and re-test on
+Track fenestra's minor version (`fenestra-core = "0.10"`) and re-test on
 each release; the core IR and builder vocabulary are the stable
 surface. After 1.0, semver does the rest.
