@@ -12,6 +12,8 @@ mod access;
 #[cfg(not(target_arch = "wasm32"))]
 mod element_render;
 #[cfg(not(target_arch = "wasm32"))]
+mod harness;
+#[cfg(not(target_arch = "wasm32"))]
 mod headless;
 #[cfg(not(target_arch = "wasm32"))]
 mod os_clipboard;
@@ -25,6 +27,8 @@ mod window;
 pub use element_render::{
     render_element, render_element_with, render_element_with_state, with_fonts, with_headless,
 };
+#[cfg(not(target_arch = "wasm32"))]
+pub use harness::Harness;
 #[cfg(not(target_arch = "wasm32"))]
 pub use headless::Headless;
 #[cfg(not(target_arch = "wasm32"))]

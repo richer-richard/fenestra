@@ -110,5 +110,35 @@ pub trait App {
     }
 }
 
+/// A mutable borrow of an app is itself an app: harnesses can drive an
+/// app the caller still owns (and inspects afterwards).
+impl<A: App> App for &mut A {
+    type Msg = A::Msg;
+
+    fn init(&mut self, proxy: Proxy<Self::Msg>) {
+        (**self).init(proxy);
+    }
+
+    fn update(&mut self, msg: Self::Msg) {
+        (**self).update(msg);
+    }
+
+    fn view(&self) -> Element<Self::Msg> {
+        (**self).view()
+    }
+
+    fn theme(&self) -> Theme {
+        (**self).theme()
+    }
+
+    fn windows(&self) -> Vec<WindowDesc<Self::Msg>> {
+        (**self).windows()
+    }
+
+    fn view_for(&self, key: &str) -> Element<Self::Msg> {
+        (**self).view_for(key)
+    }
+}
+
 /// The key [`App::view_for`] receives for the main window.
 pub const MAIN_WINDOW: &str = "main";

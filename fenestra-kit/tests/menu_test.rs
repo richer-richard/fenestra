@@ -1,9 +1,10 @@
 //! 0.4 kit: context menus (right-click + app-owned open flag) and the
-//! combobox (filtering text input + pickable listbox).
+//! combobox — driven through the 0.5 semantic harness instead of
+//! coordinates: find widgets the way users do.
 
-use fenestra_core::{App, Element, Key, KeyInput, Theme, col, div};
+use fenestra_core::{App, Element, Key, KeyInput, Semantics, Theme, by, col, div};
 use fenestra_kit::{combobox, context_menu};
-use fenestra_shell::{SyntheticEvent, render_app};
+use fenestra_shell::Harness;
 
 // ------------------------------------------------------------ context menu
 
@@ -56,43 +57,30 @@ impl App for Files {
 
 #[test]
 fn right_click_menu_opens_at_pointer_and_picks() {
-    let theme = Theme::light();
-    let mut app = Files::default();
-    render_app(
-        &mut app,
-        &[
-            SyntheticEvent::MouseMove { x: 50.0, y: 50.0 },
-            SyntheticEvent::RightDown,
-            SyntheticEvent::RightUp,
-            // First item: menu pinned at (52, 52); panel padding 4, rows
-            // 30 tall — click inside the first row.
-            SyntheticEvent::MouseMove { x: 90.0, y: 70.0 },
-            SyntheticEvent::MouseDown,
-            SyntheticEvent::MouseUp,
-        ],
-        (400, 300),
-        &theme,
-    );
-    assert_eq!(app.picked, Some("rename"));
-    assert!(!app.menu_open, "the app closed the menu on pick");
+    let mut h = Harness::new(Files::default(), Theme::light(), (400, 300));
+    assert!(h.query(&by::id("ctx")).is_none(), "menu starts closed");
+
+    h.right_click(&by::id("target"));
+    assert!(h.query(&by::id("ctx")).is_some(), "right-click opened it");
+
+    h.click(&by::role(Semantics::Button).name("Rename"));
+    assert_eq!(h.app().picked, Some("rename"));
+    assert!(!h.app().menu_open, "the app closed the menu on pick");
+    assert!(h.query(&by::id("ctx")).is_none());
+
+    // The harness logged the emitted messages (open + pick).
+    let msgs = h.take_messages();
+    assert!(matches!(msgs.first(), Some(FileMsg::OpenMenu)));
+    assert!(matches!(msgs.last(), Some(FileMsg::Pick("rename"))));
 }
 
 #[test]
 fn escape_asks_the_menu_to_close() {
-    let theme = Theme::light();
-    let mut app = Files::default();
-    render_app(
-        &mut app,
-        &[
-            SyntheticEvent::MouseMove { x: 50.0, y: 50.0 },
-            SyntheticEvent::RightDown,
-            SyntheticEvent::Key(KeyInput::plain(Key::Escape)),
-        ],
-        (400, 300),
-        &theme,
-    );
-    assert!(!app.menu_open);
-    assert!(app.picked.is_none());
+    let mut h = Harness::new(Files::default(), Theme::light(), (400, 300));
+    h.right_click(&by::id("target"));
+    h.key(KeyInput::plain(Key::Escape));
+    assert!(!h.app().menu_open);
+    assert!(h.app().picked.is_none());
 }
 
 // ---------------------------------------------------------------- combobox
@@ -145,23 +133,18 @@ impl App for Langs {
 
 #[test]
 fn combobox_filters_and_picks() {
-    let theme = Theme::light();
-    let mut app = Langs::default();
-    render_app(
-        &mut app,
-        &[
-            SyntheticEvent::Tab,
-            SyntheticEvent::Text("ru".into()),
-            // Listbox sits below the input (y 16..52), gap 4, padding 4:
-            // first option row spans roughly y 60..90.
-            SyntheticEvent::MouseMove { x: 60.0, y: 72.0 },
-            SyntheticEvent::MouseDown,
-            SyntheticEvent::MouseUp,
-        ],
-        (400, 300),
-        &theme,
+    let mut h = Harness::new(Langs::default(), Theme::light(), (400, 300));
+    h.tab();
+    h.type_text("ru");
+    // Typing filtered the listbox down to the matching options.
+    assert!(
+        h.query(&by::role(Semantics::Button).name("Python"))
+            .is_none()
     );
-    assert_eq!(app.value, "Rust", "picking writes the option back");
-    assert_eq!(app.picked.as_deref(), Some("Rust"));
-    assert!(!app.open);
+    h.click(&by::role(Semantics::Button).name("Rust"));
+    assert_eq!(h.app().value, "Rust", "picking writes the option back");
+    assert_eq!(h.app().picked.as_deref(), Some("Rust"));
+    assert!(!h.app().open);
+    // The input now exposes the picked value to queries too.
+    assert!(h.query(&by::value("Rust")).is_some());
 }

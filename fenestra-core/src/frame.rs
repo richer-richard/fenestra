@@ -103,8 +103,13 @@ struct FrameNode {
     meta: NodeMeta,
     /// Continuous rotation period (ms) for spinner paths.
     spin: Option<f32>,
-    /// Accessibility projection: role/state, name, and value.
-    access: (Option<Semantics>, Option<String>, Option<String>),
+    /// Accessibility projection: role/state, name, value, and user key.
+    access: (
+        Option<Semantics>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
     children: Vec<FrameNode>,
 }
 
@@ -125,6 +130,8 @@ pub struct AccessNode {
     pub rect: Rect,
     /// Keyboard focusable (and enabled).
     pub focusable: bool,
+    /// The stable key assigned via `.id("...")`, when one was set.
+    pub key: Option<String>,
     /// Children in paint order.
     pub children: Vec<AccessNode>,
 }
@@ -170,8 +177,13 @@ struct BuiltNode {
     spin: Option<f32>,
     /// Scroll containers: pin to the bottom while content grows.
     stick_bottom: bool,
-    /// Accessibility projection: role/state, name, and value.
-    access: (Option<Semantics>, Option<String>, Option<String>),
+    /// Accessibility projection: role/state, name, value, and user key.
+    access: (
+        Option<Semantics>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ),
     children: Vec<BuiltNode>,
 }
 
@@ -426,7 +438,7 @@ fn build<Msg>(
         disabled: el.disabled,
         spin: el.spin,
         stick_bottom: el.stick_bottom,
-        access: (semantics, label, value),
+        access: (semantics, label, value, el.key.clone()),
         children,
     }
 }
@@ -1101,7 +1113,7 @@ impl Frame {
     /// windowed shell maps it to the platform tree via AccessKit.
     pub fn access_tree(&self) -> AccessNode {
         fn project(node: &FrameNode) -> AccessNode {
-            let (semantics, label, value) = node.access.clone();
+            let (semantics, label, value, key) = node.access.clone();
             AccessNode {
                 id: node.id,
                 semantics,
@@ -1109,6 +1121,7 @@ impl Frame {
                 value,
                 rect: node.rect,
                 focusable: node.meta.focusable,
+                key,
                 children: node.children.iter().map(project).collect(),
             }
         }

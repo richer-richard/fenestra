@@ -1,13 +1,8 @@
 //! Synthetic event injection for headless testing: agents drive an [`App`]
 //! with scripted input and look at the resulting pixels.
 
-use std::sync::{Arc, Mutex, PoisonError};
-
-use fenestra_core::{App, FrameState, InputEvent, KeyInput, Proxy, Theme, build_frame, dispatch};
+use fenestra_core::{App, InputEvent, KeyInput, Theme};
 use image::RgbaImage;
-
-use crate::element_render::with_fonts;
-use crate::with_headless;
 
 /// A scripted input event for [`render_app`].
 #[derive(Debug, Clone, PartialEq)]
@@ -84,44 +79,9 @@ pub fn render_app<A: App>(
 where
     A::Msg: Send,
 {
-    // Clamp before layout so the frames and the texture agree on the size.
-    let size =
-        with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
-    let pending: Arc<Mutex<Vec<A::Msg>>> = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&pending);
-    app.init(Proxy::new(move |msg| {
-        sink.lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(msg);
-    }));
-    fn drain<A: App>(app: &mut A, pending: &Mutex<Vec<A::Msg>>) {
-        let msgs = std::mem::take(&mut *pending.lock().unwrap_or_else(PoisonError::into_inner));
-        for msg in msgs {
-            app.update(msg);
-        }
+    let mut harness = crate::Harness::new(&mut *app, theme.clone(), size);
+    for ev in events {
+        harness.input(ev.into());
     }
-    let mut state = FrameState::new();
-    state.reduced_motion = true;
-    #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
-    let logical = (size.0 as f32, size.1 as f32);
-
-    let scene = with_fonts(|fonts| {
-        for ev in events {
-            drain(app, &pending);
-            let view = app.view();
-            let frame = build_frame(&view, theme, fonts, &mut state, logical, 1.0);
-            let result = dispatch(&view, &frame, &mut state, fonts, ev.into());
-            for msg in result.msgs {
-                app.update(msg);
-            }
-        }
-        // Apply late proxied messages, then one settle frame.
-        drain(app, &pending);
-        let view = app.view();
-        let frame = build_frame(&view, theme, fonts, &mut state, logical, 1.0);
-        frame.paint(fonts, &mut state)
-    });
-    with_headless(|headless| headless.render(&scene, size.0, size.1, theme.bg))
-        .expect("headless renderer unavailable")
-        .expect("headless render failed")
+    harness.render()
 }
