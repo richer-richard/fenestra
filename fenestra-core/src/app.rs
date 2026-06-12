@@ -108,6 +108,15 @@ pub trait App {
         let _ = key;
         self.view()
     }
+
+    /// The theme for one window; defaults to [`Self::theme`] everywhere.
+    /// Override for per-window theming (e.g. a dark inspector next to a
+    /// light main window). The windowed runner consults it per window;
+    /// the test harness keeps its single explicit theme for determinism.
+    fn theme_for(&self, key: &str) -> Theme {
+        let _ = key;
+        self.theme()
+    }
 }
 
 /// A mutable borrow of an app is itself an app: harnesses can drive an
@@ -137,6 +146,10 @@ impl<A: App> App for &mut A {
 
     fn view_for(&self, key: &str) -> Element<Self::Msg> {
         (**self).view_for(key)
+    }
+
+    fn theme_for(&self, key: &str) -> Theme {
+        (**self).theme_for(key)
     }
 }
 

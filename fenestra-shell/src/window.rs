@@ -978,7 +978,7 @@ impl<A: App> AppRunner<A> {
     /// against its own retained state and `view_for(key)`.
     #[cfg(not(target_arch = "wasm32"))]
     fn secondary_redraw(&mut self, key: &str, event_loop: &ActiveEventLoop) {
-        let theme = self.app.theme();
+        let theme = self.app.theme_for(key);
         let now = self.started.elapsed().as_secs_f64();
         let Some(bundle) = self.secondary.get_mut(key) else {
             return;

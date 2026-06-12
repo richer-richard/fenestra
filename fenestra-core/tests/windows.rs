@@ -102,3 +102,31 @@ fn windows_reflect_app_state_and_views_route_by_key() {
     assert_eq!(labels(&app.view_for(MAIN_WINDOW)), labels(&app.view()));
     assert!(labels(&app.view_for("probe-3")).contains("inspector probe-3"));
 }
+
+#[test]
+fn theme_for_defaults_to_theme_and_routes_per_window() {
+    struct Two;
+    impl App for Two {
+        type Msg = ();
+        fn update(&mut self, (): ()) {}
+        fn view(&self) -> Element<()> {
+            col()
+        }
+        fn theme(&self) -> Theme {
+            Theme::light()
+        }
+        fn theme_for(&self, key: &str) -> Theme {
+            if key == "inspector" {
+                Theme::dark()
+            } else {
+                self.theme()
+            }
+        }
+    }
+    let app = Two;
+    assert_eq!(app.theme_for(MAIN_WINDOW).bg, Theme::light().bg);
+    assert_eq!(app.theme_for("inspector").bg, Theme::dark().bg);
+
+    // And the default keeps single-theme apps untouched.
+    assert_eq!(Single.theme_for("anything").bg, Single.theme().bg);
+}
