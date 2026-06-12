@@ -48,6 +48,19 @@ pub struct WindowOptions {
     pub title: String,
     /// Initial inner size in logical pixels.
     pub inner_size: (f64, f64),
+    /// Minimum inner size in logical pixels.
+    pub min_size: Option<(f64, f64)>,
+    /// Whether the window can be resized (true by default).
+    pub resizable: bool,
+    /// Open maximized.
+    pub maximized: bool,
+    /// Open borderless-fullscreen on the current monitor.
+    pub fullscreen: bool,
+    /// Window icon as straight-alpha RGBA8 `(width, height, pixels)`.
+    pub icon: Option<(u32, u32, Vec<u8>)>,
+    /// Custom faces registered on the runner's fonts before the first
+    /// frame: design languages work in windows, not just headlessly.
+    pub fonts: Vec<(fenestra_core::FamilyRole, Vec<u8>)>,
 }
 
 impl WindowOptions {
@@ -56,12 +69,56 @@ impl WindowOptions {
         Self {
             title: title.into(),
             inner_size: (1024.0, 768.0),
+            min_size: None,
+            resizable: true,
+            maximized: false,
+            fullscreen: false,
+            icon: None,
+            fonts: Vec::new(),
         }
     }
 
     /// Sets the initial inner size in logical pixels.
     pub fn with_size(mut self, width: f64, height: f64) -> Self {
         self.inner_size = (width, height);
+        self
+    }
+
+    /// Sets the minimum inner size in logical pixels.
+    pub fn with_min_size(mut self, width: f64, height: f64) -> Self {
+        self.min_size = Some((width, height));
+        self
+    }
+
+    /// Allows or forbids resizing (allowed by default).
+    pub fn with_resizable(mut self, resizable: bool) -> Self {
+        self.resizable = resizable;
+        self
+    }
+
+    /// Opens the window maximized.
+    pub fn maximized(mut self) -> Self {
+        self.maximized = true;
+        self
+    }
+
+    /// Opens borderless-fullscreen on the current monitor.
+    pub fn fullscreen(mut self) -> Self {
+        self.fullscreen = true;
+        self
+    }
+
+    /// Sets the window icon from straight-alpha RGBA8 pixels (ignored on
+    /// platforms without window icons, including the web).
+    pub fn with_icon(mut self, width: u32, height: u32, rgba: Vec<u8>) -> Self {
+        self.icon = Some((width, height, rgba));
+        self
+    }
+
+    /// Registers a custom face under a family role for this window's
+    /// fonts (TTF/OTF bytes; see `Fonts::register`).
+    pub fn with_font(mut self, role: fenestra_core::FamilyRole, data: Vec<u8>) -> Self {
+        self.fonts.push((role, data));
         self
     }
 }
@@ -133,7 +190,27 @@ impl WindowShell {
                     self.options.inner_size.0,
                     self.options.inner_size.1,
                 ))
+                .with_resizable(self.options.resizable)
+                .with_maximized(self.options.maximized)
                 .with_visible(false);
+            let attrs = match self.options.min_size {
+                Some((w, h)) => attrs.with_min_inner_size(LogicalSize::new(w, h)),
+                None => attrs,
+            };
+            let attrs = if self.options.fullscreen {
+                attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+            } else {
+                attrs
+            };
+            #[cfg(not(target_arch = "wasm32"))]
+            let attrs = match self.options.icon.clone() {
+                Some((w, h, rgba)) => match winit::window::Icon::from_rgba(rgba, w, h) {
+                    Ok(icon) => attrs.with_window_icon(Some(icon)),
+                    // Malformed icon data: open without one, never panic.
+                    Err(_) => attrs,
+                },
+                None => attrs,
+            };
             #[cfg(target_arch = "wasm32")]
             let attrs = {
                 use winit::platform::web::WindowAttributesExtWebSys;
@@ -467,10 +544,14 @@ pub fn run_static(
 ) -> Result<(), ShellError> {
     let event_loop = EventLoop::new().map_err(ShellError::EventLoop)?;
     let background = theme.bg;
+    let mut fonts = Fonts::with_system();
+    for (role, data) in &options.fonts {
+        fonts.register(*role, data.clone());
+    }
     let mut app = StaticApp {
         shell: WindowShell::new(options, background),
         theme,
-        fonts: Fonts::with_system(),
+        fonts,
         state: FrameState::new(),
         view: Box::new(view),
         cursor: Point::ORIGIN,
@@ -628,6 +709,10 @@ where
         let _ = proxy.send_event(RunnerEvent::App(Box::new(msg)));
     }));
     let background = app.theme().bg;
+    let mut fonts = Fonts::with_system();
+    for (role, data) in &options.fonts {
+        fonts.register(*role, data.clone());
+    }
     #[cfg(target_arch = "wasm32")]
     let state = FrameState::new();
     #[cfg(not(target_arch = "wasm32"))]
@@ -637,7 +722,7 @@ where
     let runner = AppRunner {
         shell: WindowShell::new(options, background),
         app,
-        fonts: Fonts::with_system(),
+        fonts,
         state,
         cursor: Point::ORIGIN,
         started: Instant::now(),
