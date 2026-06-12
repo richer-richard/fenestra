@@ -137,7 +137,9 @@ Interaction: `.on_click(msg) .on_right_click(msg) .on_double_click(msg)
 .on_hover(msg) .on_key(f) .on_drag(f) .on_input(f) .on_close(msg)
 .on_file_drop(f) .drag_source(s) .on_drop(f) .focusable(true)
 .autofocus() .disabled(b) .cursor(..)`;
-variants `.hover/.active/.focus(f)` (+ `_themed`); `.transition(Transition::colors())`;
+variants `.hover/.active/.focus(f)` (+ `_themed`); `.transition(Transition::colors())`
+or `Transition::spring()`; `.enter(t)` fade-in on first appearance;
+`.selectable()` copyable text; `.on_type_ahead(f)` buffered jumps;
 `.keyframes(Keyframes::new(ms).stop(at, f))`; `.spin(ms)`; `.overlay(Overlay::menu())`
 
 Composition: `.semantics(..) .label(..) .id("stable-key")`,
@@ -151,8 +153,10 @@ Queries: `by::role(Semantics::Button).name("Save")`, `by::label("…")`,
 
 Kit: `button checkbox switch radio slider text_input text_area select
 tooltip modal toast_stack tabs card stat_card badge avatar progress
-spinner table callout virtual_list menu dropdown_menu context_menu
-popover combobox icons::* icons::lucide::*`
+spinner table data_table callout virtual_list menu dropdown_menu
+context_menu popover combobox command_palette split_pane tree_view
+date_picker badge_dot progress_indeterminate icons::* icons::lucide::*`;
+sibling crates: fenestra-charts, fenestra-markdown, fenestra-looks
 
 Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
 `TextSize::{Xs..Xl2}`, `Weight::{Regular,Medium,Semibold}`,

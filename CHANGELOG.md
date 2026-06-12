@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.9.0 — 2026-06-12
+
+Text grows up; looks arrive.
+
+### Added
+
+- **Selectable static text**: `.selectable()` — drag/word/line
+  selection with Cmd/Ctrl+C, browser semantics, highlight painted in
+  the selection color, range exposed headlessly.
+- **`fenestra-markdown`** (new crate): CommonMark as native elements —
+  headings, inline styling via rich-text spans, code panels, lists,
+  blockquotes, rules, clickable links emitting their URL.
+- **`fenestra-looks`** (new crate): packaged design languages —
+  product, editorial (Playfair/duotone), terminal (JetBrains Mono) —
+  golden-locked identities, OFL typefaces vendored. Registered faces
+  now win for every family role.
+- **Motion**: `Transition::spring()` (closed-form damped response,
+  geometry overshoots, colors clamp), `.enter(transition)` fade-ins on
+  first appearance, theme/color crossfades proven end to end.
+- **`date_picker`** (#6), select multi-char type-ahead via the new
+  `on_type_ahead` core handler (#5), tooltip flip-above (#4),
+  `badge_dot` (#8), `progress_indeterminate` (#3), toast enter
+  animation (#2), 14 more Lucide icons (#1).
+- **Emoji status resolved** (#11): color emoji render through system
+  fonts (proof test); VS16 caveat documented.
+
+
 ## 0.8.0 — 2026-06-12
 
 Trusted, formally.

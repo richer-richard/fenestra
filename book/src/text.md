@@ -35,6 +35,14 @@ width, accepts Enter as a newline, moves by line with the arrows, and
 grows with its content from `min_height`. Cap growth with an outer scroll
 container.
 
+## Selecting static text
+
+`.selectable()` on text and rich text gives users browser-grade
+selection: drag selects, double-click takes the word, triple-click the
+line, Cmd/Ctrl+C copies. One selection lives at a time; any press
+elsewhere clears it. The highlight uses the input selection color, and
+tests read the selected byte range from `AccessNode::selection`.
+
 ## Rich text
 
 `rich_text([span("Ship it "), span("boldly").weight(Weight::Semibold)

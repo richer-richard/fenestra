@@ -645,3 +645,46 @@ compile out; the code path is safe Rust either way), so the fuzz jobs
 now run the shipped configuration (`-O`, assertions off). Worth
 reporting upstream to Linebender with the crash input — debug-build
 apps showing untrusted text could panic until then.
+
+## 0.9: text grows up, looks arrive
+
+- **Selectable static text rides the editor's machinery.** One
+  selection at a time (browser semantics), press chains shared with
+  inputs (1/2/3 = caret/word/line), parley `Selection` over the cached
+  layout, copy gated behind `key_handled` so focused editors keep
+  their own Cmd+C. The highlight paints under glyphs in the input
+  selection color; `AccessNode::selection` exposes the range.
+- **Markdown is word-level inline emulation where links live.**
+  Link-free paragraphs are one wrapped `rich_text` (fast path);
+  paragraphs with links split into word pieces in a wrap row so each
+  link is its own correctly-hit-tested clickable — the inspector
+  caught segment-level wrapping breaking hit-testing. Spaces attach to
+  the *following* word (trailing-space advances are trimmed by
+  measurement); one accessible button per link run, not per word.
+- **Looks bundle theme + typefaces; two font-stack truths surfaced.**
+  Registered faces now win for every family role (Sans/Mono were
+  hardcoded), and looks ship 400–700 weights because requesting a
+  weight a family lacks falls back out of the family entirely — the
+  terminal headline rendered Inter until the golden was *looked at*.
+  Typefaces vendored under OFL with licenses beside them.
+- **Springs are closed-form, not simulated.** The damped step response
+  maps elapsed time to progress directly (deterministic under the
+  harness clock, no integration state); underdamped motion overshoots
+  on geometry while colors/opacity/shadows clamp (extrapolated colors
+  aren't colors). Settled = envelope < 0.1%.
+- **Enter animations seed, exit stays out.** `.enter` initializes a
+  new id's retained animation from the target faded out — no retained
+  removal machinery exists, so exit animations are explicitly
+  unsupported rather than half-built.
+- **Type-ahead is a core primitive** (`on_type_ahead`): dispatch owns
+  the focused-element buffer (1s window, Escape clears) and hands the
+  whole buffer to the handler. Select implements both idioms: single
+  letters cycle past the current entry; growing buffers prefix-match
+  inclusively.
+- **Emoji resolved (#11)**: COLR/sbix renders through system fallback
+  on vello 0.9 (chromatic-pixel proof, macOS-gated); VS16 sequences
+  select the text presentation — pinned in-test so a fallback
+  improvement surfaces.
+- date_picker uses inline civil-date math (Sakamoto) — no chrono;
+  tooltips flip above at the bottom edge; the issue tracker is empty
+  except the 1.0 RFC.

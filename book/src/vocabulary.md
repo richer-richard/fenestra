@@ -38,7 +38,8 @@ alignment `.items_start/center/end/baseline()`,
 **Interaction** — `.on_click(msg)`, `.on_right_click(msg)`,
 `.on_double_click(msg)`, `.on_hover(msg)`, `.on_key(f)`, `.on_drag(f)`,
 `.on_input(f)`, `.on_close(msg)`, `.on_file_drop(f)`, `.drag_source(s)`,
-`.on_drop(f)`, `.focusable(true)`, `.autofocus()`,
+`.on_drop(f)`, `.on_type_ahead(f)`, `.focusable(true)`, `.autofocus()`,
+`.selectable()`, `.enter(transition)`,
 `.disabled(b)`, `.cursor(Cursor::Pointer)`; state variants
 `.hover/.active/.focus(|s| ...)` and `_themed` versions;
 `.transition(Transition::colors())`; `.keyframes(..)`; `.spin(ms)`.
@@ -47,8 +48,11 @@ alignment `.items_start/center/end/baseline()`,
 text_area select tooltip modal toast_stack tabs card stat_card badge
 avatar progress spinner table data_table callout virtual_list menu
 dropdown_menu context_menu popover combobox command_palette split_pane
-tree_view icons::* icons::lucide::*`; charts live in the
-`fenestra-charts` crate (`sparkline line_chart bar_chart`).
+tree_view date_picker badge_dot progress_indeterminate icons::*
+icons::lucide::*` (38 icons); charts live in `fenestra-charts`
+(`sparkline line_chart bar_chart`), markdown in `fenestra-markdown`
+(`markdown(src).on_link(..)`), and packaged design languages in
+`fenestra-looks` (`product editorial terminal`).
 
 **Tokens** — spacing `SP0..SP16`, radii `R_SM..R_FULL`, `TextSize`,
 `Weight`, `ShadowToken`, `MotionDuration`, themes via

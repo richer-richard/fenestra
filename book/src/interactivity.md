@@ -39,7 +39,16 @@ div()
 
 `.transition(Transition::colors())` animates property changes between
 frames (colors and shadows by default; opt into lengths/offsets/opacity).
-Retargeting mid-flight continues from the current value. `Keyframes`
+Retargeting mid-flight continues from the current value.
+`Transition::spring()` (or `.with_spring(stiffness, damping)`) swaps
+the duration+curve pair for physical motion: underdamped springs
+overshoot on lengths and offsets and settle on physics, while colors,
+opacity, and shadows clamp at the target. `.enter(transition)` plays
+an element in from transparent the first time its id appears — list
+rows, toasts; exit animations are not supported yet. Theme switching
+crossfades automatically wherever `.transition(Transition::colors())`
+is set: the themed target changes, the retarget machinery does the
+rest. `Keyframes`
 timelines handle looping ambient motion (pulses, shimmer), sampled from
 the frame clock; `.spin(ms)` rotates paths (spinners). Reduced motion
 snaps everything, keeping headless renders deterministic.

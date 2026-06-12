@@ -5,6 +5,7 @@
 - [Thinking in fenestra](thinking.md)
 - [The builder vocabulary](vocabulary.md)
 - [Theming and design languages](theming.md)
+- [Looks](looks.md)
 - [Layout, scrolling, virtualization](layout.md)
 - [Interactivity and transitions](interactivity.md)
 - [Text and inputs](text.md)
