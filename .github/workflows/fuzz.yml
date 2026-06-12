@@ -27,6 +27,10 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
           workspaces: fuzz
+      - name: Install font system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev pkg-config
       - run: cargo install cargo-fuzz --locked
       - name: Fuzz for three minutes
         run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=180
