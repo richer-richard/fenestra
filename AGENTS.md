@@ -6,9 +6,10 @@ its work without a display server. This file is the working manual.
 ## The loop
 
 1. Write a view (or a full `App`).
-2. Render it headlessly to a PNG.
-3. **Open and look at the PNG.** Layout bugs, clipped text, and bad
-   spacing are visible; do not skip this step.
+2. Drive it with the harness — semantic queries, not coordinates — and
+   assert structure and messages.
+3. Render it headlessly to a PNG. **Open and look at the PNG.** Layout
+   bugs, clipped text, and bad spacing are visible; do not skip this.
 4. Iterate until it looks right, then lock it with a golden test.
 
 ```rust
@@ -28,31 +29,56 @@ reduced motion, in-memory clipboard. The same tree renders the same pixels
 on every machine of the same GPU class (cross-rasterizer runs use a small
 tolerance; see Golden tests).
 
-## Driving a real app
+## Driving a real app: the harness
 
-`render_app` runs the full Elm loop — dispatch, state, focus, editing —
-against scripted input, then renders one settle frame:
+`Harness` runs the full Elm loop — dispatch, state, focus, editing —
+driven by semantic queries (find things the way a user would; never
+hardcode coordinates):
 
 ```rust
-use fenestra::shell::{SyntheticEvent, render_app};
+use fenestra::prelude::*;
+use fenestra::shell::Harness;
 
-let mut app = MyApp::default();
-let image = render_app(
-    &mut app,
-    &[
-        SyntheticEvent::Tab,                                  // focus first widget
-        SyntheticEvent::Text("hello".into()),                 // type into it
-        SyntheticEvent::Key(KeyInput::plain(Key::Enter)),
-        SyntheticEvent::MouseMove { x: 50.0, y: 34.0 },
-        SyntheticEvent::MouseDown,
-        SyntheticEvent::MouseUp,                              // click = press+release
-    ],
-    (800, 600),
-    &Theme::light(),
-);
-assert_eq!(app.value, "hello"); // state assertions
-image.save("after.png").unwrap(); // and pixel inspection
+let mut h = Harness::new(MyApp::default(), Theme::light(), (800, 600));
+h.click(&by::role(Semantics::Button).name("Add"));   // strict: 0 or 2+ matches panic
+h.type_text("hello");                                 // into the focused input
+h.key(KeyInput::plain(Key::Enter));
+
+assert_eq!(h.app().items.len(), 1);                   // state
+assert!(h.query(&by::label("hello")).is_some());      // structure (None = absent)
+let msgs = h.take_messages();                          // behavior: what the UI emitted
+h.render().save("after.png").unwrap();                 // pixels — now look at it
 ```
+
+Verbs: `click right_click double_click hover type_text key tab
+shift_tab focus drag drop_file wheel`; `pump(ms)` advances the
+deterministic clock; `activate_window(key)` / `render_window(key)` for
+multi-window apps. Failed lookups print the whole accessibility tree —
+read it, it names every role and label on screen.
+
+Two inspector dumps when lost: `h.frame().debug_tree()` (layout rects,
+flags, `src=file:line` builder provenance) and
+`h.frame().access_yaml()` (Playwright aria-snapshot grammar).
+
+### JSON scenarios (no recompile)
+
+For quick probes, drive any app from JSON instead of Rust:
+
+```json
+{"steps": [
+  {"click": {"role": "button", "name": "Add"}},
+  {"type": "hello"},
+  {"assert": {"exists": {"label": "hello"}}},
+  {"shot": "after-add"}
+]}
+```
+
+`fenestra::shell::run_scenario(&mut harness, json, shots_dir)` — typos
+and missing targets are loud errors carrying the step index and the
+accessibility tree.
+
+`render_app(&mut app, &[SyntheticEvent::...], size, &theme)` remains
+for coordinate-level pixel probes.
 
 ## Asserting structure (accessibility tree)
 
@@ -85,6 +111,9 @@ assert_png_snapshot(snapshot_dir(), "my_widget", &image);
 - Tolerance: 3/255 per channel, 0.2% of pixels; macOS/Metal is the
   reference platform. Other rasterizers (CI software adapters) set
   `FENESTRA_SNAPSHOT_BUDGET=0.006`.
+- Failures write `<name>.actual.png`, `<name>.diff.png` (offending
+  pixels in red — look here first), and `<name>.side.png`
+  (golden | actual | diff) next to the golden.
 
 ## Vocabulary cheat sheet
 
@@ -111,7 +140,13 @@ variants `.hover/.active/.focus(f)` (+ `_themed`); `.transition(Transition::colo
 `.keyframes(Keyframes::new(ms).stop(at, f))`; `.spin(ms)`; `.overlay(Overlay::menu())`
 
 Composition: `.semantics(..) .label(..) .id("stable-key")`,
-`element.map(WrapMsg)` to embed a child component's messages.
+`element.map(WrapMsg)` to embed a child component's messages;
+`.children((a, b, c))` mixes kit builders and elements (tuple, up to
+12) — no `Element::from` needed.
+
+Queries: `by::role(Semantics::Button).name("Save")`, `by::label("…")`,
+`by::value("…")`, `by::id("key")`, `_contains` variants;
+`get` (strict) / `query` (Option) / `get_all`.
 
 Kit: `button checkbox switch radio slider text_input text_area select
 tooltip modal toast_stack tabs card stat_card badge avatar progress
@@ -133,9 +168,9 @@ Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
 - **Colors go through the theme.** In reusable widgets use
   `.themed(|t, s| s.bg(t.surface))` — `view()` has no theme parameter on
   purpose. Hardcoded colors break dark mode.
-- **Heterogeneous children arrays need `Element::from`**: kit builders
-  convert via `Into`, so `[Element::from(button(..)), text(..).into()]`
-  or call `.child(..)` repeatedly.
+- **Mixing widget types in `children`**: use a tuple —
+  `.children((text(..), button(..)))`. Arrays stay for one type or
+  pre-converted `Element`s.
 - **Enter arrives as `Key::Enter`, not text.** Control characters never
   enter single-line inputs; text areas accept `\n`.
 - **Async work**: implement `App::init`, keep the `Proxy<Msg>`, send

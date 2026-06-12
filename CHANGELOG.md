@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.5.0 — 2026-06-12
+
+The verification release: nobody else combines deterministic pixels on
+the production renderer, semantic queries over the accessibility tree,
+and Elm message assertions in one harness. Informed by a four-strand
+survey of SwiftUI/Compose/Flutter, Testing Library/Playwright/
+Storybook, Qt/WPF/Avalonia/GTK, and egui/ImGui/iced/Slint/GPUI — see
+the book's new Influences section.
+
+### Added
+
+- **Semantic queries**: `by::role(..).name(..)`, `by::label`,
+  `by::value`, `by::id` (+ `_contains` forms) over the accessibility
+  tree; strict `get` (zero or several matches panic with the tree in
+  the message), `query` (Option), `get_all`, machine-facing `try_get`.
+- **`Harness`** — drive an app headlessly at three assertion levels:
+  structure (queries), behavior (`take_messages()` — every message the
+  UI emitted), pixels (`render()`, only when asked). Verbs: click,
+  right/double click, hover, type_text, key, tab, focus, drag,
+  drop_file, wheel; explicit `pump(ms)` clock. `render_app` is now a
+  thin wrapper over it (one dispatch path; 0.4 goldens unchanged).
+- **Multi-window headless**: the harness reconciles `App::windows()`;
+  `activate_window(key)` scopes verbs, `render_window(key)` renders any
+  window at its own size.
+- **JSON scenarios**: `run_scenario` — semantic targets, verbs,
+  asserts (exists/absent/count/value/windows), named PNG shots;
+  unknown fields are loud parse errors; failures carry the step index
+  and the accessibility tree.
+- **Golden failure artifacts**: `<name>.diff.png` (offending pixels in
+  red over the dimmed golden) and `<name>.side.png`
+  (golden | actual | diff) beside the existing `.actual.png`; panic
+  message carries counts, budget, and the worst pixel. Stale artifacts
+  clean up on pass.
+- **Headless inspector**: `Frame::debug_tree()` (kind, #key, rect,
+  flags, semantics, `src=file:line` via `#[track_caller]` — zero proc
+  macros) and `Frame::access_yaml()` (verbatim Playwright aria-snapshot
+  grammar). `AccessNode` now carries the user key.
+- **Heterogeneous children**: `.children((text(..), button(..)))` —
+  tuples up to 12 mix kit builders and elements with no
+  `Element::from`; iterator form unchanged.
+- **Property tests** (dev-only proptest): layout/paint totality over
+  arbitrary trees, Tab-order permutation, per-frame id uniqueness.
+- Book: rewritten verification chapter, new **Determinism contract**
+  page, **Influences** section; AGENTS.md teaches the harness as the
+  primary loop.
+
+### Changed
+
+- `App` is blanket-implemented for `&mut A` (harnesses can borrow an
+  app the caller still owns).
+
 ## 0.4.0 — 2026-06-12
 
 Apps feel native.

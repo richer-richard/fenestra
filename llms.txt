@@ -2,9 +2,11 @@
 
 > A pure-Rust native GUI framework (winit + wgpu + vello + parley + taffy)
 > with web-grade aesthetics and first-class deterministic headless
-> rendering: both humans and AI agents can build a UI, render it to pixels
-> without a display server, look at it, drive it with synthetic input, and
-> assert on its accessibility tree — all in ordinary tests.
+> verification: humans and AI agents drive apps by semantic queries
+> (`by::role(..).name("Save")`), assert on the accessibility tree and
+> emitted messages, render deterministic PNGs (golden failures explain
+> themselves with diff images), and script whole probes in JSON — all
+> without a display server, all in ordinary tests.
 
 The API is macro-free, fully autocompletable, and small enough to memorize:
 element constructors (`row()`, `col()`, `text()`), fluent styling through

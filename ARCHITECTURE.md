@@ -463,3 +463,57 @@ fix below is locked by a regression test in the crate's `tests/hardening.rs`
   (RGBA8; malformed data opens without an icon, never panics), and
   `with_font` — per-window custom faces registered on the system font
   stack, closing the "windowed custom fonts" gap (#9).
+
+## 0.5: the verification wedge, sharpened
+
+Research drove this release: a four-strand survey (declarative natives,
+web tooling, desktop veterans, Rust/immediate-mode) — the synthesis
+lives in the book's Influences section. Decisions:
+
+- **Queries follow Testing Library, strictness follows Playwright.**
+  `by::role/label/value/id` (+ `_contains`), `Query::name` refinement;
+  `get` panics on zero *or several* matches and prints the whole
+  accessibility tree (the error message is the debugger);
+  `try_get -> Result<_, QueryError>` is the machine-facing form. Role
+  matching compares discriminants so `by::role(Checkbox{checked:false})`
+  finds every checkbox; payload assertions read the returned node. No
+  regex matching (would cost a dependency); exact + contains covers the
+  real cases. Our tree is unmerged (kit labels live on the interactive
+  node), unlike Compose's merged default — documented, not emulated.
+- **One harness, three assertion levels.** `Harness` owns app + per-
+  window `FrameState`s + an explicit clock; structure (queries),
+  behavior (`take_messages` — iced's `into_messages` idea), pixels
+  (`render`, only on demand — Avalonia's no-render fast mode). Verbs
+  re-dispatch through the same `dispatch` path the runners use;
+  `render_app` is now a thin wrapper over it, so there is exactly one
+  input path to trust (the 0.4 golden suite passed unchanged over the
+  rewrite — the behavioral proof).
+- **Multi-window headless mirrors the runner.** Slots reconcile against
+  `App::windows()` after every update; the active window falls back to
+  main when its desc disappears; `render_window(key)` renders at that
+  window's own clamped size.
+- **Golden failures explain themselves** (Flutter's failure-artifact
+  contract): `.actual.png` + `.diff.png` (offending pixels red over the
+  dimmed golden) + `.side.png` (golden|actual|diff), worst-pixel stats
+  in the panic, stale artifacts cleaned on pass. The diff is masked
+  (offenders over context), not isolated — one image answers "where".
+- **`access_yaml` is verbatim Playwright aria-snapshot grammar** —
+  agents already know it; uninteresting containers flatten away.
+  `debug_tree` adds rects, flags, and `src=file:line` provenance from
+  `#[track_caller]` on the constructors (Flutter's
+  `--track-widget-creation`, zero proc macros: 16 bytes per element).
+- **Scenarios are externally-tagged serde enums** with
+  `deny_unknown_fields` everywhere: a typo'd verb or field is a parse
+  error, not a skipped step. Key chords parse from `"cmd+shift+z"`
+  strings. Serde stays a plain (native-only) shell dependency — core
+  already carried it.
+- **Property tests pin the invariants** the wedge rests on: layout and
+  paint are total over arbitrary trees x viewports (plan-generated, so
+  shrunk counterexamples print), Tab order is a permutation of enabled
+  focusables, ids are unique per frame. proptest is dev-only.
+- **Heterogeneous children via marker-disambiguated trait** (the axum
+  trick): `.children((text(..), button(..)))` — tuple impls and the
+  blanket `IntoIterator` impl coexist because they instantiate
+  `IntoChildren<Msg, Marker>` at different markers. The papercut was
+  found while writing `examples/windows.rs`, which now compiles without
+  a single `Element::from`.

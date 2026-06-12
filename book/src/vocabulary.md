@@ -7,6 +7,14 @@ Everything autocompletes; nothing is a macro.
 `image_rgba8(w, h, pixels)`, `raw_input(value, placeholder)`,
 `raw_text_area(value, placeholder)`.
 
+**Children** — `.children([...])` for one type, `.children((a, b, c))`
+(a tuple, up to 12) to mix kit builders and elements without wrapping,
+`.child(x)` to append one.
+
+**Queries (tests)** — `by::role(sem).name("…")`, `by::label`,
+`by::value`, `by::id` + `_contains` forms; `frame.get/query/get_all`,
+`frame.access_yaml()`, `frame.debug_tree()`.
+
 **Layout** — padding `.p .px .py .pt .pr .pb .pl`, margins `.m .mx ...`,
 `.gap`, sizes `.w .h .min_w .max_w .min_h .max_h` (`f32` = logical px,
 `Length::Pct`), `.w_full() .h_full() .grow() .shrink0() .wrap()`,
