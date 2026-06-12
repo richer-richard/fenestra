@@ -688,3 +688,46 @@ apps showing untrusted text could panic until then.
 - date_picker uses inline civil-date math (Sakamoto) — no chrono;
   tooltips flip above at the bottom edge; the issue tracker is empty
   except the 1.0 RFC.
+
+## 0.10: performance honesty
+
+- **Clean frames are memoized at the runner.** `AppRunner` keeps the
+  last painted scene keyed by (logical w, h, scale) and re-presents it
+  when nothing changed — expose, un-occlude, and timer redraws skip
+  build/layout/paint entirely. A dirty flag is set by input, app
+  updates, accessibility focus, hover refresh, resize, scale change,
+  and resume; `frame.animating` keeps it set while anything is
+  time-driven (carets, springs, spinners, tooltip delays, scrollbar
+  fades), so memoization can never starve an animation. Headless paths
+  are untouched: tests always rebuild.
+- **Subtree scene caching is deferred, deliberately.** Caching below
+  the frame level requires knowing a subtree's paint is a pure
+  function of its retained inputs (no hover, no animation, no clock
+  reads) — that purity is not tracked per-subtree today, and a wrong
+  cache shows stale pixels, the exact failure mode a verification-
+  first framework cannot ship. It returns only with per-subtree
+  resolve-purity tracking and golden coverage to prove it.
+- **Variable-height virtualization self-corrects.**
+  `virtual_rows_variable` places rows from a prefix-sum height index
+  seeded with an estimate; realized rows write their measured heights
+  back after layout, so offsets, spacer sizes, and the total height
+  converge as the user scrolls. Handlers mirror the realized window.
+  The bottom is the true bottom once its neighborhood has been
+  measured — pinned by tests that scroll 500 mixed-height rows end to
+  end and check every visible neighbor pair for overlap.
+- **vello sparse-strips: watch, don't move (assessed 2026-06).**
+  The successor rasterizers (`vello_cpu`, `vello_hybrid`, releasing in
+  lockstep with vello at 0.0.9) matter to us for two reasons: a CPU
+  u8 pipeline is plausibly bit-exact across platforms (today goldens
+  are referenced against macOS/Metal and lavapipe needs a 1% budget —
+  bit-exact CPU rendering would collapse that to zero and make
+  verification truly platform-independent), and `vello_hybrid` avoids
+  compute shaders entirely (which would unblock WARP, the reason
+  Windows CI is compile-only). COLR emoji already render. Against
+  that: the crates self-describe as not production-ready, text lands
+  through a different stack, and API churn is constant. Migrate when
+  ALL of: a 0.1.0+ release exists, the production-readiness
+  disclaimer is removed, Servo's adoption issue (servo/servo#38345)
+  closes, Xilem switches its default renderer, and our own spike
+  proves bit-exactness on the full golden corpus. Until then we track
+  releases and re-run the spike at each minor.
