@@ -1,0 +1,34 @@
+[package]
+name = "fenestra-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+fenestra-core = { path = "../fenestra-core" }
+
+[[bin]]
+name = "theme_spec"
+path = "fuzz_targets/theme_spec.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "layout"
+path = "fuzz_targets/layout.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "text_input"
+path = "fuzz_targets/text_input.rs"
+test = false
+doc = false
+bench = false

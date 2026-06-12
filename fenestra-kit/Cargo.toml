@@ -3,6 +3,7 @@ name = "fenestra-kit"
 description = "Design-system widget kit for the fenestra GUI framework"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true

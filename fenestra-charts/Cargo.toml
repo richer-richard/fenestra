@@ -3,6 +3,7 @@ name = "fenestra-charts"
 description = "Sparklines, line charts, and bar charts for the fenestra GUI framework — the reference third-party widget crate"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true

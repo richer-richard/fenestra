@@ -60,6 +60,8 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - run: cargo test --workspace
+      - name: Perf regression gates (generous ceilings, catch 10x not noise)
+        run: cargo test -p fenestra-core --test perf_gate --release -- --ignored
 
   test-linux:
     # Headless vello needs a compute-capable adapter: Mesa lavapipe
@@ -115,3 +117,52 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - run: cargo install cargo-audit --locked
       - run: cargo audit
+
+  deny:
+    # Licenses (allowlist), bans, advisories, registry pinning.
+    name: cargo deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install cargo-deny --locked
+      - run: cargo deny check
+
+  msrv:
+    # The workspace builds on exactly the declared rust-version.
+    name: MSRV (1.88)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+        with:
+          toolchain: "1.88"
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Install font system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev pkg-config
+      - run: cargo build --workspace --all-targets
+
+  coverage:
+    # Line coverage floor on fenestra-core (set from the measured
+    # baseline; raise as it grows, never lower without a recorded
+    # decision). Full HTML report uploaded as an artifact.
+    name: coverage (core floor)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+        with:
+          toolchain: stable
+          components: llvm-tools-preview
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - run: cargo install cargo-llvm-cov --locked
+      - name: Enforce the core line-coverage floor
+        # Baseline measured 2026-06-12: 47.28% lines from core's own
+        # suite (kit/shell suites exercise core further but don't count
+        # here). Floor sits just below; raise it as coverage grows.
+        run: cargo llvm-cov -p fenestra-core --fail-under-lines 45 --summary-only

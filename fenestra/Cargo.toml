@@ -3,6 +3,7 @@ name = "fenestra"
 description = "A pure-Rust native GUI framework with web-grade aesthetics: OKLCH themes, soft shadows, flexbox/grid, and headless PNG rendering"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 keywords.workspace = true
