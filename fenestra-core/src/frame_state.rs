@@ -380,3 +380,75 @@ impl HeightIndex {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::HeightIndex;
+
+    #[test]
+    fn prefix_sums_follow_the_estimate() {
+        let idx = HeightIndex::new_with(5, 30.0);
+        assert_eq!(idx.offset_of(0), 0.0);
+        assert_eq!(idx.offset_of(3), 90.0);
+        assert_eq!(idx.total(), 150.0);
+        // Boundaries: a row's top belongs to that row.
+        assert_eq!(idx.index_at(0.0), 0);
+        assert_eq!(idx.index_at(29.9), 0);
+        assert_eq!(idx.index_at(30.0), 1);
+        // Out-of-range clamps instead of panicking.
+        assert_eq!(idx.index_at(-5.0), 0);
+        assert_eq!(idx.index_at(1.0e9), 4);
+        assert_eq!(idx.offset_of(99), 0.0, "missing rows read as origin");
+    }
+
+    #[test]
+    fn recorded_heights_correct_downstream_offsets() {
+        let mut idx = HeightIndex::new_with(5, 30.0);
+        idx.record(1, 64.0);
+        idx.ensure(5, 30.0); // the next frame rebuilds the prefix
+        assert_eq!(idx.offset_of(1), 30.0, "upstream rows are untouched");
+        assert_eq!(idx.offset_of(2), 94.0, "downstream rows shift");
+        assert_eq!(idx.total(), 184.0);
+        assert_eq!(idx.index_at(93.0), 1, "the taller row owns its span");
+        assert_eq!(idx.index_at(94.0), 2);
+    }
+
+    #[test]
+    fn hostile_measurements_and_jitter_are_ignored() {
+        let mut idx = HeightIndex::new_with(3, 30.0);
+        idx.record(0, f32::NAN);
+        idx.record(0, f32::INFINITY);
+        idx.record(0, 0.0);
+        idx.record(0, -12.0);
+        idx.record(1, 30.1); // sub-quarter-pixel jitter must not thrash
+        idx.record(99, 50.0); // out of range
+        idx.ensure(3, 30.0);
+        assert_eq!(idx.total(), 90.0, "nothing above changed the index");
+    }
+
+    #[test]
+    fn count_and_estimate_changes_reset_measurements() {
+        let mut idx = HeightIndex::new_with(3, 30.0);
+        idx.record(0, 64.0);
+        idx.ensure(3, 30.0);
+        assert_eq!(idx.total(), 124.0);
+
+        idx.ensure(4, 30.0); // row count changed: re-seed everything
+        assert_eq!(idx.total(), 120.0);
+
+        idx.record(0, 64.0);
+        idx.ensure(4, 20.0); // estimate changed: re-seed too
+        assert_eq!(idx.total(), 80.0);
+
+        idx.ensure(4, f32::NAN); // hostile estimate falls back to 1.0
+        assert_eq!(idx.total(), 4.0);
+    }
+
+    #[test]
+    fn empty_index_is_inert() {
+        let idx = HeightIndex::new_with(0, 30.0);
+        assert_eq!(idx.total(), 0.0);
+        assert_eq!(idx.index_at(10.0), 0);
+        assert_eq!(idx.offset_of(0), 0.0);
+    }
+}

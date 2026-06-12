@@ -550,7 +550,13 @@ pub(crate) fn virtual_window(
     if count == 0 || row_height <= 0.0 || row_height.is_nan() || !viewport.is_finite() {
         return 0..0;
     }
-    let offset = offset.max(0.0);
+    // Clamp to the max scroll before layout's own clamp catches up:
+    // a beyond-the-end offset (programmatic scroll_to) must realize
+    // the last page, not an empty window for one frame.
+    #[expect(clippy::cast_precision_loss, reason = "row counts fit in f32")]
+    let max_offset = (count as f32 * row_height - viewport.max(0.0)).max(0.0);
+    // max-then-min (not `clamp`) so a NaN offset sanitizes to 0.
+    let offset = offset.max(0.0).min(max_offset);
     #[expect(clippy::cast_possible_truncation, reason = "row indices fit in usize")]
     #[expect(clippy::cast_sign_loss, reason = "clamped non-negative above")]
     let first = (offset / row_height).floor() as usize;
