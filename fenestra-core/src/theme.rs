@@ -9,7 +9,8 @@ use crate::style::Shadow;
 use crate::tokens::ShadowToken;
 
 /// Light or dark color mode. Both are always generated from the same hue.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum Mode {
     /// Light backgrounds, dark text.
     Light,
@@ -453,5 +454,74 @@ fn hex(c: Color) -> String {
         format!("#{:02x}{:02x}{:02x}", rgba.r, rgba.g, rgba.b)
     } else {
         format!("#{:02x}{:02x}{:02x}{:02x}", rgba.r, rgba.g, rgba.b, rgba.a)
+    }
+}
+
+/// A serializable theme *recipe*: the few numbers a theme generates
+/// from, not hundreds of resolved colors — so files stay tiny, stable
+/// across fenestra versions, and hand-editable.
+///
+/// ```json
+/// {"mode": "dark", "duotone": {"neutral_hue": 152.0, "chroma": 6.0, "accent_hue": 72.0}}
+/// ```
+///
+/// Precedence: `duotone` wins over `accent_hue`; neither means the
+/// stock palette for `mode`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ThemeSpec {
+    /// Light or dark.
+    pub mode: Mode,
+    /// Accent hue in OKLCH degrees (`Theme::from_accent`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accent_hue: Option<f32>,
+    /// Duotone field (`Theme::duotone`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duotone: Option<DuotoneSpec>,
+}
+
+/// The duotone parameters of a [`ThemeSpec`].
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DuotoneSpec {
+    /// Neutral ramp hue (OKLCH degrees).
+    pub neutral_hue: f32,
+    /// Chroma multiplier for the neutral ramp.
+    pub chroma: f32,
+    /// Accent hue (OKLCH degrees).
+    pub accent_hue: f32,
+}
+
+impl ThemeSpec {
+    /// Resolves the recipe into a full [`Theme`].
+    pub fn theme(&self) -> Theme {
+        if let Some(d) = &self.duotone {
+            return Theme::duotone(d.neutral_hue, d.chroma, d.accent_hue, self.mode);
+        }
+        if let Some(hue) = self.accent_hue {
+            return Theme::from_accent(hue, self.mode);
+        }
+        match self.mode {
+            Mode::Light => Theme::light(),
+            Mode::Dark => Theme::dark(),
+        }
+    }
+
+    /// Parses a theme file's JSON. Unknown fields are errors — a typo'd
+    /// recipe should fail loudly, not silently fall back.
+    ///
+    /// # Errors
+    /// On malformed JSON or unknown fields.
+    pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
+        serde_json::from_str(json)
+    }
+
+    /// The recipe as pretty JSON, for writing theme files.
+    ///
+    /// # Panics
+    /// Never (the type always serializes).
+    #[must_use]
+    pub fn to_json(&self) -> String {
+        serde_json::to_string_pretty(self).expect("ThemeSpec serializes")
     }
 }
