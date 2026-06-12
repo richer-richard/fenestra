@@ -31,6 +31,10 @@ enum MeasureCtx {
         text: String,
         style: ResolvedText,
     },
+    Rich {
+        spans: Vec<crate::element::Span>,
+        style: ResolvedText,
+    },
     Input {
         /// Current value, measured for multiline height.
         text: String,
@@ -68,7 +72,14 @@ const INPUT_DEFAULT_WIDTH: f32 = 220.0;
 
 enum PaintKind {
     Box,
-    Text { text: String, style: ResolvedText },
+    Text {
+        text: String,
+        style: ResolvedText,
+    },
+    Rich {
+        spans: Vec<crate::element::Span>,
+        style: ResolvedText,
+    },
     Path(PathData),
     Input(InputPaint),
     Image(crate::element::ImageData),
@@ -351,6 +362,21 @@ fn build<Msg>(
                 },
             )
         }
+        Kind::Rich(spans) => {
+            let resolved = resolve_text(&style.text, theme);
+            let ctx = MeasureCtx::Rich {
+                spans: spans.clone(),
+                style: resolved,
+            };
+            (
+                tree.new_leaf_with_context(taffy_style, ctx)
+                    .expect("taffy new_leaf_with_context"),
+                PaintKind::Rich {
+                    spans: spans.clone(),
+                    style: resolved,
+                },
+            )
+        }
         Kind::Input(data) => {
             let resolved = resolve_text(&style.text, theme);
             // Sync the retained editor with the app-provided value.
@@ -417,7 +443,7 @@ fn build<Msg>(
     // Accessibility projection: explicit semantics win; text, image, and
     // input leaves project automatically.
     let semantics = el.semantics.or(match &el.kind {
-        Kind::Text(_) => Some(Semantics::Label),
+        Kind::Text(_) | Kind::Rich(_) => Some(Semantics::Label),
         Kind::Image(_) => Some(Semantics::Image),
         Kind::Input(data) => Some(Semantics::TextInput {
             multiline: data.multiline,
@@ -426,6 +452,7 @@ fn build<Msg>(
     });
     let label = el.label.clone().or(match &el.kind {
         Kind::Text(content) => Some(content.clone()),
+        Kind::Rich(spans) => Some(spans.iter().map(|s| s.text.as_str()).collect()),
         _ => None,
     });
     let value = match &el.kind {
@@ -521,6 +548,9 @@ fn child_baseline(fonts: &mut Fonts, tree: &TaffyTree<MeasureCtx>, node: &BuiltN
     match &node.kind {
         PaintKind::Text { text, style } => {
             f64::from(fonts.first_baseline(text, style, Some(l.size.width)))
+        }
+        PaintKind::Rich { spans, style } => {
+            f64::from(fonts.first_baseline_rich(spans, style, Some(l.size.width)))
         }
         PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) | PaintKind::Image(_) => {
             f64::from(l.size.height)
@@ -714,6 +744,14 @@ pub fn build_frame<Msg>(
                     height: known.height.unwrap_or(h),
                 }
             }
+            Some(MeasureCtx::Rich { spans, style }) => {
+                let (w, h) =
+                    fonts.measure_rich(spans, style, wrap_width(known.width, available.width));
+                Size {
+                    width: known.width.unwrap_or(w),
+                    height: known.height.unwrap_or(h),
+                }
+            }
             Some(MeasureCtx::Input {
                 text,
                 style,
@@ -815,6 +853,17 @@ pub fn build_frame<Msg>(
                     Some(MeasureCtx::Text { text, style }) => {
                         let (w, h) =
                             fonts.measure(text, style, wrap_width(known.width, available.width));
+                        Size {
+                            width: known.width.unwrap_or(w),
+                            height: known.height.unwrap_or(h),
+                        }
+                    }
+                    Some(MeasureCtx::Rich { spans, style }) => {
+                        let (w, h) = fonts.measure_rich(
+                            spans,
+                            style,
+                            wrap_width(known.width, available.width),
+                        );
                         Size {
                             width: known.width.unwrap_or(w),
                             height: known.height.unwrap_or(h),
@@ -1056,6 +1105,7 @@ impl Frame {
         }
         match &node.kind {
             PaintKind::Text { text, style } => fonts.paint(scene, text, style, node.rect),
+            PaintKind::Rich { spans, style } => fonts.paint_rich(scene, spans, style, node.rect),
             PaintKind::Path(data) => {
                 let color = node.style.text.color.unwrap_or(self.thumb_color);
                 let rotation = node
@@ -1158,6 +1208,7 @@ impl Frame {
             let kind = match &node.kind {
                 PaintKind::Box => "box",
                 PaintKind::Text { .. } => "text",
+                PaintKind::Rich { .. } => "richtext",
                 PaintKind::Path(_) => "path",
                 PaintKind::Input(_) => "input",
                 PaintKind::Image(_) => "image",
@@ -1469,6 +1520,7 @@ impl NodeDump {
             kind: match &node.kind {
                 PaintKind::Box => "box",
                 PaintKind::Text { .. } => "text",
+                PaintKind::Rich { .. } => "richtext",
                 PaintKind::Path(_) => "path",
                 PaintKind::Input(_) => "input",
                 PaintKind::Image(_) => "image",
@@ -1476,6 +1528,9 @@ impl NodeDump {
             rect,
             text: match &node.kind {
                 PaintKind::Text { text, .. } => Some(text.clone()),
+                PaintKind::Rich { spans, .. } => {
+                    Some(spans.iter().map(|s| s.text.as_str()).collect())
+                }
                 PaintKind::Box | PaintKind::Path(_) | PaintKind::Input(_) | PaintKind::Image(_) => {
                     None
                 }

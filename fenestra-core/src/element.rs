@@ -25,8 +25,11 @@ pub(crate) type DropFn<Msg> = Box<dyn Fn(&str) -> Option<Msg>>;
 pub enum Kind {
     /// A container box.
     Box,
-    /// A text run (single style; rich text is out of scope for v1).
+    /// A text run (one style for the whole paragraph).
     Text(String),
+    /// A paragraph of styled runs ([`rich_text`]): one wrapped layout,
+    /// per-span weight/color/size/family/italic.
+    Rich(Vec<Span>),
     /// A themed hairline rule (resolved to `border_subtle`).
     Divider,
     /// A vector path (icons, check marks), scaled from its viewbox to the
@@ -267,6 +270,62 @@ pub enum Semantics {
     Label,
     /// An image (automatic for image leaves).
     Image,
+}
+
+/// One styled run of a [`rich_text`] paragraph. Unset properties
+/// inherit the paragraph's text style.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Span {
+    pub(crate) text: String,
+    pub(crate) weight: Option<crate::tokens::Weight>,
+    pub(crate) color: Option<Color>,
+    pub(crate) size_px: Option<f32>,
+    pub(crate) family: Option<crate::tokens::FamilyRole>,
+    pub(crate) italic: bool,
+}
+
+/// A styled run for [`rich_text`].
+pub fn span(text: impl Into<String>) -> Span {
+    Span {
+        text: text.into(),
+        weight: None,
+        color: None,
+        size_px: None,
+        family: None,
+        italic: false,
+    }
+}
+
+impl Span {
+    /// Font weight for this run.
+    pub fn weight(mut self, weight: crate::tokens::Weight) -> Self {
+        self.weight = Some(weight);
+        self
+    }
+
+    /// Color for this run (route through theme tokens in app code).
+    pub fn color(mut self, color: Color) -> Self {
+        self.color = Some(color);
+        self
+    }
+
+    /// Font size in logical px for this run.
+    pub fn size_px(mut self, px: f32) -> Self {
+        self.size_px = Some(px);
+        self
+    }
+
+    /// Family role for this run.
+    pub fn family(mut self, family: crate::tokens::FamilyRole) -> Self {
+        self.family = Some(family);
+        self
+    }
+
+    /// Italic (synthesized when the face has no italic variant).
+    pub fn italic(mut self) -> Self {
+        self.italic = true;
+        self
+    }
 }
 
 /// Mouse cursor shown while hovering an element.
@@ -1001,6 +1060,13 @@ pub fn stack<Msg>() -> Element<Msg> {
     el.style.display = crate::style::Display::Grid;
     el.stack = true;
     el
+}
+
+/// A paragraph of styled runs: spans wrap together as one layout, and
+/// each [`span`] may override weight, color, size, family, or italic.
+#[track_caller]
+pub fn rich_text<Msg>(spans: impl IntoIterator<Item = Span>) -> Element<Msg> {
+    Element::new(Kind::Rich(spans.into_iter().collect()))
 }
 
 /// A text run.

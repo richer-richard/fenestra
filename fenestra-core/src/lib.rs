@@ -28,8 +28,8 @@ pub use children::{FromIter, FromTuple, IntoChildren};
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
     Cursor, Element, ImageData, InputData, Kind, Overlay, OverlayMode, OverlayPlacement, PathData,
-    Semantics, VirtualData, col, div, divider, image_rgba8, path, raw_input, raw_text_area, row,
-    spacer, stack, text,
+    Semantics, Span, VirtualData, col, div, divider, image_rgba8, path, raw_input, raw_text_area,
+    rich_text, row, spacer, span, stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, refresh_hover};
 pub use frame::{AccessNode, Frame, build_frame, build_scene};

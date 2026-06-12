@@ -294,6 +294,167 @@ impl Fonts {
         self.shape(&candidate, style, max_advance)
     }
 
+    /// Shapes a rich paragraph: one layout, ranged style overrides per
+    /// span. Not cached (span lists make poor hash keys; paragraphs are
+    /// short and shaping is cheap at this scale).
+    fn shape_rich(
+        &mut self,
+        spans: &[crate::element::Span],
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+    ) -> Layout<LayoutBrush> {
+        let text: String = spans.iter().map(|s| s.text.as_str()).collect();
+        let base_brush = style.color.to_rgba8().to_u8_array();
+        // Family names resolve to owned strings first, so the builder
+        // can borrow them for ranged pushes.
+        let resolve_family =
+            |role: FamilyRole, roles: &std::collections::HashMap<FamilyRole, String>| match role {
+                FamilyRole::Sans => "Inter".to_owned(),
+                FamilyRole::Mono => String::new(), // marker: generic monospace
+                FamilyRole::Display | FamilyRole::Serif => roles
+                    .get(&role)
+                    .cloned()
+                    .unwrap_or_else(|| "Inter".to_owned()),
+            };
+        let base_family = resolve_family(style.family, &self.roles);
+        let span_families: Vec<Option<String>> = spans
+            .iter()
+            .map(|s| s.family.map(|f| resolve_family(f, &self.roles)))
+            .collect();
+        fn to_family(name: &str) -> FontFamily<'_> {
+            if name.is_empty() {
+                FontFamily::Single(GenericFamily::Monospace.into())
+            } else {
+                FontFamily::named(name)
+            }
+        }
+        let mut builder = self
+            .layout_cx
+            .ranged_builder(&mut self.font_cx, &text, 1.0, true);
+        builder.push_default(StyleProperty::FontFamily(to_family(&base_family)));
+        builder.push_default(StyleProperty::FontSize(style.px));
+        builder.push_default(StyleProperty::FontWeight(FontWeight::new(style.weight)));
+        builder.push_default(StyleProperty::LineHeight(LineHeight::FontSizeRelative(
+            style.line_height,
+        )));
+        builder.push_default(StyleProperty::LetterSpacing(style.letter_spacing));
+        builder.push_default(StyleProperty::Brush(base_brush));
+        let mut start = 0usize;
+        for (i, span) in spans.iter().enumerate() {
+            let range = start..start + span.text.len();
+            start = range.end;
+            if let Some(weight) = span.weight {
+                builder.push(
+                    StyleProperty::FontWeight(FontWeight::new(weight.value())),
+                    range.clone(),
+                );
+            }
+            if let Some(px) = span.size_px {
+                builder.push(StyleProperty::FontSize(px), range.clone());
+            }
+            if let Some(color) = span.color {
+                builder.push(
+                    StyleProperty::Brush(color.to_rgba8().to_u8_array()),
+                    range.clone(),
+                );
+            }
+            if let Some(name) = &span_families[i] {
+                builder.push(StyleProperty::FontFamily(to_family(name)), range.clone());
+            }
+            if span.italic {
+                builder.push(
+                    StyleProperty::FontStyle(parley::FontStyle::Italic),
+                    range.clone(),
+                );
+            }
+        }
+        let mut layout = builder.build(&text);
+        layout.break_all_lines(max_advance);
+        let alignment = match style.align {
+            TextAlign::Start => Alignment::Start,
+            TextAlign::Center => Alignment::Center,
+            TextAlign::End => Alignment::End,
+        };
+        layout.align(alignment, AlignmentOptions::default());
+        layout
+    }
+
+    /// Measured size of a rich paragraph at the given wrap width.
+    pub(crate) fn measure_rich(
+        &mut self,
+        spans: &[crate::element::Span],
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+    ) -> (f32, f32) {
+        let layout = self.shape_rich(spans, style, max_advance);
+        (layout.width().ceil(), layout.height().ceil())
+    }
+
+    /// First-line baseline of a rich paragraph.
+    pub(crate) fn first_baseline_rich(
+        &mut self,
+        spans: &[crate::element::Span],
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+    ) -> f32 {
+        let layout = self.shape_rich(spans, style, max_advance);
+        layout
+            .lines()
+            .next()
+            .map_or(0.0, |line| line.metrics().baseline)
+    }
+
+    /// Paints a rich paragraph; each glyph run draws with its span brush.
+    pub(crate) fn paint_rich(
+        &mut self,
+        scene: &mut Scene,
+        spans: &[crate::element::Span],
+        style: &ResolvedText,
+        rect: Rect,
+    ) {
+        #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
+        let max_advance = Some(rect.width() as f32);
+        let transform = Affine::translate((rect.x0, rect.y0));
+        let layout = self.shape_rich(spans, style, max_advance);
+        for line in layout.lines() {
+            for item in line.items() {
+                let PositionedLayoutItem::GlyphRun(glyph_run) = item else {
+                    continue;
+                };
+                let [r, g, b, a] = glyph_run.style().brush;
+                let color = Color::from_rgba8(r, g, b, a);
+                let mut x = glyph_run.offset();
+                let y = glyph_run.baseline();
+                let run = glyph_run.run();
+                let glyph_xform = run
+                    .synthesis()
+                    .skew()
+                    .map(|angle| Affine::skew(f64::from(angle.to_radians().tan()), 0.0));
+                scene
+                    .draw_glyphs(run.font())
+                    .brush(color)
+                    .hint(true)
+                    .transform(transform)
+                    .glyph_transform(glyph_xform)
+                    .font_size(run.font_size())
+                    .normalized_coords(run.normalized_coords())
+                    .draw(
+                        Fill::NonZero,
+                        glyph_run.glyphs().map(|glyph| {
+                            let gx = x + glyph.x;
+                            let gy = y + glyph.y;
+                            x += glyph.advance;
+                            vello::Glyph {
+                                id: glyph.id,
+                                x: gx,
+                                y: gy,
+                            }
+                        }),
+                    );
+            }
+        }
+    }
+
     /// Measured size of `text` at the given wrap width, for taffy.
     pub(crate) fn measure(
         &mut self,
