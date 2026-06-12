@@ -12,6 +12,8 @@ mod access;
 #[cfg(not(target_arch = "wasm32"))]
 mod element_render;
 #[cfg(not(target_arch = "wasm32"))]
+mod embed;
+#[cfg(not(target_arch = "wasm32"))]
 mod harness;
 #[cfg(not(target_arch = "wasm32"))]
 mod headless;
@@ -30,6 +32,8 @@ pub use element_render::{
     render_element, render_element_with, render_element_with_state, with_fonts, with_headless,
 };
 #[cfg(not(target_arch = "wasm32"))]
+pub use embed::{Embedded, EventResponse};
+#[cfg(not(target_arch = "wasm32"))]
 pub use harness::Harness;
 #[cfg(not(target_arch = "wasm32"))]
 pub use headless::Headless;
@@ -40,8 +44,14 @@ pub use scenario::{ScenarioError, ScenarioReport, run_scenario};
 #[cfg(not(target_arch = "wasm32"))]
 pub use synthetic::{SyntheticEvent, render_app};
 pub use window::{WindowOptions, run_app};
+
+// Re-exports for embedders: integration code must use the same wgpu and
+// winit versions fenestra was built with (the egui-wgpu convention).
+pub use vello;
+pub use vello::wgpu;
 #[cfg(not(target_arch = "wasm32"))]
 pub use window::{run_scene, run_static};
+pub use winit;
 
 /// Errors from the windowed or headless runners.
 #[derive(Debug)]

@@ -32,7 +32,7 @@ use winit::window::{Window, WindowId};
 use crate::ShellError;
 
 /// One wheel "line" in logical pixels.
-const LINE_SCROLL_PX: f64 = 40.0;
+pub(crate) const LINE_SCROLL_PX: f64 = 40.0;
 
 /// A raw paint callback: `(scene, logical_w, logical_h, background)`.
 #[cfg(not(target_arch = "wasm32"))]
@@ -1199,7 +1199,7 @@ impl<A: App> AppRunner<A> {
     }
 }
 
-fn map_cursor(cursor: fenestra_core::Cursor) -> winit::window::CursorIcon {
+pub(crate) fn map_cursor(cursor: fenestra_core::Cursor) -> winit::window::CursorIcon {
     match cursor {
         fenestra_core::Cursor::Default => winit::window::CursorIcon::Default,
         fenestra_core::Cursor::Pointer => winit::window::CursorIcon::Pointer,
@@ -1209,7 +1209,7 @@ fn map_cursor(cursor: fenestra_core::Cursor) -> winit::window::CursorIcon {
 }
 
 /// Translates a winit key event into a fenestra [`InputEvent`].
-fn map_key(
+pub(crate) fn map_key(
     event: &winit::event::KeyEvent,
     mods: winit::keyboard::ModifiersState,
 ) -> Option<InputEvent> {
