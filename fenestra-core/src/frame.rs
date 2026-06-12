@@ -991,10 +991,16 @@ pub fn build_frame<Msg>(
                 OverlayPlacement::BelowCenter { gap } => {
                     let gap = f64::from(gap);
                     let x = anchor_rect.x0 + (anchor_rect.width() - w) * 0.5;
-                    Point::new(
-                        x.clamp(canvas.x0, (canvas.x1 - w).max(0.0)),
-                        anchor_rect.y1 + gap,
-                    )
+                    // Flip above when there's no room below (tooltips at
+                    // the bottom edge) but room above exists.
+                    let y = if anchor_rect.y1 + gap + h <= canvas.y1
+                        || anchor_rect.y0 - gap - h < canvas.y0
+                    {
+                        anchor_rect.y1 + gap
+                    } else {
+                        anchor_rect.y0 - gap - h
+                    };
+                    Point::new(x.clamp(canvas.x0, (canvas.x1 - w).max(0.0)), y)
                 }
                 OverlayPlacement::TopRight { margin } => {
                     let m = f64::from(margin);

@@ -2,9 +2,9 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    Element, Length, MotionDuration, R_FULL, R_LG, R_MD, SP1, SP2, SP3, SP4, SP6, Semantics,
-    ShadowToken, StatusColors, TextSize, Theme, Track, Transition, Weight, col, div, path, row,
-    text,
+    Element, Keyframes, Length, MotionDuration, R_FULL, R_LG, R_MD, SP1, SP2, SP3, SP4, SP6,
+    Semantics, ShadowToken, StatusColors, TextSize, Theme, Track, Transition, Weight, col, div,
+    path, row, text,
 };
 use kurbo::BezPath;
 
@@ -144,6 +144,41 @@ impl<Msg> From<StatCard<Msg>> for Element<Msg> {
             value_row,
         ])
     }
+}
+
+/// A status dot without a label (presence/health indicators). Pair
+/// with text or a tooltip for context.
+pub fn badge_dot<Msg>(status: Status) -> Element<Msg> {
+    div()
+        .w(8.0)
+        .h(8.0)
+        .rounded(R_FULL)
+        .shrink0()
+        .themed(move |t: &Theme, s| s.bg(status.colors(t).solid))
+        .semantics(Semantics::Image)
+        .label(format!("{status:?} indicator"))
+}
+
+/// An indeterminate activity bar: the fill sweeps from empty to full
+/// and fades, looping. Use when progress has no known fraction; pinned
+/// at the first keyframe under reduced motion.
+pub fn progress_indeterminate<Msg>() -> Element<Msg> {
+    div()
+        .w_full()
+        .h(4.0)
+        .rounded(R_FULL)
+        .overflow_hidden()
+        .themed(|t: &Theme, s| s.bg(t.neutrals.step(4)))
+        .children([div()
+            .h_full()
+            .rounded(R_FULL)
+            .themed(|t: &Theme, s| s.bg(t.accent))
+            .keyframes(
+                Keyframes::new(1200.0)
+                    .stop(0.0, |s| s.w(Length::Pct(6.0)).opacity(1.0))
+                    .stop(0.7, |s| s.w(Length::Pct(100.0)).opacity(1.0))
+                    .stop(1.0, |s| s.w(Length::Pct(100.0)).opacity(0.0)),
+            )])
 }
 
 /// A 4px progress bar; the fill animates toward the new fraction.

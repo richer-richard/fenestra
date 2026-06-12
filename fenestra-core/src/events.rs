@@ -784,6 +784,31 @@ pub fn dispatch<Msg: Clone>(
                     out.redraw = true;
                     key_handled = true;
                 }
+                if let Some(f) = &el.on_type_ahead {
+                    if matches!(key.key, Key::Escape) {
+                        state.type_ahead = None;
+                    } else if let Key::Char(c) = key.key
+                        && !key.ctrl
+                        && !key.meta
+                        && !c.is_control()
+                    {
+                        let now = state.now();
+                        let buffer = match state.type_ahead.take() {
+                            // Continue the buffer within the window.
+                            Some((id, mut b, at)) if id == focus && now - at <= 1.0 => {
+                                b.push(c);
+                                b
+                            }
+                            _ => c.to_string(),
+                        };
+                        if let Some(msg) = f(&buffer) {
+                            out.msgs.push(msg);
+                            out.redraw = true;
+                            key_handled = true;
+                        }
+                        state.type_ahead = Some((focus, buffer, now));
+                    }
+                }
                 // Enter/Space activate clickables and toggle anchored menus.
                 if matches!(key.key, Key::Enter | Key::Space) {
                     if let Some(msg) = &el.on_click {

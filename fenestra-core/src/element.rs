@@ -10,6 +10,7 @@ use crate::theme::Theme;
 use crate::tokens::{ShadowToken, TextSize, Weight};
 
 /// Maps a key press on a focused element to an optional message.
+pub(crate) type TypeAheadFn<Msg> = Box<dyn Fn(&str) -> Option<Msg>>;
 pub(crate) type KeyFn<Msg> = Box<dyn Fn(&KeyInput) -> Option<Msg>>;
 /// Maps a pointer position (as fractions of the element rect) to a message.
 pub(crate) type DragFn<Msg> = Box<dyn Fn(f32, f32) -> Option<Msg>>;
@@ -389,6 +390,8 @@ pub struct Element<Msg> {
     pub(crate) selectable: bool,
     /// Fade-in transition seeded when the id first appears.
     pub(crate) enter: Option<crate::style::Transition>,
+    /// Buffered type-ahead while focused (1s window per keystroke).
+    pub(crate) on_type_ahead: Option<TypeAheadFn<Msg>>,
     /// Accessible name (screen-reader label).
     pub(crate) label: Option<String>,
     pub(crate) themed: Option<ThemedFn>,
@@ -432,6 +435,7 @@ impl<Msg> Element<Msg> {
             live: false,
             selectable: false,
             enter: None,
+            on_type_ahead: None,
             label: None,
             themed: None,
             hover_style: None,
@@ -637,6 +641,15 @@ impl<Msg> Element<Msg> {
 
     /// Sets the accessible role and state projected into the accessibility
     /// tree. Text, image, and input leaves project automatically.
+    /// Maps the focused element's accumulated type-ahead buffer to a
+    /// message: printable keystrokes append (1s window between them,
+    /// Escape clears), and the handler sees the whole buffer — "che"
+    /// jumps a select to "Cherry" instead of cycling C-entries.
+    pub fn on_type_ahead(mut self, f: impl Fn(&str) -> Option<Msg> + 'static) -> Self {
+        self.on_type_ahead = Some(Box::new(f));
+        self
+    }
+
     /// Animates the element in when it first appears (a fade from
     /// opacity 0 through the given transition — give stateful entries a
     /// stable `.id` so reorders don't retrigger it). Exit animations
@@ -1247,6 +1260,10 @@ impl<Msg: 'static> Element<Msg> {
             on_key: self.on_key.map(|k| {
                 let f = f.clone();
                 Box::new(move |key: &KeyInput| k(key).map(&f)) as KeyFn<B>
+            }),
+            on_type_ahead: self.on_type_ahead.map(|k| {
+                let f = f.clone();
+                Box::new(move |buffer: &str| k(buffer).map(&f)) as TypeAheadFn<B>
             }),
             on_drag: self.on_drag.map(|d| {
                 let f = f.clone();

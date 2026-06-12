@@ -56,6 +56,20 @@ lucide_icons! {
     trash => TRASH_2, "trash-2";
     upload => UPLOAD, "upload";
     user => USER, "user";
+check => CHECK, "check";
+    chevron_down => CHEVRON_DOWN, "chevron-down";
+    chevron_left => CHEVRON_LEFT, "chevron-left";
+    chevron_right => CHEVRON_RIGHT, "chevron-right";
+    chevron_up => CHEVRON_UP, "chevron-up";
+    file => FILE, "file";
+    folder => FOLDER, "folder";
+    link => LINK, "link";
+    lock => LOCK, "lock";
+    log_out => LOG_OUT, "log-out";
+    refresh_cw => REFRESH_CW, "refresh-cw";
+    save => SAVE, "save";
+    star => STAR, "star";
+    x => X, "x";
 }
 
 #[cfg(test)]

@@ -156,27 +156,27 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
         if let Some(f) = sel.on_change {
             let options: Vec<String> = sel.options.clone();
             let count = options.len();
+            let nav = std::rc::Rc::new(f);
+            let pick = std::rc::Rc::clone(&nav);
             trigger = trigger.on_key(move |k| match k.key {
-                Key::ArrowDown => (selected + 1 < count).then(|| f(selected + 1)),
-                Key::ArrowUp => (selected > 0).then(|| f(selected - 1)),
-                Key::Home => (count > 0).then(|| f(0)),
-                Key::End => count.checked_sub(1).map(&*f),
-                // First-letter type-ahead, scanning forward from the
-                // current selection and wrapping.
-                Key::Char(c) if !k.ctrl && !k.meta => {
-                    let c = c.to_lowercase().next()?;
-                    (1..=count)
-                        .map(|step| (selected + step) % count)
-                        .find(|i| {
-                            options[*i]
-                                .chars()
-                                .next()
-                                .and_then(|f| f.to_lowercase().next())
-                                == Some(c)
-                        })
-                        .map(&*f)
-                }
+                Key::ArrowDown => (selected + 1 < count).then(|| nav(selected + 1)),
+                Key::ArrowUp => (selected > 0).then(|| nav(selected - 1)),
+                Key::Home => (count > 0).then(|| nav(0)),
+                Key::End => count.checked_sub(1).map(|i| nav(i)),
                 _ => None,
+            });
+            // Type-ahead, both idioms: a single letter cycles through
+            // entries with that initial (excluding the current one, so
+            // repeats advance), while a growing buffer prefix-matches
+            // from the current selection inclusive — "ce" finds Cedar
+            // without bouncing off Cherry.
+            trigger = trigger.on_type_ahead(move |buffer| {
+                let needle = buffer.to_lowercase();
+                let start = if needle.chars().count() == 1 { 1 } else { 0 };
+                (start..start + count)
+                    .map(|step| (selected + step) % count)
+                    .find(|i| options[*i].to_lowercase().starts_with(&needle))
+                    .map(|i| pick(i))
             });
         }
         if sel.disabled {

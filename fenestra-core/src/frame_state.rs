@@ -66,6 +66,8 @@ pub struct FrameState {
     /// Active static-text selection (one at a time, like a browser):
     /// element, parley selection, and whether a drag is extending it.
     pub(crate) static_sel: Option<(WidgetId, parley::Selection, bool)>,
+    /// Focused-element type-ahead: target, buffer, last keystroke time.
+    pub(crate) type_ahead: Option<(WidgetId, String, f64)>,
     /// The autofocus element and the frame it was last seen, so focus
     /// moves only when it newly appears.
     pub(crate) autofocus_last: Option<(WidgetId, u64)>,
@@ -100,6 +102,7 @@ impl Default for FrameState {
             last_press: None,
             mods: (false, false, false, false),
             static_sel: None,
+            type_ahead: None,
             autofocus_last: None,
             dragging: None,
             ime_caret: None,

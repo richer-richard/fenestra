@@ -31,6 +31,21 @@ pub(crate) const USER: &str =
     "M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M8 7A4 4 0 1 0 16 7A4 4 0 1 0 8 7Z";
 
 /// Every vendored icon as `(lucide name, path data)`.
+pub(crate) const CHECK: &str = "M20 6 9 17l-5-5";
+pub(crate) const CHEVRON_DOWN: &str = "m6 9 6 6 6-6";
+pub(crate) const CHEVRON_LEFT: &str = "m15 18-6-6 6-6";
+pub(crate) const CHEVRON_RIGHT: &str = "m9 18 6-6-6-6";
+pub(crate) const CHEVRON_UP: &str = "m18 15-6-6-6 6";
+pub(crate) const FILE: &str = "M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2zM14 2v5a1 1 0 0 0 1 1h5";
+pub(crate) const FOLDER: &str = "M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z";
+pub(crate) const LINK: &str = "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71";
+pub(crate) const LOCK: &str = "M7 11V7a5 5 0 0 1 10 0v4M3.0 11.0h18.0v11.0h-18.0Z";
+pub(crate) const LOG_OUT: &str = "m16 17 5-5-5-5M21 12H9M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4";
+pub(crate) const REFRESH_CW: &str = "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8M21 3v5h-5M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16M8 16H3v5";
+pub(crate) const SAVE: &str = "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7M7 3v4a1 1 0 0 0 1 1h7";
+pub(crate) const STAR: &str = "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z";
+pub(crate) const X: &str = "M18 6 6 18m6 6 12 12";
+
 pub(crate) const ALL: &[(&str, &str)] = &[
     ("arrow-left", ARROW_LEFT),
     ("arrow-right", ARROW_RIGHT),
@@ -56,4 +71,18 @@ pub(crate) const ALL: &[(&str, &str)] = &[
     ("trash-2", TRASH_2),
     ("upload", UPLOAD),
     ("user", USER),
+    ("check", CHECK),
+    ("chevron-down", CHEVRON_DOWN),
+    ("chevron-left", CHEVRON_LEFT),
+    ("chevron-right", CHEVRON_RIGHT),
+    ("chevron-up", CHEVRON_UP),
+    ("file", FILE),
+    ("folder", FOLDER),
+    ("link", LINK),
+    ("lock", LOCK),
+    ("log-out", LOG_OUT),
+    ("refresh-cw", REFRESH_CW),
+    ("save", SAVE),
+    ("star", STAR),
+    ("x", X),
 ];
