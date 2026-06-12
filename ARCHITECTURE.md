@@ -633,3 +633,15 @@ lives in the book's Influences section. Decisions:
   SECURITY.md states scope — hostile-input panics ARE in scope
   (scenario JSON, theme files, element trees, font/image bytes) —
   response expectations, and the credit policy.
+
+### Day-one fuzz finding (recorded 2026-06-12)
+
+The layout fuzzer's first three minutes found that hostile text
+(combining marks adjacent to a newline; crash input bytes `83 0b ff 48
+61 dd 82 32 0a dd 82 32 0a 08 00 97 97 94`) trips a `debug_assert`
+inside parley 0.10 (`layout/data.rs:718`, ligature-cluster vs newline
+classification). Shipped builds are unaffected (debug assertions
+compile out; the code path is safe Rust either way), so the fuzz jobs
+now run the shipped configuration (`-O`, assertions off). Worth
+reporting upstream to Linebender with the crash input — debug-build
+apps showing untrusted text could panic until then.

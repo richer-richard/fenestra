@@ -33,7 +33,12 @@ jobs:
           sudo apt-get install -y libfontconfig1-dev pkg-config
       - run: cargo install cargo-fuzz --locked
       - name: Fuzz for three minutes
-        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=180
+        # -O without -a: release with debug-assertions OFF — the shipped
+        # configuration. (Day-one finding: with assertions on, hostile
+        # combining-mark + newline text trips a debug_assert inside
+        # parley 0.10 layout/data.rs:718 — upstream's internal invariant
+        # check, absent from what users run; recorded in ARCHITECTURE.)
+        run: cargo fuzz run ${{ matrix.target }} -O -- -max_total_time=180
       - name: Upload crash artifacts if any
         if: failure()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0

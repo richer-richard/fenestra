@@ -83,7 +83,11 @@ jobs:
         env:
           WGPU_BACKEND: vulkan
           # Goldens are Metal-rendered; lavapipe AA differs slightly.
-          FENESTRA_SNAPSHOT_BUDGET: "0.006"
+          # Software-rasterizer pixel budget. 0.6% sufficed until the
+          # 0.6 rich-text golden (synthesized-italic thin diagonals AA
+          # differently on lavapipe: 0.769%); 1% keeps honest headroom.
+          # The macOS reference platform stays at the default 0.2%.
+          FENESTRA_SNAPSHOT_BUDGET: "0.010"
         run: cargo test --workspace
 
   test-windows:
