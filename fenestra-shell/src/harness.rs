@@ -22,29 +22,41 @@
 
 use std::sync::{Arc, Mutex, PoisonError};
 
+use std::collections::HashMap;
+
 use fenestra_core::{
-    AccessNode, App, Element, Frame, FrameState, InputEvent, KeyInput, Proxy, Query, Theme,
-    build_frame, dispatch,
+    AccessNode, App, Element, Frame, FrameState, InputEvent, KeyInput, MAIN_WINDOW, Proxy, Query,
+    Theme, build_frame, dispatch,
 };
 use image::RgbaImage;
 
 use crate::element_render::with_fonts;
 use crate::with_headless;
 
+/// One headless window: its own retained state, view, and frame —
+/// exactly like the windowed runner keeps per window.
+struct WindowSlot<Msg> {
+    state: FrameState,
+    view: Element<Msg>,
+    frame: Frame,
+    logical: (f32, f32),
+    size: (u32, u32),
+}
+
 /// A headless app under test. See the module docs for the model.
 pub struct Harness<A: App> {
     app: A,
     theme: Theme,
-    state: FrameState,
-    logical: (f32, f32),
-    size: (u32, u32),
     /// Deterministic clock in seconds, advanced only by [`Self::pump`].
     clock: f64,
     /// Messages emitted by handlers since the last [`Self::take_messages`].
     msgs: Vec<A::Msg>,
     pending: Arc<Mutex<Vec<A::Msg>>>,
-    view: Element<A::Msg>,
-    frame: Frame,
+    /// Open windows by key; reconciled against [`App::windows`] after
+    /// every update, exactly like the windowed runner.
+    slots: HashMap<String, WindowSlot<A::Msg>>,
+    /// The window verbs and queries currently target.
+    active: String,
 }
 
 impl<A: App> Harness<A>
@@ -68,23 +80,45 @@ where
                 .push(msg);
         }));
         Self::drain(&mut app, &pending);
-        let mut state = FrameState::new();
-        state.reduced_motion = true;
-        #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
-        let logical = (size.0 as f32, size.1 as f32);
-        let view = app.view();
-        let frame = with_fonts(|fonts| build_frame(&view, &theme, fonts, &mut state, logical, 1.0));
-        Self {
+        let mut harness = Self {
             app,
             theme,
-            state,
-            logical,
-            size,
             clock: 0.0,
             msgs: Vec::new(),
             pending,
+            slots: HashMap::new(),
+            active: MAIN_WINDOW.to_owned(),
+        };
+        harness.slots.insert(
+            MAIN_WINDOW.to_owned(),
+            Self::new_slot(&harness.app, &harness.theme, MAIN_WINDOW, size, 0.0),
+        );
+        harness.rebuild();
+        harness
+    }
+
+    fn new_slot(
+        app: &A,
+        theme: &Theme,
+        key: &str,
+        size: (u32, u32),
+        clock: f64,
+    ) -> WindowSlot<A::Msg> {
+        let size =
+            with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
+        let mut state = FrameState::new();
+        state.reduced_motion = true;
+        state.tick(clock);
+        #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
+        let logical = (size.0 as f32, size.1 as f32);
+        let view = app.view_for(key);
+        let frame = with_fonts(|fonts| build_frame(&view, theme, fonts, &mut state, logical, 1.0));
+        WindowSlot {
+            state,
             view,
             frame,
+            logical,
+            size,
         }
     }
 
@@ -95,30 +129,84 @@ where
         }
     }
 
-    /// Rebuilds the view and frame from current app state (proxied
-    /// messages drain first). Runs automatically after every input;
-    /// call it yourself only after mutating via [`Self::app_mut`].
+    /// Rebuilds every window from current app state (proxied messages
+    /// drain first) and reconciles the declared window set: new keys
+    /// open, missing keys close (the active window falls back to main).
+    /// Runs automatically after every input; call it yourself only
+    /// after mutating via [`Self::app_mut`].
     pub fn rebuild(&mut self) {
         Self::drain(&mut self.app, &self.pending);
-        self.view = self.app.view();
-        self.state.tick(self.clock);
-        self.frame = with_fonts(|fonts| {
-            build_frame(
-                &self.view,
-                &self.theme,
-                fonts,
-                &mut self.state,
-                self.logical,
-                1.0,
-            )
-        });
+        let descs = self.app.windows();
+        self.slots
+            .retain(|key, _| key == MAIN_WINDOW || descs.iter().any(|d| &d.key == key));
+        for desc in &descs {
+            if !self.slots.contains_key(&desc.key) {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_sign_loss,
+                    reason = "logical window sizes are small positive numbers"
+                )]
+                let size = (desc.size.0.max(1.0) as u32, desc.size.1.max(1.0) as u32);
+                let slot = Self::new_slot(&self.app, &self.theme, &desc.key, size, self.clock);
+                self.slots.insert(desc.key.clone(), slot);
+            }
+        }
+        if !self.slots.contains_key(&self.active) {
+            self.active = MAIN_WINDOW.to_owned();
+        }
+        let keys: Vec<String> = self.slots.keys().cloned().collect();
+        for key in keys {
+            let slot = self.slots.get_mut(&key).expect("slot exists");
+            slot.view = self.app.view_for(&key);
+            slot.state.tick(self.clock);
+            slot.frame = with_fonts(|fonts| {
+                build_frame(
+                    &slot.view,
+                    &self.theme,
+                    fonts,
+                    &mut slot.state,
+                    slot.logical,
+                    1.0,
+                )
+            });
+        }
     }
 
-    /// Dispatches one raw input event against the current frame, logs
-    /// and applies the emitted messages, and rebuilds.
+    fn slot(&self) -> &WindowSlot<A::Msg> {
+        self.slots.get(&self.active).expect("active slot exists")
+    }
+
+    /// Switches which window the verbs and queries target. Open windows
+    /// come from [`App::windows`]; [`MAIN_WINDOW`] is always open.
+    ///
+    /// # Panics
+    /// If no open window has this key (the message lists the open ones).
+    pub fn activate_window(&mut self, key: &str) {
+        assert!(
+            self.slots.contains_key(key),
+            "no open window {key:?}; open windows: {:?}",
+            self.window_keys()
+        );
+        self.active = key.to_owned();
+    }
+
+    /// The keys of every open window, sorted (main first).
+    pub fn window_keys(&self) -> Vec<String> {
+        let mut keys: Vec<String> = self.slots.keys().cloned().collect();
+        keys.sort_by_key(|k| (k != MAIN_WINDOW, k.clone()));
+        keys
+    }
+
+    /// Dispatches one raw input event against the active window's
+    /// current frame, logs and applies the emitted messages, and
+    /// rebuilds (which also reconciles the window set).
     pub fn input(&mut self, event: InputEvent) {
+        let slot = self
+            .slots
+            .get_mut(&self.active)
+            .expect("active slot exists");
         let result =
-            with_fonts(|fonts| dispatch(&self.view, &self.frame, &mut self.state, fonts, event));
+            with_fonts(|fonts| dispatch(&slot.view, &slot.frame, &mut slot.state, fonts, event));
         for msg in result.msgs {
             self.msgs.push(msg.clone());
             self.app.update(msg);
@@ -127,7 +215,7 @@ where
     }
 
     fn center(&self, q: &Query) -> (f32, f32) {
-        let node = self.frame.get(q);
+        let node = self.slot().frame.get(q);
         let c = node.rect.center();
         #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
         (c.x as f32, c.y as f32)
@@ -198,8 +286,12 @@ where
     /// # Panics
     /// If the query matches zero or several nodes.
     pub fn focus(&mut self, q: &Query) {
-        let id = self.frame.get(q).id;
-        self.state.set_focus(Some(id));
+        let slot = self
+            .slots
+            .get_mut(&self.active)
+            .expect("active slot exists");
+        let id = slot.frame.get(q).id;
+        slot.state.set_focus(Some(id));
         self.rebuild();
     }
 
@@ -255,7 +347,7 @@ where
     /// # Panics
     /// If the query matches zero or several nodes.
     pub fn get(&self, q: &Query) -> AccessNode {
-        self.frame.get(q)
+        self.slot().frame.get(q)
     }
 
     /// The single matching node, or `None`. Use to assert absence.
@@ -263,12 +355,12 @@ where
     /// # Panics
     /// If the query matches several nodes.
     pub fn query(&self, q: &Query) -> Option<AccessNode> {
-        self.frame.query(q)
+        self.slot().frame.query(q)
     }
 
     /// Every matching node in tree order.
     pub fn get_all(&self, q: &Query) -> Vec<AccessNode> {
-        self.frame.get_all(q)
+        self.slot().frame.get_all(q)
     }
 
     /// Messages emitted by handlers since the last call (the Elm-level
@@ -278,9 +370,10 @@ where
         std::mem::take(&mut self.msgs)
     }
 
-    /// The current frame, for direct queries and `access_yaml()`.
+    /// The active window's current frame, for direct queries and
+    /// `access_yaml()`.
     pub fn frame(&self) -> &Frame {
-        &self.frame
+        &self.slot().frame
     }
 
     /// The app under test.
@@ -293,14 +386,30 @@ where
         &mut self.app
     }
 
-    /// Renders the current frame to pixels. Mid-test captures are fine —
+    /// Renders the active window to pixels. Mid-test captures are fine —
     /// the frame is not consumed.
     ///
     /// # Panics
     /// If rendering fails.
     pub fn render(&mut self) -> RgbaImage {
-        let scene = with_fonts(|fonts| self.frame.paint(fonts, &mut self.state));
-        with_headless(|h| h.render(&scene, self.size.0, self.size.1, self.theme.bg))
+        let key = self.active.clone();
+        self.render_window(&key)
+    }
+
+    /// Renders any open window to pixels.
+    ///
+    /// # Panics
+    /// If no open window has this key, or rendering fails.
+    pub fn render_window(&mut self, key: &str) -> RgbaImage {
+        assert!(
+            self.slots.contains_key(key),
+            "no open window {key:?}; open windows: {:?}",
+            self.window_keys()
+        );
+        let bg = self.theme.bg;
+        let slot = self.slots.get_mut(key).expect("checked above");
+        let scene = with_fonts(|fonts| slot.frame.paint(fonts, &mut slot.state));
+        with_headless(|h| h.render(&scene, slot.size.0, slot.size.1, bg))
             .expect("headless renderer unavailable")
             .expect("headless render failed")
     }
