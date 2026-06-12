@@ -50,8 +50,8 @@ let msgs = h.take_messages();                          // behavior: what the UI 
 h.render().save("after.png").unwrap();                 // pixels — now look at it
 ```
 
-Verbs: `click right_click double_click hover type_text key tab
-shift_tab focus drag drop_file wheel`; `pump(ms)` advances the
+Verbs: `click right_click double_click triple_click shift_click hover
+type_text key tab shift_tab focus drag drop_file wheel`; `pump(ms)` advances the
 deterministic clock; `activate_window(key)` / `render_window(key)` for
 multi-window apps. Failed lookups print the whole accessibility tree —
 read it, it names every role and label on screen.
@@ -119,7 +119,8 @@ assert_png_snapshot(snapshot_dir(), "my_widget", &image);
 
 Constructors: `div() row() col() stack() text(s) spacer() divider()
 path(bez, viewbox, stroke) image_rgba8(w, h, px) raw_input(v, ph)
-raw_text_area(v, ph)`
+raw_text_area(v, ph) rich_text([span(s).weight(..).color(..)
+.size_px(..).family(..).italic(), ..])`
 
 Layout: `.p/.px/.py/.pt/.pr/.pb/.pl(f32)` padding, `.m*` margins,
 `.gap(f32)`, `.w/.h/.min_w/.max_w/.min_h/.max_h(Length)`, `.w_full()

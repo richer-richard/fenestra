@@ -517,3 +517,40 @@ lives in the book's Influences section. Decisions:
   `IntoChildren<Msg, Marker>` at different markers. The papercut was
   found while writing `examples/windows.rs`, which now compiles without
   a single `Element::from`.
+
+## 0.6: text is real
+
+- **Selection on press, platform-style.** Press chains count per input
+  (1 = caret, 2 = word via parley's `select_word_at_point`, 3 = line)
+  with the same 0.4 s window as double-click messages, tracked
+  separately (`last_press`) so `on_double_click` semantics are
+  untouched. Shift-click extension existed in the editor but was dead
+  code — the dispatch hardcoded `shift: false` because pointer events
+  carry no modifiers. The fix is an additive `InputEvent::Modifiers`
+  that runners forward on `ModifiersChanged`; `FrameState` remembers,
+  pointer placement reads it.
+- **Undo/redo is QUndoStack with Elm honesty.** Snapshots (text +
+  selected byte range) per editor; typing/deleting coalesce into runs
+  keyed by edit kind; caret/selection moves, pointer placement, paste,
+  cut, and programmatic value changes are boundaries; redo clears on
+  fresh edits; history is bounded at 100. Crucially, undo emits
+  `on_input` like any edit — the app stays the source of truth, and a
+  programmatic value change becomes its own undoable unit (the first
+  fill of a brand-new editor is exempt). Clean-index dirty tracking was
+  deliberately skipped: persistence lives in apps, not fields.
+- **Rich text is ranged styles over one layout, uncached.** `rich_text`
+  + `span` resolve to parley ranged-builder pushes (weight/size/brush/
+  family/italic); per-run brushes carry span colors to paint; spans
+  concatenate into one accessible label. The layout cache keys on
+  (text, style, width) — span lists make poor keys, rich paragraphs are
+  short, so rich shaping skips the cache. Inputs stay plain text.
+- **Bidi rides parley; coverage rides the font stack.** Mixed-direction
+  shaping is total on embedded fonts; RTL glyphs come from system
+  fallback, proven by a macOS-gated pixel test mirroring the CJK one.
+  App-wide UI mirroring is future work (Qt's lesson when it lands:
+  mirror flow, never content).
+- **A11y state, honestly scoped.** `.live()` -> AccessKit
+  `Live::Polite` (toasts set it themselves); inputs expose their
+  selected byte range headlessly on `AccessNode::selection`. The
+  per-run inline-text-box protocol stays out of scope and the docs say
+  so explicitly.

@@ -22,5 +22,12 @@ Two consumers see this tree:
    adapter: the tree pushes after every frame, and screen-reader
    activation (Click/Focus actions) routes back through your messages.
 
-Out of scope so far: the screen-reader text-editing protocol and live
-regions.
+Live regions: `.live()` marks an element whose content changes should
+be announced without focus moving there; the kit's toasts set it
+themselves. Text inputs expose their selected byte range (collapsed =
+caret) on `AccessNode::selection` — assert selection state headlessly.
+
+Out of scope so far: the full screen-reader text-editing protocol
+(per-character inline text boxes for braille routing and
+character-by-character navigation). Field-level value, caret, and
+selection are exposed; run-level geometry is not.

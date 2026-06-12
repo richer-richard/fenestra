@@ -5,11 +5,15 @@ Everything autocompletes; nothing is a macro.
 **Constructors** — `div()`, `row()`, `col()`, `stack()` (z-stack),
 `text(s)`, `spacer()`, `divider()`, `path(bez, viewbox, stroke)`,
 `image_rgba8(w, h, pixels)`, `raw_input(value, placeholder)`,
-`raw_text_area(value, placeholder)`.
+`raw_text_area(value, placeholder)`, `rich_text([span("…")
+.weight(..).color(..).size_px(..).family(..).italic(), …])`.
 
 **Children** — `.children([...])` for one type, `.children((a, b, c))`
 (a tuple, up to 12) to mix kit builders and elements without wrapping,
 `.child(x)` to append one.
+
+**Accessibility** — `.semantics(Semantics::Button)`, `.label("…")`,
+`.live()` (polite announcements); inputs expose value + selection.
 
 **Queries (tests)** — `by::role(sem).name("…")`, `by::label`,
 `by::value`, `by::id` + `_contains` forms; `frame.get/query/get_all`,

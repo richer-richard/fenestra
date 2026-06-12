@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.6.0 — 2026-06-12
+
+Text is real.
+
+### Added
+
+- **Selection depth**: double-click selects the word, triple-click the
+  line, shift-click extends from the caret (pointer modifiers now flow
+  through the new `InputEvent::Modifiers`; shift-click was previously
+  dead code), drag-select verified under follow-scroll.
+- **Undo/redo**: Cmd/Ctrl+Z, Shift+Cmd/Ctrl+Z, Ctrl+Y — per-field
+  QUndoStack semantics: coalesced typing/deleting runs; boundaries on
+  caret moves, clicks, paste, cut, and programmatic value changes;
+  bounded history; selection restored; emitted through `on_input` so
+  the app stays the source of truth.
+- **Rich text**: `rich_text([span("…").weight(..).color(..)
+  .size_px(..).family(..).italic(), …])` — one wrapped paragraph with
+  ranged styles, per-span paint brushes, single accessible label.
+- **Bidi/RTL**: mixed-direction shaping verified total on embedded
+  fonts; RTL system-font fallback pixel-proven (macOS-gated, like the
+  CJK proof).
+- **A11y state**: `.live()` live regions (AccessKit `Live::Polite`;
+  toasts mark themselves), and text inputs expose caret/selection
+  byte ranges headlessly via `AccessNode::selection`.
+- Harness verbs `triple_click` / `shift_click` (+ scenario verbs),
+  `SyntheticEvent::Modifiers`.
+
+### Notes
+
+- The full screen-reader text protocol (per-run inline text boxes)
+  remains out of scope; field-level value/caret/selection are exposed.
+
+
 ## 0.5.0 — 2026-06-12
 
 The verification release: nobody else combines deterministic pixels on
