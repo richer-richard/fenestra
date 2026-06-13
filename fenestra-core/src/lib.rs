@@ -43,7 +43,7 @@ pub use style::*;
 pub use text::Fonts;
 pub use theme::{
     BaseField, Contrast, ContrastViolation, DeriveSpec, DuotoneSpec, Mode, Ramp, StatusColors,
-    Theme, ThemeSpec,
+    Theme, ThemeSpec, oklch, oklch_of,
 };
 pub use tokens::*;
 

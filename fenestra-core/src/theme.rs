@@ -826,9 +826,12 @@ fn check_pair(
     }
 }
 
-/// Converts OKLCH to sRGB, gamut-mapping by reducing chroma — never
-/// lightness — when the color is out of gamut.
-fn oklch(l: f32, c: f32, h: f32) -> Color {
+/// Builds an sRGB [`Color`] from OKLCH (lightness 0..=1, chroma, hue degrees),
+/// gamut-mapping by reducing chroma — never lightness — when the color is out
+/// of gamut. This is the framework's color primitive: theme ramps, Looks, and
+/// data-viz palettes are all built from it, so a generated color is always
+/// in-gamut and keeps its intended lightness.
+pub fn oklch(l: f32, c: f32, h: f32) -> Color {
     let convert = |chroma: f32| AlphaColor::<Oklch>::new([l, chroma, h, 1.0]).convert::<Srgb>();
     let mut srgb = convert(c);
     if !in_gamut(srgb) {
@@ -845,6 +848,15 @@ fn oklch(l: f32, c: f32, h: f32) -> Color {
     }
     let [r, g, b, a] = srgb.components;
     Color::new([r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0), a])
+}
+
+/// The OKLCH components `[L, C, H]` of a color — the inverse of [`oklch`].
+/// Hue is `0.0` for achromatic colors (where it is otherwise undefined), so the
+/// result round-trips cleanly back through [`oklch`]. Use it to adapt an
+/// existing color (e.g. lift a categorical swatch for a dark background).
+pub fn oklch_of(color: Color) -> [f32; 3] {
+    let [l, c, h, _] = color.convert::<Oklch>().components;
+    [l, c, if h.is_nan() { 0.0 } else { h }]
 }
 
 fn in_gamut(c: AlphaColor<Srgb>) -> bool {
