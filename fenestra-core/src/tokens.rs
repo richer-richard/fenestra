@@ -81,14 +81,21 @@ impl TextSize {
         }
     }
 
-    /// Letter spacing in em (multiply by `px()` for logical pixels).
-    pub const fn letter_spacing(self) -> f32 {
-        match self {
-            Self::Xs | Self::Sm | Self::Base => 0.0,
-            Self::Lg | Self::Xl => -0.01,
-            Self::Xl2 | Self::Xl3 => -0.02,
-        }
+    /// Letter spacing in em, from Inter's dynamic-metrics tracking curve
+    /// ([`tracking_em`]). Multiply by `px()` for logical pixels.
+    pub fn letter_spacing(self) -> f32 {
+        tracking_em(self.px())
     }
+}
+
+/// Optical tracking (letter spacing) in em for a font size in logical px,
+/// from Inter's published dynamic-metrics formula
+/// `-0.0223 + 0.185·e^(-0.1745·px)`: a hair positive at caption sizes,
+/// tightening smoothly as text grows. Applies to any size, including
+/// free-form display sizes, instead of a handful of hand-set steps.
+#[must_use]
+pub fn tracking_em(px: f32) -> f32 {
+    -0.0223 + 0.185 * (-0.1745 * px).exp()
 }
 
 /// Font weights shipped with the embedded Inter family.
@@ -139,8 +146,10 @@ pub enum ShadowToken {
     Sm,
     /// Raised controls and popovers.
     Md,
-    /// Overlays: menus and modals.
+    /// Menus and dropdowns.
     Lg,
+    /// Deep overlays: modals and dialogs (a three-layer ramp).
+    Xl,
 }
 
 /// Motion duration tokens, in milliseconds.
@@ -244,5 +253,30 @@ impl CubicBezier {
             t = (t - err / d).clamp(0.0, 1.0);
         }
         bez(t, self.y1, self.y2)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tracking_curve_tightens_with_size_toward_its_asymptote() {
+        // Inter's curve: a hair positive at caption sizes, monotonically
+        // tightening toward the -0.0223em asymptote as size grows.
+        assert!(tracking_em(12.0) > tracking_em(16.0));
+        assert!(tracking_em(16.0) > tracking_em(31.0));
+        assert!((tracking_em(12.0) - 0.0005).abs() < 0.002);
+        assert!((tracking_em(16.0) - -0.0110).abs() < 0.002);
+        // Large sizes approach but never cross the asymptote.
+        assert!(tracking_em(96.0) > -0.0223);
+        assert!((tracking_em(96.0) - -0.0223).abs() < 0.0005);
+    }
+
+    #[test]
+    fn text_size_tracking_matches_the_formula() {
+        for size in [TextSize::Xs, TextSize::Base, TextSize::Xl3] {
+            assert_eq!(size.letter_spacing(), tracking_em(size.px()));
+        }
     }
 }

@@ -5,6 +5,7 @@
 //! `(element tree, theme, size, scale)` plus a single retained `FrameState`.
 
 mod anim;
+mod apca;
 mod app;
 mod children;
 mod clipboard;
@@ -23,6 +24,7 @@ mod text;
 mod theme;
 mod tokens;
 
+pub use apca::{lc, lc_abs, meets};
 pub use app::{App, MAIN_WINDOW, WindowDesc};
 pub use children::{FromIter, FromTuple, IntoChildren};
 pub use clipboard::{Clipboard, MemoryClipboard};
@@ -39,7 +41,7 @@ pub use proxy::Proxy;
 pub use query::{Query, QueryError, TextMatch, by};
 pub use style::*;
 pub use text::Fonts;
-pub use theme::{DuotoneSpec, Mode, Ramp, StatusColors, Theme, ThemeSpec};
+pub use theme::{ContrastViolation, DuotoneSpec, Mode, Ramp, StatusColors, Theme, ThemeSpec};
 pub use tokens::*;
 
 // Re-exported so dependents (kit, apps) never need a direct peniko dep.

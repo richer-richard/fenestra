@@ -30,7 +30,8 @@ impl Ramp {
     }
 }
 
-/// The four resolved colors of one status hue.
+/// The resolved colors of one status hue: tinted background, border, solid
+/// fill with its hover and pressed variants, and text.
 #[derive(Debug, Clone, Copy)]
 pub struct StatusColors {
     /// Tinted background (step 3).
@@ -41,8 +42,33 @@ pub struct StatusColors {
     pub solid: Color,
     /// Hover state of the solid fill (step 10).
     pub solid_hover: Color,
+    /// Pressed state of the solid fill (one OKLCH-lightness notch below
+    /// `solid_hover`).
+    pub solid_active: Color,
     /// Text on `bg` (step 11).
     pub text: Color,
+}
+
+/// A text/background pair that failed its APCA Lc floor during
+/// [`Theme::validate_contrast`].
+#[derive(Debug, Clone, PartialEq)]
+pub struct ContrastViolation {
+    /// The pair that fell short, e.g. `"text_muted on surface_raised"`.
+    pub pair: String,
+    /// The measured APCA Lc magnitude.
+    pub measured_lc: f64,
+    /// The floor it failed to reach.
+    pub required_lc: f64,
+}
+
+impl std::fmt::Display for ContrastViolation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "{}: APCA Lc {:.1} < required {:.1}",
+            self.pair, self.measured_lc, self.required_lc
+        )
+    }
 }
 
 /// Design tokens resolved for one color mode.
@@ -52,10 +78,24 @@ pub struct Theme {
     pub mode: Mode,
     /// The accent hue (OKLCH degrees) this theme was generated from.
     pub accent_hue: f32,
+    /// The hue (OKLCH degrees) the neutral ramp was generated with: equal to
+    /// `accent_hue` for `from_accent`, the duotone field hue otherwise.
+    pub neutral_hue: f32,
+    /// Chroma multiplier applied to the neutral ramp (1.0 for `from_accent`,
+    /// the duotone chroma boost otherwise) — so surfaces derived from the
+    /// ramp stay on the neutral field.
+    pub neutral_chroma_mult: f32,
     /// The 12-step neutral ramp, tinted with the accent hue at low chroma.
     pub neutrals: Ramp,
     /// The 12-step accent ramp.
     pub accents: Ramp,
+    /// Neutral alpha twins: each step as the smallest-alpha translucent color
+    /// that, composited over `bg`, reproduces the solid neutral step. Use for
+    /// overlays and state layers that must read correctly over any surface,
+    /// not only over `bg`.
+    pub neutral_alpha: Ramp,
+    /// Accent alpha twins (translucent over `bg`); see [`Theme::neutral_alpha`].
+    pub accent_alpha: Ramp,
     /// Danger status colors (hue 25).
     pub danger: StatusColors,
     /// Warning status colors (hue 80).
@@ -69,6 +109,12 @@ pub struct Theme {
     pub surface: Color,
     /// Raised surface: pure white in light mode, N3 in dark mode.
     pub surface_raised: Color,
+    /// Interactive element fill (N3): unselected ghost/soft control backgrounds.
+    pub element: Color,
+    /// Element hover fill (N4).
+    pub element_hover: Color,
+    /// Element active/pressed fill (N5).
+    pub element_active: Color,
     /// Subtle border (N5); pairs with the Sm shadow on cards.
     pub border_subtle: Color,
     /// Default border (N6).
@@ -87,6 +133,9 @@ pub struct Theme {
     pub accent: Color,
     /// Accent hover (A10).
     pub accent_hover: Color,
+    /// Accent pressed (one OKLCH-lightness notch below `accent_hover`; in light
+    /// mode this lands on A11's lightness at A10's chroma).
+    pub accent_active: Color,
     /// Tinted accent background (A3).
     pub accent_bg: Color,
     /// Accent border (A7).
@@ -166,13 +215,16 @@ const DANGER_HUE: f32 = 25.0;
 const WARNING_HUE: f32 = 80.0;
 const SUCCESS_HUE: f32 = 150.0;
 
-/// Shadow tokens as `(dy, blur, alpha)` layers; dx and spread are 0.
+/// Shadow tokens as `(dy, blur, alpha)` layers; dx and spread are 0. Multi-layer
+/// tokens stack a tight contact shadow under a softer ambient one (and a third,
+/// far layer for deep overlays) — the calibrated key+ambient ramp web systems use.
 const fn shadow_layers(token: ShadowToken) -> &'static [(f32, f32, f32)] {
     match token {
         ShadowToken::Xs => &[(1.0, 2.0, 0.05)],
         ShadowToken::Sm => &[(1.0, 2.0, 0.05), (1.0, 3.0, 0.06)],
         ShadowToken::Md => &[(2.0, 4.0, 0.05), (4.0, 12.0, 0.08)],
         ShadowToken::Lg => &[(4.0, 10.0, 0.06), (16.0, 32.0, 0.12)],
+        ShadowToken::Xl => &[(2.0, 6.0, 0.04), (8.0, 16.0, 0.08), (24.0, 48.0, 0.16)],
     }
 }
 
@@ -182,6 +234,22 @@ const DARK_SHADOW_ALPHA_FACTOR: f32 = 1.6;
 
 /// Per-level lightness boost for raised surfaces in dark mode.
 const DARK_ELEVATION_TINT: f32 = 0.025;
+
+/// Pressed states drop this much OKLCH lightness below the step-10 hover. In
+/// light mode the accent lands exactly on A11's lightness (0.545 → 0.500).
+const ACTIVE_DL: f32 = 0.045;
+
+/// APCA Lc floors enforced by [`Theme::validate_contrast`], as magnitudes.
+/// Primary body text targets Lc 90 and the stock themes reach it; the floor
+/// sits at the canonical body minimum (75) so it trips on a regression, not a
+/// design choice. Secondary, control-label, and colored-component text get
+/// progressively lower floors matching their role, size, and weight. Borders
+/// and other non-text delineation are intentionally not checked — APCA models
+/// text legibility, not non-text contrast.
+const PRIMARY_TEXT_MIN: f64 = 75.0;
+const SECONDARY_TEXT_MIN: f64 = 55.0;
+const CONTROL_LABEL_MIN: f64 = 60.0;
+const COMPONENT_TEXT_MIN: f64 = 40.0;
 
 impl Theme {
     /// Generates every token from one accent hue (OKLCH degrees).
@@ -199,6 +267,7 @@ impl Theme {
             border: ramp_color(accent_table, 7, status_hue),
             solid: ramp_color(accent_table, 9, status_hue),
             solid_hover: ramp_color(accent_table, 10, status_hue),
+            solid_active: active_color(accent_table, status_hue),
             text: ramp_color(accent_table, 11, status_hue),
         };
 
@@ -217,12 +286,17 @@ impl Theme {
         Self {
             mode,
             accent_hue: hue,
+            neutral_hue: hue,
+            neutral_chroma_mult: 1.0,
             danger: status(DANGER_HUE),
             warning: status(WARNING_HUE),
             success: status(SUCCESS_HUE),
             bg: neutrals.step(1),
             surface: neutrals.step(2),
             surface_raised,
+            element: neutrals.step(3),
+            element_hover: neutrals.step(4),
+            element_active: neutrals.step(5),
             border_subtle: neutrals.step(5),
             border: neutrals.step(6),
             border_strong: neutrals.step(7),
@@ -232,10 +306,13 @@ impl Theme {
             text_disabled: neutrals.step(8),
             accent: accents.step(9),
             accent_hover: accents.step(10),
+            accent_active: active_color(accent_table, hue),
             accent_bg: accents.step(3),
             accent_border: accents.step(7),
             accent_text: accents.step(11),
             on_accent,
+            neutral_alpha: alpha_ramp(&neutrals, neutrals.step(1)),
+            accent_alpha: alpha_ramp(&accents, neutrals.step(1)),
             neutrals,
             accents,
         }
@@ -273,6 +350,14 @@ impl Theme {
         if accent_table[8].0 >= 0.65 {
             theme.on_accent = neutrals.step(12);
         }
+        let bg = neutrals.step(1);
+        theme.element = neutrals.step(3);
+        theme.element_hover = neutrals.step(4);
+        theme.element_active = neutrals.step(5);
+        theme.neutral_alpha = alpha_ramp(&neutrals, bg);
+        theme.accent_alpha = alpha_ramp(&theme.accents, bg);
+        theme.neutral_hue = hue;
+        theme.neutral_chroma_mult = boost;
         theme.neutrals = neutrals;
         theme
     }
@@ -288,12 +373,14 @@ impl Theme {
     }
 
     /// Resolves a shadow token to concrete layers for this mode. Dark mode
-    /// multiplies alphas by 1.6.
+    /// multiplies alphas by 1.6, and every layer is tinted with the surface
+    /// hue (see [`Theme::shadow_tint`]) rather than flat black.
     pub fn shadow(&self, token: ShadowToken) -> Vec<Shadow> {
         let factor = match self.mode {
             Mode::Light => 1.0,
             Mode::Dark => DARK_SHADOW_ALPHA_FACTOR,
         };
+        let tint = self.shadow_tint();
         shadow_layers(token)
             .iter()
             .map(|&(dy, blur, alpha)| Shadow {
@@ -301,9 +388,26 @@ impl Theme {
                 dy,
                 blur,
                 spread: 0.0,
-                color: Color::new([0.0, 0.0, 0.0, (alpha * factor).min(1.0)]),
+                color: tint.with_alpha((alpha * factor).min(1.0)),
             })
             .collect()
+    }
+
+    /// The base shadow color: a near-black carrying the surface hue at low
+    /// chroma. Shadows on a cool theme read cool, on a warm theme warm — the
+    /// web-craft alternative to flat `#000`. Alpha is applied per layer.
+    pub fn shadow_tint(&self) -> Color {
+        let [r, g, b, _] = self.bg.components;
+        // A pure-gray surface carries no hue, so its shadow is a neutral
+        // near-black — not an arbitrary one. (The color crate reports a fixed
+        // hue, never NaN, for achromatic colors, so checking the sRGB channels
+        // is the reliable test.)
+        if (r - g).abs() < 1e-4 && (g - b).abs() < 1e-4 {
+            return oklch(0.13, 0.0, 0.0);
+        }
+        let hue = self.bg.convert::<Oklch>().components[2];
+        let hue = if hue.is_nan() { 0.0 } else { hue };
+        oklch(0.13, 0.03, hue)
     }
 
     /// The surface color at an elevation level: 0 is `surface`, 1 is
@@ -315,11 +419,13 @@ impl Theme {
             (_, 0) => self.surface,
             (Mode::Light, _) => self.surface_raised,
             (Mode::Dark, n) => {
+                // Lighten from N3 in the theme's own neutral field (duotone
+                // hue + boosted chroma included), not the stock accent hue.
                 let (l, c) = NEUTRAL_DARK[2];
                 oklch(
                     l + DARK_ELEVATION_TINT * f32::from(n - 1),
-                    c,
-                    self.accent_hue,
+                    c * self.neutral_chroma_mult,
+                    self.neutral_hue,
                 )
             }
         }
@@ -343,6 +449,14 @@ impl Theme {
         for n in 1..=12 {
             writeln!(out, "  A{n}: {}", hex(self.accents.step(n))).unwrap();
         }
+        writeln!(out, "\nneutral alpha twins (over bg):").unwrap();
+        for n in 1..=12 {
+            writeln!(out, "  NA{n}: {}", hex(self.neutral_alpha.step(n))).unwrap();
+        }
+        writeln!(out, "\naccent alpha twins (over bg):").unwrap();
+        for n in 1..=12 {
+            writeln!(out, "  AA{n}: {}", hex(self.accent_alpha.step(n))).unwrap();
+        }
         for (name, s) in [
             ("danger", &self.danger),
             ("warning", &self.warning),
@@ -353,6 +467,7 @@ impl Theme {
             writeln!(out, "  border: {}", hex(s.border)).unwrap();
             writeln!(out, "  solid: {}", hex(s.solid)).unwrap();
             writeln!(out, "  solid_hover: {}", hex(s.solid_hover)).unwrap();
+            writeln!(out, "  solid_active: {}", hex(s.solid_active)).unwrap();
             writeln!(out, "  text: {}", hex(s.text)).unwrap();
         }
         writeln!(out, "\nroles:").unwrap();
@@ -360,6 +475,9 @@ impl Theme {
             ("bg", self.bg),
             ("surface", self.surface),
             ("surface_raised", self.surface_raised),
+            ("element", self.element),
+            ("element_hover", self.element_hover),
+            ("element_active", self.element_active),
             ("border_subtle", self.border_subtle),
             ("border", self.border),
             ("border_strong", self.border_strong),
@@ -369,6 +487,7 @@ impl Theme {
             ("text_disabled", self.text_disabled),
             ("accent", self.accent),
             ("accent_hover", self.accent_hover),
+            ("accent_active", self.accent_active),
             ("accent_bg", self.accent_bg),
             ("accent_border", self.accent_border),
             ("accent_text", self.accent_text),
@@ -385,26 +504,164 @@ impl Theme {
             )
             .unwrap();
         }
-        writeln!(out, "\nshadows (dx dy blur spread alpha):").unwrap();
+        writeln!(out, "\nshadows (dx dy blur spread color):").unwrap();
         for (name, token) in [
             ("xs", ShadowToken::Xs),
             ("sm", ShadowToken::Sm),
             ("md", ShadowToken::Md),
             ("lg", ShadowToken::Lg),
+            ("xl", ShadowToken::Xl),
         ] {
             let layers: Vec<String> = self
                 .shadow(token)
                 .iter()
                 .map(|s| {
                     format!(
-                        "({} {} {} {} {:.3})",
-                        s.dx, s.dy, s.blur, s.spread, s.color.components[3]
+                        "({} {} {} {} {})",
+                        s.dx,
+                        s.dy,
+                        s.blur,
+                        s.spread,
+                        hex(s.color)
                     )
                 })
                 .collect();
             writeln!(out, "  {name}: {}", layers.join(" + ")).unwrap();
         }
         out
+    }
+
+    /// Measures every text/background role pair against its APCA Lc floor and
+    /// returns the pairs that fall short (empty means the theme is legible
+    /// everywhere). Floors by role: primary text [`PRIMARY_TEXT_MIN`],
+    /// secondary/muted text [`SECONDARY_TEXT_MIN`], labels on filled controls
+    /// [`CONTROL_LABEL_MIN`], and colored accent/status text
+    /// [`COMPONENT_TEXT_MIN`]. Borders and other non-text contrast are not
+    /// checked — APCA scores text legibility, not delineation.
+    pub fn contrast_report(&self) -> Vec<ContrastViolation> {
+        let mut out = Vec::new();
+        // Primary body text on every surface it sits on.
+        check_pair(&mut out, "text on bg", self.text, self.bg, PRIMARY_TEXT_MIN);
+        check_pair(
+            &mut out,
+            "text on surface",
+            self.text,
+            self.surface,
+            PRIMARY_TEXT_MIN,
+        );
+        check_pair(
+            &mut out,
+            "text on surface_raised",
+            self.text,
+            self.surface_raised,
+            PRIMARY_TEXT_MIN,
+        );
+        // Secondary (muted) text.
+        check_pair(
+            &mut out,
+            "text_muted on bg",
+            self.text_muted,
+            self.bg,
+            SECONDARY_TEXT_MIN,
+        );
+        check_pair(
+            &mut out,
+            "text_muted on surface",
+            self.text_muted,
+            self.surface,
+            SECONDARY_TEXT_MIN,
+        );
+        check_pair(
+            &mut out,
+            "text_muted on surface_raised",
+            self.text_muted,
+            self.surface_raised,
+            SECONDARY_TEXT_MIN,
+        );
+        // Labels painted on filled controls (primary button, pressed states).
+        check_pair(
+            &mut out,
+            "on_accent on accent",
+            self.on_accent,
+            self.accent,
+            CONTROL_LABEL_MIN,
+        );
+        check_pair(
+            &mut out,
+            "on_accent on accent_hover",
+            self.on_accent,
+            self.accent_hover,
+            CONTROL_LABEL_MIN,
+        );
+        check_pair(
+            &mut out,
+            "on_accent on accent_active",
+            self.on_accent,
+            self.accent_active,
+            CONTROL_LABEL_MIN,
+        );
+        // Accent-colored text (links, selected option, avatar initials).
+        check_pair(
+            &mut out,
+            "accent_text on bg",
+            self.accent_text,
+            self.bg,
+            COMPONENT_TEXT_MIN,
+        );
+        check_pair(
+            &mut out,
+            "accent_text on accent_bg",
+            self.accent_text,
+            self.accent_bg,
+            COMPONENT_TEXT_MIN,
+        );
+        // Status colors: tinted text on its tint and on the page, plus the
+        // label painted on the solid status fill (e.g. a danger button).
+        for (name, s) in [
+            ("danger", &self.danger),
+            ("warning", &self.warning),
+            ("success", &self.success),
+        ] {
+            check_pair(
+                &mut out,
+                format!("{name}.text on {name}.bg"),
+                s.text,
+                s.bg,
+                COMPONENT_TEXT_MIN,
+            );
+            check_pair(
+                &mut out,
+                format!("{name}.text on bg"),
+                s.text,
+                self.bg,
+                COMPONENT_TEXT_MIN,
+            );
+            check_pair(
+                &mut out,
+                format!("on_accent on {name}.solid"),
+                self.on_accent,
+                s.solid,
+                CONTROL_LABEL_MIN,
+            );
+        }
+        out
+    }
+
+    /// `Ok(())` when every text/background pair clears its APCA floor, else the
+    /// list of violations. This is the contract behind fenestra's
+    /// "provably-legible themes": the stock themes and every shipped Look are
+    /// asserted to pass in headless tests, and any custom [`Theme`] can be
+    /// validated the same way.
+    ///
+    /// # Errors
+    /// Returns the pairs that fall below their floor; see [`ContrastViolation`].
+    pub fn validate_contrast(&self) -> Result<(), Vec<ContrastViolation>> {
+        let report = self.contrast_report();
+        if report.is_empty() {
+            Ok(())
+        } else {
+            Err(report)
+        }
     }
 }
 
@@ -418,6 +675,73 @@ fn make_ramp(table: &RampTable, hue: f32) -> Ramp {
 fn ramp_color(table: &RampTable, step: usize, hue: f32) -> Color {
     let (l, c) = table[step - 1];
     oklch(l, c, hue)
+}
+
+/// Pressed state: one OKLCH-lightness notch (`ACTIVE_DL`) below the step-10
+/// hover, at `hue`. Read from the table so it is mode-invariant wherever the
+/// table's step 10 is — and both the brand accent and the status hues are.
+fn active_color(table: &RampTable, hue: f32) -> Color {
+    let (l, c) = table[9];
+    oklch((l - ACTIVE_DL).max(0.0), c, hue)
+}
+
+/// The alpha-twin ramp: each solid step rendered as the smallest-alpha
+/// translucent color that composites over `bg` back to that step.
+fn alpha_ramp(solid: &Ramp, bg: Color) -> Ramp {
+    Ramp(std::array::from_fn(|i| alpha_twin(solid.0[i], bg)))
+}
+
+/// The smallest-alpha translucent color that, painted over `bg`, reproduces
+/// `target`. For each channel the minimal alpha that keeps the back-solved
+/// foreground inside `[0, 1]` is required; the max across channels wins
+/// (mixed-direction channels — a tint both bluer and darker than a near-white
+/// bg — force alpha toward 1). Reconstruction is exact at f32 precision, so
+/// compositing the twin over `bg` round-trips to `target`.
+fn alpha_twin(target: Color, bg: Color) -> Color {
+    let t = target.components;
+    let b = bg.components;
+    let mut a = 0.0_f32;
+    for ch in 0..3 {
+        let (tc, bc) = (t[ch], b[ch]);
+        let bound = if tc < bc {
+            if bc > 0.0 { 1.0 - tc / bc } else { 0.0 }
+        } else if tc > bc {
+            if bc < 1.0 {
+                (tc - bc) / (1.0 - bc)
+            } else {
+                1.0
+            }
+        } else {
+            0.0
+        };
+        a = a.max(bound);
+    }
+    let a = a.clamp(0.0, 1.0);
+    if a <= f32::EPSILON {
+        // Fully transparent: the color is immaterial; keep bg for a stable dump.
+        return Color::new([b[0], b[1], b[2], 0.0]);
+    }
+    let solve = |tc: f32, bc: f32| ((tc - bc * (1.0 - a)) / a).clamp(0.0, 1.0);
+    Color::new([solve(t[0], b[0]), solve(t[1], b[1]), solve(t[2], b[2]), a])
+}
+
+/// Records a [`ContrastViolation`] when `text` on `bg` falls below `floor`
+/// (by APCA Lc magnitude).
+fn check_pair(
+    out: &mut Vec<ContrastViolation>,
+    pair: impl Into<String>,
+    text: Color,
+    bg: Color,
+    floor: f64,
+) {
+    let measured_lc = crate::apca::lc_abs(text, bg);
+    if measured_lc < floor {
+        out.push(ContrastViolation {
+            pair: pair.into(),
+            measured_lc,
+            required_lc: floor,
+        });
+    }
 }
 
 /// Converts OKLCH to sRGB, gamut-mapping by reducing chroma — never
@@ -523,5 +847,154 @@ impl ThemeSpec {
     #[must_use]
     pub fn to_json(&self) -> String {
         serde_json::to_string_pretty(self).expect("ThemeSpec serializes")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// OKLCH lightness of a resolved color (for ordering assertions).
+    fn lightness(c: Color) -> f32 {
+        c.convert::<Oklch>().components[0]
+    }
+
+    /// OKLCH hue (degrees) of a resolved color.
+    fn lch_hue(c: Color) -> f32 {
+        c.convert::<Oklch>().components[2]
+    }
+
+    /// Circular distance between two hues in degrees.
+    fn hue_delta(a: f32, b: f32) -> f32 {
+        let d = (a - b).rem_euclid(360.0);
+        d.min(360.0 - d)
+    }
+
+    /// Composite a translucent color over an opaque background (straight
+    /// source-over), returning RGB in 0..1.
+    fn composite_over(fg: Color, bg: Color) -> [f32; 3] {
+        let f = fg.components;
+        let b = bg.components;
+        let a = f[3];
+        std::array::from_fn(|i| f[i] * a + b[i] * (1.0 - a))
+    }
+
+    #[test]
+    fn alpha_twins_composite_back_to_solid_steps() {
+        for theme in [Theme::light(), Theme::dark()] {
+            let bg = theme.bg;
+            for n in 1..=12 {
+                for (solid, twin) in [
+                    (theme.neutrals.step(n), theme.neutral_alpha.step(n)),
+                    (theme.accents.step(n), theme.accent_alpha.step(n)),
+                ] {
+                    let got = composite_over(twin, bg);
+                    let want = solid.components;
+                    for ch in 0..3 {
+                        assert!(
+                            (got[ch] - want[ch]).abs() < 1e-4,
+                            "step {n} channel {ch}: twin over bg = {got:?}, want {want:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn element_roles_are_neutral_steps_3_4_5() {
+        for theme in [Theme::light(), Theme::dark()] {
+            assert_eq!(theme.element.to_rgba8(), theme.neutrals.step(3).to_rgba8());
+            assert_eq!(
+                theme.element_hover.to_rgba8(),
+                theme.neutrals.step(4).to_rgba8()
+            );
+            assert_eq!(
+                theme.element_active.to_rgba8(),
+                theme.neutrals.step(5).to_rgba8()
+            );
+        }
+    }
+
+    #[test]
+    fn pressed_states_are_darker_than_hover() {
+        for theme in [Theme::light(), Theme::dark()] {
+            assert!(
+                lightness(theme.accent_active) < lightness(theme.accent_hover),
+                "accent_active must be darker than accent_hover"
+            );
+            for status in [theme.danger, theme.warning, theme.success] {
+                assert!(
+                    lightness(status.solid_active) < lightness(status.solid_hover),
+                    "solid_active must be darker than solid_hover"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn light_accent_active_lands_on_a11_lightness() {
+        // ACTIVE_DL = 0.045 drops A10 (L 0.545) onto A11's lightness (0.500).
+        let active_l = lightness(Theme::light().accent_active);
+        assert!(
+            (active_l - 0.500).abs() < 0.01,
+            "light accent_active L = {active_l}, expected ~0.500"
+        );
+    }
+
+    #[test]
+    fn pressed_states_are_mode_invariant() {
+        let (l, d) = (Theme::light(), Theme::dark());
+        assert_eq!(l.accent_active.to_rgba8(), d.accent_active.to_rgba8());
+        assert_eq!(
+            l.danger.solid_active.to_rgba8(),
+            d.danger.solid_active.to_rgba8()
+        );
+    }
+
+    #[test]
+    fn elevated_surface_level_1_equals_surface_raised() {
+        for theme in [Theme::dark(), Theme::duotone(152.0, 6.0, 72.0, Mode::Dark)] {
+            assert_eq!(
+                theme.elevated_surface(1).to_rgba8(),
+                theme.surface_raised.to_rgba8()
+            );
+        }
+    }
+
+    #[test]
+    fn duotone_dark_elevation_tracks_the_field_not_the_accent() {
+        // Regression: dark elevated surfaces must follow the duotone field hue
+        // (152), not the accent hue (72) — the editorial-Look overlay bug.
+        let t = Theme::duotone(152.0, 6.0, 72.0, Mode::Dark);
+        let field = lch_hue(t.surface_raised);
+        let lifted = lch_hue(t.elevated_surface(2));
+        assert!(
+            hue_delta(lifted, field) < 25.0,
+            "elev(2) hue {lifted} vs field {field}"
+        );
+        assert!(
+            hue_delta(lifted, 72.0) > 40.0,
+            "elev(2) must not be the accent hue 72"
+        );
+    }
+
+    #[test]
+    fn shadow_tint_is_neutral_for_gray_themes_and_hued_otherwise() {
+        // A grayscale (chroma 0) theme gets a neutral near-black shadow.
+        let [r, g, b, _] = Theme::duotone(152.0, 0.0, 72.0, Mode::Dark)
+            .shadow_tint()
+            .components;
+        assert!(
+            (r - g).abs() < 1e-3 && (g - b).abs() < 1e-3,
+            "gray theme shadow must be neutral, got {:?}",
+            [r, g, b]
+        );
+        // The stock theme keeps a subtle hue.
+        let [r2, _, b2, _] = Theme::dark().shadow_tint().components;
+        assert!(
+            (r2 - b2).abs() > 1e-3,
+            "stock shadow tint should carry a hue"
+        );
     }
 }

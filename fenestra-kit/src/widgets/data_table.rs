@@ -116,10 +116,10 @@ impl<Msg: Clone + 'static> From<DataTable<Msg>> for Element<Msg> {
                 .children(
                     cells
                         .iter()
-                        .map(|cell| text(cell.clone()).size(TextSize::Sm)),
+                        .map(|cell| text(cell.clone()).size(TextSize::Sm).tabular()),
                 );
             if t.selected == Some(i) {
-                r = r.themed(|th: &Theme, s| s.bg(th.accents.step(3)));
+                r = r.themed(|th: &Theme, s| s.bg(th.accent_bg));
             }
             if let Some(f) = &t.on_select {
                 r = r

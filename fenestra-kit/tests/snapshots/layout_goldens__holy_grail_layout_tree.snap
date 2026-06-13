@@ -30,7 +30,7 @@ expression: frame.dump()
           "rect": [
             16.0,
             12.0,
-            65.0,
+            63.0,
             24.0
           ],
           "text": "fenestra"
@@ -89,7 +89,7 @@ expression: frame.dump()
               "rect": [
                 20.0,
                 62.0,
-                63.0,
+                62.0,
                 21.0
               ],
               "text": "Overview"
@@ -112,7 +112,7 @@ expression: frame.dump()
               "rect": [
                 20.0,
                 98.0,
-                52.0,
+                51.0,
                 21.0
               ],
               "text": "Reports"

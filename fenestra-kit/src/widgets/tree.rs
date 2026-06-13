@@ -111,7 +111,7 @@ fn render_node<Msg: Clone + 'static>(
         .semantics(Semantics::Button)
         .label(node.label.clone())
         .transition(Transition::colors())
-        .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
+        .hover_themed(|t, s| s.bg(t.element))
         .children((
             text(if is_branch {
                 if is_open { "▾" } else { "▸" }
@@ -122,7 +122,7 @@ fn render_node<Msg: Clone + 'static>(
             text(node.label.clone()).size(TextSize::Sm),
         ));
     if is_selected {
-        item = item.themed(|t: &Theme, s| s.bg(t.accents.step(3)));
+        item = item.themed(|t: &Theme, s| s.bg(t.accent_bg));
     }
 
     // Click toggles branches and selects leaves; arrows mirror it for

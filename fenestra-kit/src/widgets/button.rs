@@ -117,23 +117,26 @@ impl<Msg> From<Button<Msg>> for Element<Msg> {
 
         el = match variant {
             ButtonVariant::Primary => el
-                .themed(|t: &Theme, s| s.bg(t.accent))
+                .themed(|t: &Theme, s| s.bg(t.accent).highlight_top(t.on_accent.with_alpha(0.14)))
                 .hover_themed(|t, s| s.bg(t.accent_hover))
-                .active_themed(|t, s| s.bg(t.accents.step(11))),
+                .active_themed(|t, s| s.bg(t.accent_active)),
             ButtonVariant::Secondary => el
                 .themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.0, t.border))
-                .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
-                .active_themed(|t, s| s.bg(t.neutrals.step(4))),
+                .hover_themed(|t, s| s.bg(t.element))
+                .active_themed(|t, s| s.bg(t.element_hover)),
             ButtonVariant::Ghost => el
                 // Transparent base (alpha 0 of the hover color) so the
                 // hover fade animates instead of snapping None -> Some.
-                .themed(|t: &Theme, s| s.bg(t.neutrals.step(3).with_alpha(0.0)))
-                .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
-                .active_themed(|t, s| s.bg(t.neutrals.step(4))),
+                .themed(|t: &Theme, s| s.bg(t.element.with_alpha(0.0)))
+                .hover_themed(|t, s| s.bg(t.element))
+                .active_themed(|t, s| s.bg(t.element_hover)),
             ButtonVariant::Danger => el
-                .themed(|t: &Theme, s| s.bg(t.danger.solid))
+                .themed(|t: &Theme, s| {
+                    s.bg(t.danger.solid)
+                        .highlight_top(t.on_accent.with_alpha(0.14))
+                })
                 .hover_themed(|t, s| s.bg(t.danger.solid_hover))
-                .active_themed(|t, s| s.bg(t.danger.text)),
+                .active_themed(|t, s| s.bg(t.danger.solid_active)),
         };
         if b.disabled {
             el = el.opacity(0.5);
@@ -239,21 +242,24 @@ impl<Msg> From<IconButton<Msg>> for Element<Msg> {
 
         el = match variant {
             ButtonVariant::Primary => el
-                .themed(|t: &Theme, s| s.bg(t.accent))
+                .themed(|t: &Theme, s| s.bg(t.accent).highlight_top(t.on_accent.with_alpha(0.14)))
                 .hover_themed(|t, s| s.bg(t.accent_hover))
-                .active_themed(|t, s| s.bg(t.accents.step(11))),
+                .active_themed(|t, s| s.bg(t.accent_active)),
             ButtonVariant::Secondary => el
                 .themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.0, t.border))
-                .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
-                .active_themed(|t, s| s.bg(t.neutrals.step(4))),
+                .hover_themed(|t, s| s.bg(t.element))
+                .active_themed(|t, s| s.bg(t.element_hover)),
             ButtonVariant::Ghost => el
-                .themed(|t: &Theme, s| s.bg(t.neutrals.step(3).with_alpha(0.0)))
-                .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
-                .active_themed(|t, s| s.bg(t.neutrals.step(4))),
+                .themed(|t: &Theme, s| s.bg(t.element.with_alpha(0.0)))
+                .hover_themed(|t, s| s.bg(t.element))
+                .active_themed(|t, s| s.bg(t.element_hover)),
             ButtonVariant::Danger => el
-                .themed(|t: &Theme, s| s.bg(t.danger.solid))
+                .themed(|t: &Theme, s| {
+                    s.bg(t.danger.solid)
+                        .highlight_top(t.on_accent.with_alpha(0.14))
+                })
                 .hover_themed(|t, s| s.bg(t.danger.solid_hover))
-                .active_themed(|t, s| s.bg(t.danger.text)),
+                .active_themed(|t, s| s.bg(t.danger.solid_active)),
         };
         if b.disabled {
             el = el.opacity(0.5);

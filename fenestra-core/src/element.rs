@@ -1069,6 +1069,13 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Tabular (fixed-width) numerals — digits align in columns. For tables,
+    /// timers, charts, and numeric data.
+    pub fn tabular(mut self) -> Self {
+        self.style = self.style.tabular();
+        self
+    }
+
     /// Font family role (Sans, Mono, or a registered Display/Serif face).
     pub fn family(mut self, family: crate::tokens::FamilyRole) -> Self {
         self.style = self.style.family(family);

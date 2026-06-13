@@ -7,15 +7,15 @@ use std::collections::HashMap;
 use fontique::{Blob, CollectionOptions, GenericFamily};
 use kurbo::{Affine, Rect};
 use parley::{
-    Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout, LayoutContext,
-    LineHeight, PositionedLayoutItem, StyleProperty,
+    Alignment, AlignmentOptions, FontContext, FontFamily, FontFeatures, FontWeight, Layout,
+    LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
 };
 use peniko::{Color, Fill};
 use vello::Scene;
 
 use crate::style::{TextAlign, TextStyle};
 use crate::theme::Theme;
-use crate::tokens::FamilyRole;
+use crate::tokens::{FamilyRole, tracking_em};
 
 const INTER_REGULAR: &[u8] = include_bytes!("../assets/inter/Inter-Regular.otf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../assets/inter/Inter-Medium.otf");
@@ -42,6 +42,8 @@ pub(crate) struct ResolvedText {
     pub align: TextAlign,
     pub max_lines: Option<u32>,
     pub color: Color,
+    /// Tabular figures (`tnum`).
+    pub tabular_nums: bool,
 }
 
 /// Resolves the text style group against the theme and size tokens.
@@ -59,14 +61,14 @@ pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
                 ts.size.line_height()
             }
         }),
-        letter_spacing: ts
-            .letter_spacing
-            .unwrap_or_else(|| ts.size.letter_spacing())
-            * px,
+        // Inter's optical tracking at the actual px (covers free-form display
+        // sizes too); an explicit override still wins.
+        letter_spacing: ts.letter_spacing.unwrap_or_else(|| tracking_em(px)) * px,
         family: ts.family,
         align: ts.align,
         max_lines: ts.max_lines,
         color: ts.color.unwrap_or(theme.text),
+        tabular_nums: ts.tabular_nums,
     }
 }
 
@@ -80,6 +82,7 @@ struct LayoutKey {
     family: FamilyRole,
     align: TextAlign,
     max_lines: Option<u32>,
+    tabular_nums: bool,
     /// Quantized max advance (quarter-px buckets); `u32::MAX` = unbounded.
     width_bucket: u32,
 }
@@ -95,6 +98,7 @@ impl LayoutKey {
             family: style.family,
             align: style.align,
             max_lines: style.max_lines,
+            tabular_nums: style.tabular_nums,
             #[expect(clippy::cast_sign_loss, reason = "advances are non-negative")]
             width_bucket: match max_advance {
                 Some(w) => (w.max(0.0) * 4.0).round() as u32,
@@ -256,6 +260,11 @@ impl Fonts {
             style.line_height,
         )));
         builder.push_default(StyleProperty::LetterSpacing(style.letter_spacing));
+        if style.tabular_nums {
+            builder.push_default(StyleProperty::FontFeatures(FontFeatures::from(
+                "\"tnum\" 1",
+            )));
+        }
         let mut layout = builder.build(text);
         layout.break_all_lines(max_advance);
         let alignment = match style.align {
@@ -341,6 +350,11 @@ impl Fonts {
             style.line_height,
         )));
         builder.push_default(StyleProperty::LetterSpacing(style.letter_spacing));
+        if style.tabular_nums {
+            builder.push_default(StyleProperty::FontFeatures(FontFeatures::from(
+                "\"tnum\" 1",
+            )));
+        }
         builder.push_default(StyleProperty::Brush(base_brush));
         let mut start = 0usize;
         for (i, span) in spans.iter().enumerate() {

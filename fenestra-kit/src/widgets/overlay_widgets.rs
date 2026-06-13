@@ -124,7 +124,7 @@ impl<Msg: Clone + 'static> From<Modal<Msg>> for Element<Msg> {
             .p(SP6)
             .gap(SP3)
             .rounded(R_XL)
-            .shadow(ShadowToken::Lg)
+            .shadow(ShadowToken::Xl)
             .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
             .children([header])
             .children(m.content)

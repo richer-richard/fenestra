@@ -48,6 +48,7 @@ impl Status {
                 border: t.accent_border,
                 solid: t.accent,
                 solid_hover: t.accent_hover,
+                solid_active: t.accent_active,
                 text: t.accent_text,
             },
             Self::Danger => t.danger,
@@ -129,10 +130,10 @@ impl<Msg> StatCard<Msg> {
 
 impl<Msg> From<StatCard<Msg>> for Element<Msg> {
     fn from(s: StatCard<Msg>) -> Self {
-        let mut value_row = row()
-            .items_baseline()
-            .gap(SP2)
-            .children([text(s.value).size(TextSize::Xl2).weight(Weight::Semibold)]);
+        let mut value_row = row().items_baseline().gap(SP2).children([text(s.value)
+            .size(TextSize::Xl2)
+            .weight(Weight::Semibold)
+            .tabular()]);
         if let Some((delta, status)) = s.delta {
             value_row = value_row.child(badge(delta, status));
         }
@@ -358,7 +359,7 @@ pub fn table<Msg>(
                 .children(
                     cells
                         .into_iter()
-                        .map(|c| text(c).size(TextSize::Sm).truncate()),
+                        .map(|c| text(c).size(TextSize::Sm).truncate().tabular()),
                 )
         }))
 }

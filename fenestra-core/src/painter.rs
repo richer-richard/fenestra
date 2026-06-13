@@ -222,6 +222,19 @@ pub(crate) fn push_box(
         );
     }
 
+    if let Some(highlight) = style.highlight_top
+        && highlight.components[3] > 0.0
+    {
+        // A 1px (physical) bar at the top inner edge, clipped to the rounded
+        // shape so it follows the top corners — CSS `inset 0 1px 0`.
+        let h = 1.0 / scale;
+        let top = snap(rect.y0, scale);
+        let bar = Rect::new(rect.x0, top, rect.x1, top + h);
+        scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &path);
+        scene.fill(Fill::NonZero, Affine::IDENTITY, highlight, None, &bar);
+        scene.pop_layer();
+    }
+
     if style.clip {
         scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &path);
         layers += 1;

@@ -32,11 +32,40 @@ accents:
   A11: #73a3fc
   A12: #c3d8ff
 
+neutral alpha twins (over bg):
+  NA1: #12131400
+  NA2: #e1ecff08
+  NA3: #e3edff11
+  NA4: #e2edff1a
+  NA5: #e2ecff23
+  NA6: #e2edff2d
+  NA7: #e5eeff3e
+  NA8: #e6efff5a
+  NA9: #e9f1ff70
+  NA10: #ebf2ff80
+  NA11: #f5f8ffb3
+  NA12: #fbfcffee
+
+accent alpha twins (over bg):
+  AA1: #387eff23
+  AA2: #4284ff37
+  AA3: #4686ff4b
+  AA4: #4887ff5f
+  AA5: #4b89ff77
+  AA6: #4a88ff93
+  AA7: #4e8bffb6
+  AA8: #5891ffd5
+  AA9: #4e8affd6
+  AA10: #4786ffc4
+  AA11: #75a5fffc
+  AA12: #c3d8ff
+
 danger:
   bg: #542523
   border: #ae4440
   solid: #c94c49
   solid_hover: #b9423f
+  solid_active: #aa3333
   text: #f07f77
 
 warning:
@@ -44,6 +73,7 @@ warning:
   border: #8d6300
   solid: #a17200
   solid_hover: #926700
+  solid_active: #825b00
   text: #d29922
 
 success:
@@ -51,12 +81,16 @@ success:
   border: #11813c
   solid: #049544
   solid_hover: #00873c
+  solid_active: #007835
   text: #5bbd74
 
 roles:
   bg: #121314
   surface: #18191c
   surface_raised: #202225
+  element: #202225
+  element_hover: #27292c
+  element_active: #2e3034
   border_subtle: #2e3034
   border: #37393e
   border_strong: #45484d
@@ -66,6 +100,7 @@ roles:
   text_disabled: #5d6167
   accent: #4477d9
   accent_hover: #3b6bc9
+  accent_active: #2e5eba
   accent_bg: #213459
   accent_border: #3d68bc
   accent_text: #73a3fc
@@ -76,8 +111,9 @@ elevation:
   level 1: #202225
   level 2: #26282b
 
-shadows (dx dy blur spread alpha):
-  xs: (0 1 2 0 0.080)
-  sm: (0 1 2 0 0.080) + (0 1 3 0 0.096)
-  md: (0 2 4 0 0.080) + (0 4 12 0 0.128)
-  lg: (0 4 10 0 0.096) + (0 16 32 0 0.192)
+shadows (dx dy blur spread color):
+  xs: (0 1 2 0 #03071314)
+  sm: (0 1 2 0 #03071314) + (0 1 3 0 #03071318)
+  md: (0 2 4 0 #03071314) + (0 4 12 0 #03071321)
+  lg: (0 4 10 0 #03071318) + (0 16 32 0 #03071331)
+  xl: (0 2 6 0 #03071310) + (0 8 16 0 #03071321) + (0 24 48 0 #03071341)

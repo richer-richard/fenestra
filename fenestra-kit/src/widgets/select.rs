@@ -120,7 +120,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
                         },
                     )])
                     .transition(Transition::colors())
-                    .hover_themed(|t, s| s.bg(t.neutrals.step(3)));
+                    .hover_themed(|t, s| s.bg(t.element));
                 if is_selected {
                     option = option.themed(|t: &Theme, s| s.bg(t.accent_bg));
                 }
@@ -146,7 +146,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             .disabled(sel.disabled)
             .transition(Transition::colors())
             .themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.0, t.border))
-            .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
+            .hover_themed(|t, s| s.bg(t.element))
             .semantics(Semantics::ComboBox)
             .label(label.clone())
             .children([text(label).size(sel.size.text_size())])

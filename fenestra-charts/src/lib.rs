@@ -127,6 +127,7 @@ pub fn bar_chart<Msg>(bars: impl IntoIterator<Item = (impl Into<String>, f32)>) 
                     .themed(|t: &Theme, s| s.bg(t.accent)),
                 text(label)
                     .size(TextSize::Xs)
+                    .tabular()
                     .themed(|t: &Theme, s| s.color(t.text_muted)),
             ))
         }))

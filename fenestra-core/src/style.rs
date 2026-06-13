@@ -288,6 +288,9 @@ pub struct TextStyle {
     pub align: TextAlign,
     /// Maximum number of lines before truncation with an ellipsis.
     pub max_lines: Option<u32>,
+    /// Tabular (fixed-width) figures via the `tnum` OpenType feature, so
+    /// digits align in columns. For tables, timers, and numeric data.
+    pub tabular_nums: bool,
 }
 
 /// The complete style of an element: layout, paint, and text groups.
@@ -361,6 +364,10 @@ pub struct Style {
     /// Concrete drop shadow layers, painted bottom-up. Filled from
     /// `shadow_token` during style resolution; may also be set directly.
     pub shadows: Vec<Shadow>,
+    /// A 1px inset highlight along the top inner edge (CSS `inset 0 1px 0`):
+    /// the cheapest "raised, crafted" signal on a solid control. Painted over
+    /// the fill, clipped to the corner radius. Usually white at low alpha.
+    pub highlight_top: Option<Color>,
     /// Opacity 0.0..=1.0 applied to the whole subtree.
     pub opacity: f32,
     /// Clip children to the (rounded) bounds.
@@ -409,6 +416,7 @@ impl Default for Style {
             corner_radius: CornerRadius::default(),
             shadow_token: None,
             shadows: Vec::new(),
+            highlight_top: None,
             opacity: 1.0,
             clip: false,
             path_trim: 1.0,
@@ -888,6 +896,13 @@ impl Style {
         self
     }
 
+    /// A 1px inset highlight along the top inner edge — the subtle top sheen
+    /// that makes a solid control read as raised. Usually a low-alpha white.
+    pub fn highlight_top(mut self, color: Color) -> Self {
+        self.highlight_top = Some(color);
+        self
+    }
+
     /// Subtree opacity 0.0..=1.0.
     pub fn opacity(mut self, v: f32) -> Self {
         self.opacity = v;
@@ -918,6 +933,13 @@ impl Style {
     /// Line height as a multiple of the font size.
     pub fn leading(mut self, multiple: f32) -> Self {
         self.text.line_height = Some(multiple);
+        self
+    }
+
+    /// Tabular (fixed-width) numerals — digits align in columns. For tables,
+    /// timers, charts, and any numeric data that updates in place.
+    pub fn tabular(mut self) -> Self {
+        self.text.tabular_nums = true;
         self
     }
 

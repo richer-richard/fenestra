@@ -131,7 +131,7 @@ impl EditorState {
 }
 
 fn apply_style(editor: &mut parley::PlainEditor<LayoutBrush>, style: &ResolvedText) {
-    use parley::{FontFamily, FontWeight, GenericFamily, LineHeight, StyleProperty};
+    use parley::{FontFamily, FontFeatures, FontWeight, GenericFamily, LineHeight, StyleProperty};
     let styles = editor.edit_styles();
     styles.insert(StyleProperty::FontSize(style.px));
     styles.insert(StyleProperty::FontWeight(FontWeight::new(style.weight)));
@@ -139,6 +139,11 @@ fn apply_style(editor: &mut parley::PlainEditor<LayoutBrush>, style: &ResolvedTe
         style.line_height,
     )));
     styles.insert(StyleProperty::LetterSpacing(style.letter_spacing));
+    if style.tabular_nums {
+        styles.insert(StyleProperty::FontFeatures(FontFeatures::from(
+            "\"tnum\" 1",
+        )));
+    }
     styles.insert(StyleProperty::FontFamily(match style.family {
         crate::tokens::FamilyRole::Sans => FontFamily::named("Inter"),
         crate::tokens::FamilyRole::Mono => FontFamily::Single(GenericFamily::Monospace.into()),

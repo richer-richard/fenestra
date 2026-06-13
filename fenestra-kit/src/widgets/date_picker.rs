@@ -135,7 +135,7 @@ impl<Msg: Clone + 'static> From<DatePicker<Msg>> for Element<Msg> {
                         .on_click(f(target))
                         .semantics(Semantics::Button)
                         .label(name)
-                        .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
+                        .hover_themed(|t, s| s.bg(t.element))
                         .children([text(label)]),
                 );
             }
@@ -181,7 +181,7 @@ impl<Msg: Clone + 'static> From<DatePicker<Msg>> for Element<Msg> {
                     .semantics(Semantics::Button)
                     .label(format!("{year}-{month:02}-{day:02}"))
                     .transition(Transition::colors())
-                    .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
+                    .hover_themed(|t, s| s.bg(t.element))
                     .children([text(day.to_string()).size(TextSize::Sm)]);
                 if is_selected {
                     cell = cell.themed(|t: &Theme, s| s.bg(t.accent));

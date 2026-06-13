@@ -46,7 +46,7 @@ pub fn menu<Msg: Clone + 'static>(
                 .semantics(Semantics::Button)
                 .label(label.clone())
                 .transition(Transition::colors())
-                .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
+                .hover_themed(|t, s| s.bg(t.element))
                 .children([text(label).size(TextSize::Sm)])
         }))
 }
