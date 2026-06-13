@@ -91,6 +91,8 @@ struct NodeMeta {
     /// Focusable and enabled.
     focusable: bool,
     focus_ring: bool,
+    /// Paint the focus ring in the danger hue (invalid control).
+    invalid: bool,
 }
 
 /// Scroll geometry of one scrollable container, resolved for this frame.
@@ -200,6 +202,8 @@ pub struct Frame {
     scale: f64,
     thumb_color: crate::Color,
     ring_color: crate::Color,
+    /// Focus ring for controls marked invalid (danger hue).
+    ring_color_invalid: crate::Color,
     /// Static-text selection highlight (matches input selections).
     selection_color: crate::Color,
     /// `true` while any scrollbar fade, style transition, caret blink, or
@@ -216,6 +220,8 @@ struct BuiltNode {
     style: Style,
     focusable: bool,
     disabled: bool,
+    /// Recolors the keyboard focus ring to the danger hue.
+    invalid: bool,
     spin: Option<f32>,
     /// Scroll containers: pin to the bottom while content grows.
     stick_bottom: bool,
@@ -235,10 +241,41 @@ struct BuiltNode {
     children: Vec<BuiltNode>,
 }
 
+/// The solid color of a style's fill, if it has one (gradients have none).
+fn solid_fill(style: &Style) -> Option<crate::Color> {
+    match &style.fill {
+        Some(Paint::Solid(c)) => Some(*c),
+        _ => None,
+    }
+}
+
+/// The state-layer veil opacity for an element this frame: the strongest
+/// applicable interaction state wins (drag > press = focus > hover). Keyboard
+/// focus, not pointer focus, raises the focus layer — matching the ring.
+/// `None` means no veil (resting).
+fn state_layer_opacity(state: &FrameState, id: WidgetId, draggable: bool) -> Option<f32> {
+    let sl = crate::tokens::STATE_LAYER;
+    let mut op = 0.0_f32;
+    if state.is_hovered(id) {
+        op = op.max(sl.hover);
+    }
+    if state.focus_visible && state.focused() == Some(id) {
+        op = op.max(sl.focus);
+    }
+    if state.is_active(id) {
+        op = op.max(sl.press);
+        if draggable && state.dragging.is_some() {
+            op = op.max(sl.drag);
+        }
+    }
+    (op > 0.0).then_some(op)
+}
+
 /// Resolves an element's style against the theme: applies the deferred
-/// `themed` styling, overlays interaction variants from state, expands
-/// shadow tokens, fills role-based defaults, and advances any transition.
-/// Returns the style to paint and whether a transition is still running.
+/// `themed` styling, overlays interaction variants from state (per-widget
+/// closures and the uniform state layer), expands shadow tokens, fills
+/// role-based defaults, and advances any transition. Returns the style to
+/// paint and whether a transition is still running.
 fn resolve<Msg>(
     el: &Element<Msg>,
     theme: &Theme,
@@ -266,6 +303,54 @@ fn resolve<Msg>(
             style = f(theme, style);
         }
     }
+    // The uniform Material state layer: a translucent veil of the content
+    // color, baked into the fill so it animates as a color change. One recipe
+    // for every control that opts in, replacing per-state color swaps.
+    if let Some(content_fn) = &el.state_layer {
+        let content = content_fn(theme);
+        if el.disabled {
+            // Inert: blend the content color into the resting surface at the
+            // disabled-container share, and drop the raised affordances.
+            let base = solid_fill(&style).unwrap_or(theme.surface);
+            let veil = content.with_alpha(crate::tokens::STATE_LAYER.disabled_container);
+            style.fill = Some(Paint::Solid(crate::anim::over(veil, base)));
+            style.border = None;
+            style.shadows.clear();
+            style.shadow_token = None;
+            style.highlight_top = None;
+        } else if let Some(op) = state_layer_opacity(state, id, el.drag_source.is_some()) {
+            // Bake the veil into the fill so it rides the color transition.
+            // Over a solid container it composites to a solid (the control
+            // fades from its rest color); with no container it stays a
+            // translucent veil (ghost controls fade from a transparent base).
+            // Gradient fills are left untouched — a veil over them is not a
+            // single color.
+            match &style.fill {
+                Some(Paint::Solid(c)) => {
+                    style.fill = Some(Paint::Solid(crate::anim::over(content.with_alpha(op), *c)));
+                }
+                None => style.fill = Some(Paint::Solid(content.with_alpha(op))),
+                Some(_) => {}
+            }
+        }
+    }
+    // Press feedback: a subtle paint-time shrink while held (pointer down).
+    if el.press_scale && !el.disabled && state.is_active(id) {
+        style.scale = crate::tokens::PRESS_SCALE;
+    }
+    // shadcn focus ring: a keyboard-focused control swaps its border to the
+    // ring color (danger when invalid); the soft halo is painted separately.
+    if !el.disabled
+        && state.focus_visible
+        && state.focused() == Some(id)
+        && let Some(border) = style.border.as_mut()
+    {
+        border.color = if el.invalid {
+            theme.danger.solid
+        } else {
+            theme.accent
+        };
+    }
     if let Some(token) = style.shadow_token {
         let mut layers = theme.shadow(token);
         layers.append(&mut style.shadows);
@@ -285,8 +370,13 @@ fn resolve<Msg>(
         (None, Some(enter)) => Some(enter),
         (None, None) => None,
     };
+    // Keyboard-driven state changes snap: a keyboard-focused control shows its
+    // focus ring and state layer instantly, since keyboard users move between
+    // controls faster than a fade can keep up.
+    let keyboard_driven = state.focus_visible && state.focused() == Some(id);
     if let Some(transition) = transition
         && !state.reduced_motion
+        && !keyboard_driven
     {
         let now = state.now();
         let seen = state.frame_no;
@@ -514,6 +604,7 @@ fn build<Msg>(
         style,
         focusable: el.focusable,
         disabled: el.disabled,
+        invalid: el.invalid,
         spin: el.spin,
         stick_bottom: el.stick_bottom,
         access: (semantics, label, value, el.key.clone()),
@@ -790,6 +881,7 @@ impl Realize<'_> {
                 && !node.disabled
                 && self.state.focused() == Some(node.id)
                 && self.state.focus_visible,
+            invalid: node.invalid,
         };
         FrameNode {
             id: node.id,
@@ -1137,6 +1229,7 @@ pub fn build_frame<Msg>(
         scale,
         thumb_color: theme.text_subtle,
         ring_color: theme.accent.with_alpha(FOCUS_RING.alpha),
+        ring_color_invalid: theme.danger.solid.with_alpha(FOCUS_RING.alpha),
         selection_color: theme.accent.with_alpha(0.25),
         animating,
     }
@@ -1221,9 +1314,35 @@ impl Frame {
         if node.style.display == Display::None {
             return;
         }
+        // Press-scale: paint the control (and its children) into a child scene,
+        // then append it scaled about the control's center, so the shrink is a
+        // pure paint transform that never disturbs layout or hit-testing.
+        if (node.style.scale - 1.0).abs() > 1e-4 {
+            let mut sub = Scene::new();
+            self.paint_node_unscaled(&mut sub, fonts, state, node);
+            let transform =
+                kurbo::Affine::scale_about(f64::from(node.style.scale), node.rect.center());
+            scene.append(&sub, Some(transform));
+            return;
+        }
+        self.paint_node_unscaled(scene, fonts, state, node);
+    }
+
+    fn paint_node_unscaled(
+        &self,
+        scene: &mut Scene,
+        fonts: &mut Fonts,
+        state: &mut FrameState,
+        node: &FrameNode,
+    ) {
         let layers = painter::push_box(scene, &node.style, node.rect, self.canvas, self.scale);
         if node.meta.focus_ring {
-            painter::focus_ring(scene, node.rect, node.style.corner_radius, self.ring_color);
+            let ring = if node.meta.invalid {
+                self.ring_color_invalid
+            } else {
+                self.ring_color
+            };
+            painter::focus_ring(scene, node.rect, node.style.corner_radius, ring);
         }
         match &node.kind {
             PaintKind::Text { text, style } => {
@@ -1702,5 +1821,41 @@ impl NodeDump {
             scroll_offset: node.scroll.as_ref().map(|s| s.offset),
             children: node.children.iter().map(Self::from_node).collect(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tokens::STATE_LAYER;
+
+    #[test]
+    fn state_layer_opacity_picks_the_strongest_state() {
+        let id = WidgetId::ROOT;
+        let mut s = FrameState::new();
+        // Resting: no veil.
+        assert_eq!(state_layer_opacity(&s, id, false), None);
+        // Hover only.
+        s.hovered.insert(id, 0.0);
+        assert_eq!(state_layer_opacity(&s, id, false), Some(STATE_LAYER.hover));
+        // Keyboard focus outranks hover.
+        s.focus = Some(id);
+        s.focus_visible = true;
+        assert_eq!(state_layer_opacity(&s, id, false), Some(STATE_LAYER.focus));
+        // Press matches the focus weight.
+        s.active = Some(id);
+        assert_eq!(state_layer_opacity(&s, id, false), Some(STATE_LAYER.press));
+        // A draggable mid-drag outranks everything.
+        s.dragging = Some("payload".to_owned());
+        assert_eq!(state_layer_opacity(&s, id, true), Some(STATE_LAYER.drag));
+    }
+
+    #[test]
+    fn pointer_focus_raises_no_focus_veil() {
+        let id = WidgetId::ROOT;
+        let mut s = FrameState::new();
+        s.focus = Some(id);
+        s.focus_visible = false; // focused by pointer, not keyboard
+        assert_eq!(state_layer_opacity(&s, id, false), None);
     }
 }

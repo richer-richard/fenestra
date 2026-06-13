@@ -152,9 +152,13 @@ pub enum ShadowToken {
     Xl,
 }
 
-/// Motion duration tokens, in milliseconds.
+/// Motion duration tokens, in milliseconds. Interaction feedback lives in the
+/// 100–200ms band; larger surfaces take longer. Exits are quicker than the
+/// matching entrance (see [`MotionDuration::exit_ms`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum MotionDuration {
+    /// 100ms: the smallest interaction feedback (press, state-layer fade).
+    Micro,
     /// 120ms: hover color and background changes.
     Fast,
     /// 200ms: most state changes, overlay enter.
@@ -168,10 +172,17 @@ impl MotionDuration {
     /// Duration in milliseconds.
     pub const fn ms(self) -> f32 {
         match self {
+            Self::Micro => 100.0,
             Self::Fast => 120.0,
             Self::Base => 200.0,
             Self::Slow => 300.0,
         }
+    }
+
+    /// Exit duration: an element leaving should clear ~25% quicker than it
+    /// arrived (Material 3), so dismissals feel crisp rather than draggy.
+    pub const fn exit_ms(self) -> f32 {
+        self.ms() * 0.75
     }
 }
 
@@ -188,7 +199,13 @@ pub struct CubicBezier {
     pub y2: f32,
 }
 
-/// Standard easing for entrances and state changes: (0.2, 0.0, 0.0, 1.0).
+/// The Material 3 easing families. Use [`EASE_STANDARD`] for two-way state
+/// changes (hover, press, color), [`EASE_DECELERATE`] for entrances (an
+/// element flying in and settling), and [`EASE_ACCELERATE`] for exits (an
+/// element leaving the screen). Entrances ease *out* (fast then gentle); exits
+/// ease *in* (gentle then fast) so they clear quickly.
+///
+/// Standard easing for entrances and two-way state changes: (0.2, 0, 0, 1).
 pub const EASE_STANDARD: CubicBezier = CubicBezier {
     x1: 0.2,
     y1: 0.0,
@@ -196,32 +213,86 @@ pub const EASE_STANDARD: CubicBezier = CubicBezier {
     y2: 1.0,
 };
 
-/// Exit easing: (0.4, 0.0, 1.0, 1.0).
-pub const EASE_EXIT: CubicBezier = CubicBezier {
+/// Decelerate easing for entrances (Material 3): (0, 0, 0.2, 1) — quick to
+/// arrive, easing to rest. Pair with an entrance transition.
+pub const EASE_DECELERATE: CubicBezier = CubicBezier {
+    x1: 0.0,
+    y1: 0.0,
+    x2: 0.2,
+    y2: 1.0,
+};
+
+/// Accelerate easing for exits (Material 3): (0.4, 0, 1, 1) — easing away,
+/// then leaving briskly. Pair with [`MotionDuration::exit_ms`].
+pub const EASE_ACCELERATE: CubicBezier = CubicBezier {
     x1: 0.4,
     y1: 0.0,
     x2: 1.0,
     y2: 1.0,
 };
 
-/// Focus ring geometry: a 2px ring in the accent color at 0.6 alpha, offset
-/// 2px outside the border, with ring radius = element radius + 2. Painted
-/// only when focus arrived via keyboard.
+/// Exit easing; the historical name for [`EASE_ACCELERATE`].
+pub const EASE_EXIT: CubicBezier = EASE_ACCELERATE;
+
+/// The focus-ring spec (shadcn v4 model). On keyboard focus a control swaps
+/// its border to the ring color and draws a soft halo `width` px wide at
+/// `alpha`, `offset` px outside the border (0 = flush). The ring color is the
+/// accent by default and the danger hue when the control is marked invalid.
+/// Painted only when focus arrived via keyboard ([`crate`]'s `focus_visible`).
 #[derive(Debug, Clone, Copy)]
 pub struct FocusRing {
-    /// Ring stroke width in logical px.
+    /// Halo stroke width in logical px.
     pub width: f32,
-    /// Gap between the element edge and the ring.
+    /// Gap between the element edge and the halo (0 = flush).
     pub offset: f32,
-    /// Ring alpha applied to the accent color.
+    /// Halo alpha applied to the ring color.
     pub alpha: f32,
 }
 
-/// The focus ring token.
+/// The focus ring token: a 3px halo at 0.5 alpha, flush outside the border.
 pub const FOCUS_RING: FocusRing = FocusRing {
-    width: 2.0,
-    offset: 2.0,
-    alpha: 0.6,
+    width: 3.0,
+    offset: 0.0,
+    alpha: 0.5,
+};
+
+/// Pressed controls scale to this factor for tactile press feedback (Material
+/// 3 uses 0.96–0.97). Applied as a paint-time transform about the control's
+/// center, so it never disturbs layout or hit-testing, and it animates through
+/// the same transition as the press color.
+pub const PRESS_SCALE: f32 = 0.97;
+
+/// The Material state-layer recipe: a translucent veil of a control's *content*
+/// color, laid over its container to signal interaction — one set of opacities
+/// shared across the whole kit instead of per-widget hover colors. Hover is the
+/// lightest; focus and press share a stronger value; an in-progress drag is
+/// strongest. Disabled is expressed separately as a faint container plus dimmed
+/// content rather than an overlay.
+#[derive(Debug, Clone, Copy)]
+pub struct StateLayer {
+    /// Hovered (pointer over an idle control).
+    pub hover: f32,
+    /// Focused via keyboard.
+    pub focus: f32,
+    /// Pressed (pointer down).
+    pub press: f32,
+    /// Being dragged.
+    pub drag: f32,
+    /// Disabled container: the share of the content color blended into the
+    /// resting surface so the control reads as inert.
+    pub disabled_container: f32,
+    /// Disabled content: the opacity a disabled label/icon is dimmed to.
+    pub disabled_content: f32,
+}
+
+/// The state-layer token.
+pub const STATE_LAYER: StateLayer = StateLayer {
+    hover: 0.08,
+    focus: 0.12,
+    press: 0.12,
+    drag: 0.16,
+    disabled_container: 0.12,
+    disabled_content: 0.38,
 };
 
 impl CubicBezier {
@@ -278,5 +349,38 @@ mod tests {
         for size in [TextSize::Xs, TextSize::Base, TextSize::Xl3] {
             assert_eq!(size.letter_spacing(), tracking_em(size.px()));
         }
+    }
+
+    #[test]
+    fn easing_families_have_the_right_curvature() {
+        // Decelerate (enter) eases out: it is ahead of the diagonal early.
+        assert!(EASE_DECELERATE.eval(0.25) > 0.25);
+        // Accelerate (exit) eases in: it lags the diagonal early.
+        assert!(EASE_ACCELERATE.eval(0.25) < 0.25);
+        // Standard is a gentle ease that also leads at the start.
+        assert!(EASE_STANDARD.eval(0.25) > 0.25);
+        // Endpoints are pinned for every curve.
+        for e in [EASE_STANDARD, EASE_DECELERATE, EASE_ACCELERATE] {
+            assert_eq!(e.eval(0.0), 0.0);
+            assert_eq!(e.eval(1.0), 1.0);
+        }
+    }
+
+    #[test]
+    fn exit_is_a_quarter_quicker_than_entrance() {
+        for d in [
+            MotionDuration::Micro,
+            MotionDuration::Fast,
+            MotionDuration::Base,
+            MotionDuration::Slow,
+        ] {
+            assert!((d.exit_ms() - d.ms() * 0.75).abs() < 1e-3);
+        }
+        assert_eq!(MotionDuration::Micro.ms(), 100.0);
+    }
+
+    #[test]
+    fn press_scale_is_a_subtle_shrink() {
+        assert!((0.96..=0.97).contains(&PRESS_SCALE));
     }
 }

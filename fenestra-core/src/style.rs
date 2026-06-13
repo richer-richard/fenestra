@@ -370,6 +370,11 @@ pub struct Style {
     pub highlight_top: Option<Color>,
     /// Opacity 0.0..=1.0 applied to the whole subtree.
     pub opacity: f32,
+    /// Uniform scale applied at paint time about the element's center
+    /// (1.0 = no transform). Pressed controls dip to [`crate::tokens::PRESS_SCALE`];
+    /// it never affects layout or hit-testing, and it animates. Spring
+    /// transitions may carry it past the target for a tactile overshoot.
+    pub scale: f32,
     /// Clip children to the (rounded) bounds.
     pub clip: bool,
     /// Draw progress of path elements, 0.0..=1.0 (animatable; this is how
@@ -418,6 +423,7 @@ impl Default for Style {
             shadows: Vec::new(),
             highlight_top: None,
             opacity: 1.0,
+            scale: 1.0,
             clip: false,
             path_trim: 1.0,
             text: TextStyle::default(),
@@ -906,6 +912,13 @@ impl Style {
     /// Subtree opacity 0.0..=1.0.
     pub fn opacity(mut self, v: f32) -> Self {
         self.opacity = v;
+        self
+    }
+
+    /// Paint-time uniform scale about the element center (1.0 = none). Used
+    /// for press feedback; never disturbs layout.
+    pub fn scale(mut self, v: f32) -> Self {
+        self.scale = v;
         self
     }
 

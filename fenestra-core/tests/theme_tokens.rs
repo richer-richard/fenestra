@@ -2,8 +2,9 @@
 //! These numbers are the spec: a diff here is a design change, not a refactor.
 
 use fenestra_core::{
-    EASE_EXIT, EASE_STANDARD, FOCUS_RING, MotionDuration, R_FULL, R_LG, R_MD, R_SM, R_XL, SP0,
-    SP0_5, SP1, SP2, SP3, SP4, SP5, SP6, SP8, SP10, SP12, SP16, TextSize, Theme, Weight,
+    EASE_ACCELERATE, EASE_DECELERATE, EASE_EXIT, EASE_STANDARD, FOCUS_RING, MotionDuration,
+    PRESS_SCALE, R_FULL, R_LG, R_MD, R_SM, R_XL, SP0, SP0_5, SP1, SP2, SP3, SP4, SP5, SP6, SP8,
+    SP10, SP12, SP16, STATE_LAYER, TextSize, Theme, Weight,
 };
 
 #[test]
@@ -70,14 +71,24 @@ fn static_tokens() {
         Weight::Semibold.value()
     ));
     out.push_str(&format!(
-        "motion: fast {} base {} slow {}\n",
+        "motion: micro {} fast {} base {} slow {} (base exit {})\n",
+        MotionDuration::Micro.ms(),
         MotionDuration::Fast.ms(),
         MotionDuration::Base.ms(),
-        MotionDuration::Slow.ms()
+        MotionDuration::Slow.ms(),
+        MotionDuration::Base.exit_ms(),
     ));
     out.push_str(&format!(
         "easing standard: ({}, {}, {}, {})\n",
         EASE_STANDARD.x1, EASE_STANDARD.y1, EASE_STANDARD.x2, EASE_STANDARD.y2
+    ));
+    out.push_str(&format!(
+        "easing decelerate: ({}, {}, {}, {})\n",
+        EASE_DECELERATE.x1, EASE_DECELERATE.y1, EASE_DECELERATE.x2, EASE_DECELERATE.y2
+    ));
+    out.push_str(&format!(
+        "easing accelerate: ({}, {}, {}, {})\n",
+        EASE_ACCELERATE.x1, EASE_ACCELERATE.y1, EASE_ACCELERATE.x2, EASE_ACCELERATE.y2
     ));
     out.push_str(&format!(
         "easing exit: ({}, {}, {}, {})\n",
@@ -86,6 +97,16 @@ fn static_tokens() {
     out.push_str(&format!(
         "focus ring: width {} offset {} alpha {}\n",
         FOCUS_RING.width, FOCUS_RING.offset, FOCUS_RING.alpha
+    ));
+    out.push_str(&format!("press scale: {PRESS_SCALE}\n"));
+    out.push_str(&format!(
+        "state layer: hover {} focus {} press {} drag {} (disabled container {} content {})\n",
+        STATE_LAYER.hover,
+        STATE_LAYER.focus,
+        STATE_LAYER.press,
+        STATE_LAYER.drag,
+        STATE_LAYER.disabled_container,
+        STATE_LAYER.disabled_content,
     ));
     insta::assert_snapshot!(out);
 }

@@ -120,7 +120,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
                         },
                     )])
                     .transition(Transition::colors())
-                    .hover_themed(|t, s| s.bg(t.element));
+                    .state_layer(|t| t.text);
                 if is_selected {
                     option = option.themed(|t: &Theme, s| s.bg(t.accent_bg));
                 }
@@ -146,7 +146,6 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             .disabled(sel.disabled)
             .transition(Transition::colors())
             .themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.0, t.border))
-            .hover_themed(|t, s| s.bg(t.element))
             .semantics(Semantics::ComboBox)
             .label(label.clone())
             .children([text(label).size(sel.size.text_size())])
@@ -180,7 +179,11 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             });
         }
         if sel.disabled {
+            // Disabled keeps the simple subtree dim; the state layer (which
+            // would otherwise also fade the container) is for the live trigger.
             trigger = trigger.opacity(0.5);
+        } else {
+            trigger = trigger.state_layer(|t| t.text);
         }
         if let Some(key) = &sel.key {
             trigger = trigger.id(key);

@@ -101,7 +101,8 @@ impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
             .shrink0()
             .size(t.size.text_size())
             .transition(Transition::colors())
-            .disabled(t.disabled);
+            .disabled(t.disabled)
+            .invalid(invalid);
         if !placeholder.is_empty() {
             el = el.label(placeholder);
         }

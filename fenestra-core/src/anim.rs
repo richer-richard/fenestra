@@ -149,6 +149,9 @@ fn lerp_style(a: &Style, b: &Style, t: f32, transition: Transition) -> Style {
         return b.clone();
     }
     let mut out = b.clone();
+    // Press-scale is geometry: it rides any transition (the default press
+    // transition animates color, not lengths) and may overshoot on springs.
+    out.scale = lerp_f32(a.scale, b.scale, t);
     if transition.colors {
         out.fill = match (&a.fill, &b.fill) {
             (Some(Paint::Solid(ca)), Some(Paint::Solid(cb))) => {
@@ -245,6 +248,28 @@ fn lerp_edges(a: crate::style::Edges, b: crate::style::Edges, t: f32) -> crate::
     }
 }
 
+/// Straight (non-premultiplied) source-over: composites `fg` over `bg`. Over
+/// an opaque base the result is opaque; over a translucent base it keeps the
+/// combined alpha. The state-layer engine uses it to bake a translucent
+/// content veil into one fill color, which then animates through `lerp_color`.
+pub(crate) fn over(fg: Color, bg: Color) -> Color {
+    let f = fg.components;
+    let b = bg.components;
+    let fa = f[3];
+    if fa >= 1.0 {
+        return fg;
+    }
+    if fa <= 0.0 {
+        return bg;
+    }
+    let out_a = fa + b[3] * (1.0 - fa);
+    if out_a <= 0.0 {
+        return Color::new([0.0, 0.0, 0.0, 0.0]);
+    }
+    let mix = |fc: f32, bc: f32| (fc * fa + bc * b[3] * (1.0 - fa)) / out_a;
+    Color::new([mix(f[0], b[0]), mix(f[1], b[1]), mix(f[2], b[2]), out_a])
+}
+
 /// Lerps two sRGB colors through OKLCH (shorter hue arc), clamping the
 /// result back into sRGB range.
 pub(crate) fn lerp_color(a: Color, b: Color, t: f32) -> Color {
@@ -273,4 +298,44 @@ pub(crate) fn lerp_color(a: Color, b: Color, t: f32) -> Color {
         bch.clamp(0.0, 1.0),
         alpha.clamp(0.0, 1.0),
     ])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::{Style, Transition};
+
+    #[test]
+    fn over_opaque_base_is_exact_and_opaque() {
+        let white = Color::new([1.0, 1.0, 1.0, 1.0]);
+        let black = Color::new([0.0, 0.0, 0.0, 1.0]);
+        // 50% white over opaque black is a fully-opaque mid gray.
+        let r = over(white.with_alpha(0.5), black);
+        assert!((r.components[3] - 1.0).abs() < 1e-6);
+        for ch in 0..3 {
+            assert!((r.components[ch] - 0.5).abs() < 1e-6, "{:?}", r.components);
+        }
+    }
+
+    #[test]
+    fn over_transparent_base_keeps_partial_alpha() {
+        let white = Color::new([1.0, 1.0, 1.0, 1.0]);
+        let clear = Color::new([0.0, 0.0, 0.0, 0.0]);
+        // A veil over nothing stays a translucent veil (ghost controls).
+        let r = over(white.with_alpha(0.2), clear);
+        assert!((r.components[3] - 0.2).abs() < 1e-6, "{:?}", r.components);
+        assert!((r.components[0] - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn press_scale_animates_even_under_a_colors_only_transition() {
+        let a = Style::default();
+        let b = Style {
+            scale: 0.97,
+            ..Style::default()
+        };
+        // Transition::colors() leaves `lengths` off, yet scale still tweens.
+        let mid = lerp_style(&a, &b, 0.5, Transition::colors());
+        assert!((mid.scale - 0.985).abs() < 1e-4, "scale {}", mid.scale);
+    }
 }

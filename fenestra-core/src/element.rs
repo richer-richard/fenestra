@@ -20,6 +20,9 @@ pub(crate) type InputFn<Msg> = Box<dyn Fn(&str) -> Msg>;
 pub(crate) type FileDropFn<Msg> = Box<dyn Fn(&std::path::Path) -> Msg>;
 /// Maps an internal drag payload to an optional message on drop.
 pub(crate) type DropFn<Msg> = Box<dyn Fn(&str) -> Option<Msg>>;
+/// Resolves a control's content color (the color drawn *on* it) from the
+/// theme, for the uniform state-layer engine.
+pub(crate) type ContentFn = Box<dyn Fn(&Theme) -> Color>;
 
 /// What an element fundamentally is.
 #[derive(Debug, Clone, PartialEq)]
@@ -402,6 +405,13 @@ pub struct Element<Msg> {
     pub(crate) hover_style: Option<ThemedFn>,
     pub(crate) active_style: Option<ThemedFn>,
     pub(crate) focus_style: Option<ThemedFn>,
+    /// Uniform Material state layer: resolves the content color veiled over the
+    /// container on hover/focus/press/drag (replaces per-state color swaps).
+    pub(crate) state_layer: Option<ContentFn>,
+    /// Dip to [`crate::tokens::PRESS_SCALE`] while pressed.
+    pub(crate) press_scale: bool,
+    /// Recolor the focus ring (and swapped border) to the danger hue.
+    pub(crate) invalid: bool,
     pub(crate) transition: Option<Transition>,
 }
 
@@ -445,6 +455,9 @@ impl<Msg> Element<Msg> {
             hover_style: None,
             active_style: None,
             focus_style: None,
+            state_layer: None,
+            press_scale: false,
+            invalid: false,
             transition: None,
         }
     }
@@ -517,6 +530,33 @@ impl<Msg> Element<Msg> {
     /// Theme-aware focus overlay.
     pub fn focus_themed(mut self, f: impl Fn(&Theme, Style) -> Style + 'static) -> Self {
         self.focus_style = Some(Box::new(f));
+        self
+    }
+
+    /// Drives the uniform Material state layer for this control. `content`
+    /// resolves the color drawn *on* the control (its label/icon color); a
+    /// translucent veil of it is laid over the container on hover, keyboard
+    /// focus, press, and drag at the [`crate::tokens::STATE_LAYER`] opacities —
+    /// one recipe instead of per-state color swaps. A disabled control fades
+    /// its container toward the resting surface. The veil animates through the
+    /// element's transition like any fill change.
+    pub fn state_layer(mut self, content: impl Fn(&Theme) -> Color + 'static) -> Self {
+        self.state_layer = Some(Box::new(content));
+        self
+    }
+
+    /// Dips the control to [`crate::tokens::PRESS_SCALE`] while pressed
+    /// (pointer down) — a tactile shrink that animates and never disturbs
+    /// layout or hit-testing.
+    pub fn press_scale(mut self) -> Self {
+        self.press_scale = true;
+        self
+    }
+
+    /// Marks the control invalid: its keyboard focus ring and swapped border
+    /// recolor to the danger hue (shadcn's `aria-invalid` ring).
+    pub fn invalid(mut self, invalid: bool) -> Self {
+        self.invalid = invalid;
         self
     }
 
@@ -1336,6 +1376,9 @@ impl<Msg: 'static> Element<Msg> {
             hover_style: self.hover_style,
             active_style: self.active_style,
             focus_style: self.focus_style,
+            state_layer: self.state_layer,
+            press_scale: self.press_scale,
+            invalid: self.invalid,
             transition: self.transition,
         }
     }

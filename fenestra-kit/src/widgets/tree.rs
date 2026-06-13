@@ -111,7 +111,7 @@ fn render_node<Msg: Clone + 'static>(
         .semantics(Semantics::Button)
         .label(node.label.clone())
         .transition(Transition::colors())
-        .hover_themed(|t, s| s.bg(t.element))
+        .state_layer(|t| t.text)
         .children((
             text(if is_branch {
                 if is_open { "▾" } else { "▸" }

@@ -273,8 +273,10 @@ pub(crate) fn draw_image(
     scene.pop_layer();
 }
 
-/// Paints the keyboard focus ring: a 2px accent stroke offset 2px outside
-/// the element, with ring radius = element radius + 2.
+/// Paints the keyboard focus halo: a soft [`FOCUS_RING`]-width stroke
+/// (3px) at the ring color, sitting flush just outside the element edge so it
+/// reads as a glow around the (ring-colored) border. The border swap itself
+/// happens during style resolution.
 pub(crate) fn focus_ring(scene: &mut Scene, rect: Rect, corners: CornerRadius, color: Color) {
     let offset = f64::from(FOCUS_RING.offset) + f64::from(FOCUS_RING.width) * 0.5;
     let ring_rect = rect.inflate(offset, offset);

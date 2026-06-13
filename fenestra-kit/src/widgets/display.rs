@@ -355,7 +355,7 @@ pub fn table<Msg>(
                 .items_center()
                 .shrink0()
                 .transition(Transition::colors())
-                .hover_themed(|t, s| s.bg(t.surface))
+                .state_layer(|t| t.text)
                 .children(
                     cells
                         .into_iter()

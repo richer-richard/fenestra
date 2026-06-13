@@ -13,7 +13,11 @@ text (px / line-height / letter-spacing em):
   Xl2: 31 / 1.25 / -0.021472333
   Xl3: 39 / 1.15 / -0.02209508
 weights: regular 400 medium 500 semibold 600
-motion: fast 120 base 200 slow 300
+motion: micro 100 fast 120 base 200 slow 300 (base exit 150)
 easing standard: (0.2, 0, 0, 1)
+easing decelerate: (0, 0, 0.2, 1)
+easing accelerate: (0.4, 0, 1, 1)
 easing exit: (0.4, 0, 1, 1)
-focus ring: width 2 offset 2 alpha 0.6
+focus ring: width 3 offset 0 alpha 0.5
+press scale: 0.97
+state layer: hover 0.08 focus 0.12 press 0.12 drag 0.16 (disabled container 0.12 content 0.38)

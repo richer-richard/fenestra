@@ -104,7 +104,7 @@ fn toast_row<Msg: 'static>(
                 .cursor(Cursor::Pointer)
                 .on_click(f(index))
                 .transition(Transition::colors())
-                .hover_themed(|t, s| s.bg(t.element))
+                .state_layer(|t| t.text)
                 .child(icons::x().themed(|t: &Theme, s| s.color(t.text_muted))),
         );
     }

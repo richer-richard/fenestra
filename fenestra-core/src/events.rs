@@ -302,6 +302,7 @@ fn update_hover<Msg: Clone>(
             handlers.get(*id).is_some_and(|el| {
                 !el.disabled
                     && (el.hover_style.is_some()
+                        || el.state_layer.is_some()
                         || el.on_click.is_some()
                         || el.on_hover.is_some()
                         || frame.toggle_overlay_of(*id).is_some()
@@ -361,6 +362,7 @@ pub fn refresh_hover<Msg>(root: &Element<Msg>, frame: &Frame, state: &mut FrameS
             handlers.get(*id).is_some_and(|el| {
                 !el.disabled
                     && (el.hover_style.is_some()
+                        || el.state_layer.is_some()
                         || el.on_click.is_some()
                         || el.on_hover.is_some()
                         || frame.toggle_overlay_of(*id).is_some()

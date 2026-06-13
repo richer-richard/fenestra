@@ -103,7 +103,8 @@ impl<Msg: 'static> From<TextArea<Msg>> for Element<Msg> {
             .shrink0()
             .size(TextSize::Sm)
             .transition(Transition::colors())
-            .disabled(t.disabled);
+            .disabled(t.disabled)
+            .invalid(invalid);
         if !placeholder.is_empty() {
             el = el.label(placeholder);
         }
