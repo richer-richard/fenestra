@@ -795,3 +795,62 @@ that have existed since 0.7.
     virtualization is pinned to. A formula would loosen mid-size
     headings and disturb that invariant for no gain, so it was not
     adopted.
+
+## 0.12: the interaction release (Tier 2)
+
+Three interaction systems on top of the 0.11 tokens — a uniform state layer,
+Material 3 motion tokens, and a shadcn-grade focus ring. The headline: kit
+interaction is now *one recipe* instead of per-widget color swaps.
+
+- **State layer — the engine.** `Element::state_layer(|theme| content_color)`
+  declares the color drawn *on* a control; `frame.rs::resolve` composites a
+  translucent veil of it over the container — hover 8%, keyboard focus / press
+  12%, drag 16% (`STATE_LAYER`) — taking the strongest active state. The veil
+  is baked into the fill via exact source-over (`anim::over`), so it animates
+  through the existing color transition with no new paint primitive. The
+  widened `events.rs` hover predicate tracks any `state_layer` id.
+  - **Neutral surfaces use the layer; solid brand fills keep their ramp
+    steps.** Ghost/Secondary buttons and menu/select/tree/date/table/toast rows
+    route through the layer (content = `text`). Primary/Danger buttons keep
+    `accent_hover`/`accent_active` and `solid_hover`/`solid_active` — Material's
+    white content-veil would lighten and desaturate the gamut-mapped accent,
+    undoing the 0.11 ramp craft. This is Radix's split (solids step the scale;
+    everything else uses an alpha layer) and is a deliberate deviation from
+    "veil everything." DECISION.
+  - **Disabled.** The engine fades a disabled control's container toward the
+    resting surface and drops its border/shadow/highlight; content (the
+    label/icon) is a *separate child* the container can't recolor, so widgets
+    dim it to the `text_disabled` token — fenestra's equivalent of Material's
+    38%-content figure. Solid buttons (no state layer) keep the simpler subtree
+    `opacity(0.5)`. DECISION (tree model: a container cannot reach into a
+    child's text color, so content dimming lives at the widget).
+  - **Snap/fade preserved.** The veil materializes only when a state is active,
+    so controls that faded before still fade and rows that snapped before still
+    snap — no behavior change and no phantom resting fills in debug dumps.
+
+- **Press-scale + motion tokens.** `Style::scale` (default 1.0, always
+  interpolated in `lerp_style`) plus `Element::press_scale` dip a pressed
+  control to `PRESS_SCALE` (0.97). It is a *paint-time* transform: `paint_node`
+  renders the control into a child `Scene` and appends it with
+  `Affine::scale_about(center)`, so layout and hit-testing are untouched and
+  springs may overshoot for a tactile bounce. Motion families fill out to M3:
+  `EASE_DECELERATE` (entrances), `EASE_ACCELERATE` / `EASE_EXIT` (exits),
+  `MotionDuration::Micro` (100 ms) and `exit_ms` (×0.75).
+  - **Keyboard-driven changes snap.** `resolve` skips the transition for the
+    keyboard-focused element (`focus_visible && focused() == id`), so tabbing
+    shows the ring and state layer instantly rather than lagging behind a fast
+    keyboard user. Pointer hover/press still animate. DECISION.
+
+- **Focus ring — shadcn v4.** `FocusRing` is now a 3px halo at 0.5 alpha flush
+  outside the border (was a 2px ring offset 2px). On keyboard focus `resolve`
+  swaps the control's border to the ring color and `painter::focus_ring` paints
+  the halo; `Element::invalid` recolors both to the danger hue (threaded
+  `NodeMeta::invalid` → `Frame::ring_color_invalid`). The swap is keyboard-gated
+  (`focus_visible`) to match the ring; pointer focus on inputs keeps their own
+  accent-border affordance.
+
+- **Control sizes.** `ControlSize` spans a shared height grid — `Xs` 24 / `Sm`
+  32 / `Md` 36 / `Lg` 40 — resolving to a `ControlMetrics { height, pad_x, gap,
+  font, icon }` bundle so a button, input, and select on the same row align.
+  Default `Md` is unchanged (36 px) so default-sized goldens did not move; `Sm`
+  (28→32) and `Lg` (44→40) shifted onto the grid.

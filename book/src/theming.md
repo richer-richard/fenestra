@@ -89,6 +89,27 @@ align in columns or update in place:
 text(format!("{revenue:>10}")).tabular()
 ```
 
+## Interaction, motion, and sizing tokens
+
+Interaction is tokenized too, so the whole kit moves and reacts in one
+language (the *Interactivity* chapter shows the builders). The **state layer**
+(`STATE_LAYER`) is the veil a control lays over itself — hover 8%, focus and
+press 12%, drag 16%. **Motion** lives in `MotionDuration` (100–300 ms) and the
+Material easing curves `EASE_STANDARD` / `EASE_DECELERATE` / `EASE_ACCELERATE`;
+`PRESS_SCALE` (0.97) is the pressed-control dip. The **focus ring** is
+`FOCUS_RING` — a 3px halo at 0.5 alpha flush outside a ring-colored border,
+recolored to the danger hue when a control is `.invalid(true)`.
+
+Control sizes share a height grid so a row of mixed controls lines up:
+
+| size | height | font | size | height | font |
+|------|--------|------|------|--------|------|
+| `Xs` | 24px | Xs | `Md` | 36px | Sm |
+| `Sm` | 32px | Sm | `Lg` | 40px | Base |
+
+`ControlSize::metrics()` resolves the full bundle — height, padding, gap, font,
+icon edge — the kit's buttons, inputs, and selects build from.
+
 ## Beyond the SaaS look
 
 `Theme::duotone(neutral_hue, neutral_chroma, accent_hue, mode)` builds

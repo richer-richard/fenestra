@@ -13,7 +13,9 @@ records integration decisions as they are made.
   `fenestra-shell` (winit/wgpu/headless), `fenestra-kit` (widgets).
 - `fenestra-core` and `fenestra-kit` must build and test without a window.
 - Zero proc macros in the public API. Colors only through theme tokens in kit/examples.
-- Do not publish to crates.io; Richard handles releases.
+- Richard directs releases and authorizes Claude to run them on his instruction:
+  bump the version, commit, push `main`, then push a `vX.Y.Z` tag — the CD
+  workflow re-runs the gates and publishes to crates.io in dependency order.
 
 ## Working rules
 

@@ -1,5 +1,55 @@
 # Changelog
 
+## 0.12.0 — 2026-06-13
+
+The interaction release: a uniform state-layer engine, Material 3 motion
+tokens, and a shadcn-grade focus ring.
+
+### Added
+
+- **Uniform state layer** (`Element::state_layer`): a translucent veil of a
+  control's *content* color, composited over its container on hover (8%),
+  keyboard focus / press (12%), and drag (16%) — Material's recipe, one call,
+  replacing per-widget hover-color swaps. Tokens in `StateLayer` /
+  `STATE_LAYER`; the compositing is exact source-over baked into the fill so
+  it rides the color transition.
+- **Press feedback** (`Element::press_scale`, `Style::scale`, `PRESS_SCALE` =
+  0.97): a tactile shrink while pressed, applied as a paint-time transform
+  about the control's center — it animates and never disturbs layout or
+  hit-testing.
+- **Motion families**: `EASE_DECELERATE` (entrances) and `EASE_ACCELERATE`
+  (exits) alongside `EASE_STANDARD`; `MotionDuration::Micro` (100 ms) and
+  `MotionDuration::exit_ms` (exits ~25% quicker than the matching entrance).
+- **Focus-ring spec** (shadcn v4): a keyboard-focused control swaps its border
+  to the ring color and draws a soft 3px halo at 50% alpha flush outside it;
+  `Element::invalid` recolors the ring to the danger hue. `FocusRing` /
+  `FOCUS_RING` reworked to width 3 / offset 0 / alpha 0.5.
+- **Control sizes**: `ControlSize` now spans a shared 24/32/36/40 height grid
+  (`Xs`/`Sm`/`Md`/`Lg`) and resolves to a `ControlMetrics` bundle
+  (height, padding, gap, font, icon) so rows of mixed controls align.
+
+### Changed
+
+- Neutral interactive surfaces (Ghost/Secondary buttons, menu/select/tree/
+  date-picker/table/toast rows) style their states through the state layer
+  instead of swapping to `element`. Solid brand buttons (Primary/Danger) keep
+  their gamut-mapped ramp-step hover/press — a white veil would wash the
+  accent out.
+- Keyboard-driven state changes snap (no fade): a keyboard-focused control
+  shows its ring and state layer instantly, since keyboard users move faster
+  than a fade can keep up.
+- Buttons gain press-scale and size-driven gap/icon metrics; `ControlSize::Sm`
+  is now 32px (was 28) and `Lg` 40px (was 44); the default `Md` stays 36px.
+- Disabled neutral controls fade their container through the state layer and
+  dim their content to `text_disabled` (Material's 12%-container / 38%-content
+  split, expressed with fenestra's tokens).
+
+### Decided
+
+- See ARCHITECTURE.md "0.12: the interaction release (Tier 2)" for the
+  state-layer-vs-ramp split, the tree-model disabled-content decision, and the
+  keyboard-snap rule.
+
 ## 0.11.0 — 2026-06-13
 
 The craft release: structural sophistication on top of the OKLCH ramps.

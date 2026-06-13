@@ -10,9 +10,11 @@ it for select-then-open patterns.
 
 Keyboard: Tab/Shift-Tab cycle `.focusable(true)` elements in tree order;
 Enter/Space activate the focused clickable; `.on_key(f)` sees key presses
-while focused. Focus rings paint only for keyboard-driven focus.
-`.autofocus()` focuses an element when it first appears — dialogs and
-search fields, without any imperative call.
+while focused. Focus rings paint only for keyboard-driven focus — the
+shadcn model: the control's border swaps to the accent and a soft 3px halo
+sits flush outside it. Mark a field `.invalid(true)` to recolor the ring to
+the danger hue. `.autofocus()` focuses an element when it first appears —
+dialogs and search fields, without any imperative call.
 
 ## Drag and drop
 
@@ -25,15 +27,26 @@ Within the app: mark sources `.drag_source("payload")` and targets
 `.on_drop(|payload| msg)`. Pressing a source starts the drag; releasing
 over a target delivers the payload; releasing anywhere else cancels.
 
-State variants layer styling without new elements:
+## State layers
+
+The kit's controls share one interaction recipe — Material's state layer.
+`.state_layer(|t| t.text)` declares the *content* color (the ink drawn on the
+control), and the framework veils it over the control's container on hover
+(8%), keyboard focus and press (12%), and drag (16%), so you never hand-pick a
+hover color:
 
 ```rust,ignore
 div()
     .themed(|t, s| s.bg(t.surface_raised))
-    .hover_themed(|t, s| s.bg(t.neutrals.step(3)))
-    .active_themed(|t, s| s.bg(t.neutrals.step(4)))
-    .focus_themed(|t, s| s.border(1.0, t.accent))
+    .state_layer(|t| t.text)   // hover / focus / press / drag, one recipe
+    .press_scale()             // a 0.97 tactile dip while pressed
 ```
+
+The per-state closures are still there for full control
+(`.hover_themed` / `.active_themed` / `.focus_themed`). Solid brand fills use
+them to *step the ramp* (`accent` → `accent_hover` → `accent_active`) rather
+than take a veil, because a light content veil would wash a saturated accent
+out. Disabled controls fade their container and dim content to `text_disabled`.
 
 ## Transitions
 
@@ -52,3 +65,11 @@ rest. `Keyframes`
 timelines handle looping ambient motion (pulses, shimmer), sampled from
 the frame clock; `.spin(ms)` rotates paths (spinners). Reduced motion
 snaps everything, keeping headless renders deterministic.
+
+The easing families follow Material 3 — `EASE_STANDARD` for two-way state
+changes, `EASE_DECELERATE` for entrances, `EASE_ACCELERATE` for exits — and
+durations sit on the `MotionDuration` scale (`Micro` 100 ms / `Fast` 120 /
+`Base` 200 / `Slow` 300), with `exit_ms` running an exit ~25% quicker than its
+entrance. Keyboard-driven changes snap: a keyboard-focused control shows its
+ring and state layer instantly rather than lagging behind a fast keyboard
+user.
