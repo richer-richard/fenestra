@@ -5,7 +5,7 @@
 use peniko::Color;
 
 use crate::events::KeyInput;
-use crate::style::{Length, Paint, Style, TextAlign, ThemedFn, Transition};
+use crate::style::{Length, Paint, Style, TextAlign, TextWrap, ThemedFn, Transition};
 use crate::theme::Theme;
 use crate::tokens::{ShadowToken, TextSize, Weight};
 
@@ -1211,6 +1211,26 @@ impl<Msg> Element<Msg> {
     /// Horizontal text alignment.
     pub fn text_align(mut self, align: TextAlign) -> Self {
         self.style = self.style.text_align(align);
+        self
+    }
+
+    /// Balance line lengths ([`TextWrap`](crate::TextWrap)`::Balance`) — for
+    /// headings and titles.
+    pub fn balance(mut self) -> Self {
+        self.style = self.style.balance();
+        self
+    }
+
+    /// Avoid a stranded last word ([`TextWrap`](crate::TextWrap)`::Pretty`) —
+    /// best-effort for paragraphs.
+    pub fn pretty(mut self) -> Self {
+        self.style = self.style.pretty();
+        self
+    }
+
+    /// Sets the line-breaking mode explicitly ([`TextWrap`](crate::TextWrap)).
+    pub fn text_wrap(mut self, wrap: TextWrap) -> Self {
+        self.style = self.style.text_wrap(wrap);
         self
     }
 }

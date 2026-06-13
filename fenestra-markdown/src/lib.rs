@@ -144,8 +144,18 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                 }
             };
             let mut block: Element<Msg> = if !has_links {
-                // Fast path: one paragraph, full text wrapping.
-                rich_text(style_spans(&specs)).selectable()
+                // Fast path: one paragraph, full text wrapping. Headings
+                // balance their line lengths (even lines instead of a
+                // full-then-short ragged break); body text stays greedy.
+                // (A heading with an inline link falls through to the
+                // wrap-row path below, which has no single layout to
+                // balance.)
+                let para = rich_text(style_spans(&specs)).selectable();
+                if heading.is_some() {
+                    para.balance()
+                } else {
+                    para
+                }
             } else {
                 // Inline emulation: word-level pieces flow in a wrap
                 // row, so each link is its own correctly-sized

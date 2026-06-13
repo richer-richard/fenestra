@@ -283,6 +283,31 @@ pub enum TextAlign {
     End,
 }
 
+/// How text is broken into lines once shaping has wrapped it at the
+/// available width. parley line-breaks greedily (each line is filled as
+/// full as it can be); these modes refine that result by re-wrapping at a
+/// narrower width that the framework searches for. Part of the layout
+/// cache key (so a mode flip is never cached away).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum TextWrap {
+    /// Greedy line breaking — parley's native behavior. The default; the
+    /// only mode that costs nothing.
+    #[default]
+    Normal,
+    /// Even line lengths (CSS `text-wrap: balance`). After the greedy wrap
+    /// yields N lines, the smallest wrap width still yielding N lines is
+    /// found by binary search, so lines come out evenly filled instead of
+    /// `[full, full, short]`. For short, high-impact text — headings,
+    /// titles, pull quotes — not body copy. Line count is preserved.
+    Balance,
+    /// Avoid a stranded last word (CSS `text-wrap: pretty`). If the greedy
+    /// wrap leaves the final line a single short word (an orphan), the wrap
+    /// width is nudged down just enough to pull a second word onto the last
+    /// line, without adding a line. Best-effort: when no such width exists,
+    /// the greedy result is kept unchanged. For paragraphs.
+    Pretty,
+}
+
 /// Figure (numeral) shape. Old-style figures have varying heights and
 /// descenders that sit naturally in serif prose; lining figures are
 /// uniform cap-height digits for data and UI. `Default` leaves the font's
@@ -396,6 +421,10 @@ pub struct TextStyle {
     /// OpenType features applied to the run (figures, spacing, small caps,
     /// ligatures, fractions). Defaults to the font's own defaults.
     pub features: FontFeatures,
+    /// Line-breaking refinement (balance / pretty). Defaults to greedy
+    /// [`TextWrap::Normal`], which costs nothing; other modes do extra
+    /// line-break passes inside shaping for this element only.
+    pub wrap: TextWrap,
 }
 
 /// The complete style of an element: layout, paint, and text groups.
@@ -1167,6 +1196,26 @@ impl Style {
     /// Horizontal text alignment.
     pub fn text_align(mut self, align: TextAlign) -> Self {
         self.text.align = align;
+        self
+    }
+
+    /// Balance line lengths for this text ([`TextWrap::Balance`]) — even lines
+    /// instead of a full-then-short ragged break. For headings and titles.
+    pub fn balance(mut self) -> Self {
+        self.text.wrap = TextWrap::Balance;
+        self
+    }
+
+    /// Avoid a stranded last word ([`TextWrap::Pretty`]) — best-effort for
+    /// paragraphs; never adds a line and never makes the break worse.
+    pub fn pretty(mut self) -> Self {
+        self.text.wrap = TextWrap::Pretty;
+        self
+    }
+
+    /// Sets the line-breaking mode explicitly ([`TextWrap`]).
+    pub fn text_wrap(mut self, wrap: TextWrap) -> Self {
+        self.text.wrap = wrap;
         self
     }
 }

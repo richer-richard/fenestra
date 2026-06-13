@@ -2,6 +2,7 @@
 //! fallback, the parley layout cache, max-lines ellipsis truncation, and
 //! glyph painting into vello scenes.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use fontique::{Blob, CollectionOptions, GenericFamily};
@@ -13,9 +14,15 @@ use parley::{
 use peniko::{Color, Fill};
 use vello::Scene;
 
-use crate::style::{FontFeatures, TextAlign, TextStyle};
+use crate::style::{FontFeatures, TextAlign, TextStyle, TextWrap};
 use crate::theme::Theme;
 use crate::tokens::{FamilyRole, tracking_em};
+
+/// Wrap-width search grid in logical px, deliberately equal to the layout
+/// cache's quarter-px bucket (`LayoutKey::width_bucket`), so the searched
+/// width and the cache bucket quantize on the same grid and the measure
+/// and paint passes converge to the same cache entry.
+const WRAP_GRID: f32 = 0.25;
 
 const INTER_REGULAR: &[u8] = include_bytes!("../assets/inter/Inter-Regular.otf");
 const INTER_MEDIUM: &[u8] = include_bytes!("../assets/inter/Inter-Medium.otf");
@@ -28,6 +35,114 @@ const MONO_FAMILIES: &[&str] = &["SF Mono", "Cascadia Code", "JetBrains Mono"];
 /// Parley brush type. Colors are applied at draw time via `DrawGlyphs`, so
 /// layouts are color-independent and cache across recolors.
 pub(crate) type LayoutBrush = [u8; 4];
+
+/// Clamps a wrap width to parley's safe finite range (its line breaker
+/// overflows and asserts on enormous or non-finite advances). `None`
+/// (unbounded) passes through.
+fn clamp_advance(max_advance: Option<f32>) -> Option<f32> {
+    max_advance.and_then(|w| w.is_finite().then(|| w.clamp(0.0, 1.0e9)))
+}
+
+/// Word count of the last line's source text — the orphan predicate for
+/// [`prettify`].
+fn last_line_word_count(layout: &Layout<LayoutBrush>, text: &str) -> usize {
+    layout
+        .lines()
+        .last()
+        .map(|l| text[l.text_range()].split_whitespace().count())
+        .unwrap_or(0)
+}
+
+/// Re-applies horizontal alignment after a re-break (re-breaking clears
+/// line data, so alignment must be recomputed).
+fn apply_align(layout: &mut Layout<LayoutBrush>, align: TextAlign) {
+    let alignment = match align {
+        TextAlign::Start => Alignment::Start,
+        TextAlign::Center => Alignment::Center,
+        TextAlign::End => Alignment::End,
+    };
+    layout.align(alignment, AlignmentOptions::default());
+}
+
+/// The width to report to layout for a (possibly refined) text box. For a
+/// refined layout whose wrap width `w*` is narrower than the requested
+/// width, reports `w*` (`= layout_max_advance().ceil()`) so the box is
+/// never narrower than `w*` and the paint pass — which re-wraps at the box
+/// width — re-derives the identical break. Otherwise the natural content
+/// width.
+fn box_width(layout: &Layout<LayoutBrush>, upper: Option<f32>) -> f32 {
+    let lma = layout.layout_max_advance();
+    match upper {
+        Some(u) if lma.is_finite() && lma < u - 0.5 => lma.ceil(),
+        _ => layout.width().ceil(),
+    }
+}
+
+/// Balances line lengths in place (CSS `text-wrap: balance`): finds the
+/// smallest grid-aligned wrap width still yielding the greedy line count
+/// `n`, so the `n` lines come out evenly filled. `O(log W)` re-break
+/// passes; no glyph re-shaping. `upper` is the clamped requested width.
+fn rebalance(layout: &mut Layout<LayoutBrush>, style: &ResolvedText, upper: f32) {
+    let n = layout.len();
+    if n < 2 {
+        return; // a single line is already balanced
+    }
+    let lo = layout.calculate_content_widths().min; // widest unbreakable token
+    if lo >= upper {
+        return;
+    }
+    // Line count is monotonic non-decreasing as the width shrinks, and
+    // equals `n` at `upper`. Binary-search the smallest grid width in
+    // `(lo, upper]` that still yields `n` lines.
+    let mut lo_w = (lo / WRAP_GRID).floor() * WRAP_GRID; // count > n side
+    let mut hi_w = (upper / WRAP_GRID).ceil() * WRAP_GRID; // known good (n lines)
+    while hi_w - lo_w > WRAP_GRID {
+        let mid = ((lo_w + hi_w) * 0.5 / WRAP_GRID).round() * WRAP_GRID;
+        layout.break_all_lines(Some(mid));
+        if layout.len() <= n {
+            hi_w = mid;
+        } else {
+            lo_w = mid;
+        }
+    }
+    layout.break_all_lines(Some(hi_w));
+    apply_align(layout, style.align); // re-align after the final re-break
+}
+
+/// Avoids a stranded last word in place (CSS `text-wrap: pretty`),
+/// best-effort: the largest grid width below `upper` that keeps the greedy
+/// line count `n` and gives the last line `>= 2` words. When none exists,
+/// restores the greedy break unchanged. Re-break only; no re-shaping.
+fn prettify(layout: &mut Layout<LayoutBrush>, text: &str, style: &ResolvedText, upper: f32) {
+    let n = layout.len();
+    if n < 2 || last_line_word_count(layout, text) >= 2 {
+        return; // no orphan to fix
+    }
+    let lo = layout.calculate_content_widths().min;
+    if lo >= upper {
+        return;
+    }
+    // Scan downward in grid steps for the widest (least disruptive) width
+    // that fixes the orphan without adding a line; stop early once
+    // narrowing would add one.
+    let mut w = (upper / WRAP_GRID).floor() * WRAP_GRID;
+    let mut fixed = None;
+    while w > lo {
+        layout.break_all_lines(Some(w));
+        match layout.len().cmp(&n) {
+            Ordering::Equal if last_line_word_count(layout, text) >= 2 => {
+                fixed = Some(w);
+                break;
+            }
+            Ordering::Greater => break, // narrowing now adds a line: give up
+            _ => {}
+        }
+        w -= WRAP_GRID;
+    }
+    // Re-break at the fix width, or restore the greedy break, then re-align.
+    layout.break_all_lines(Some(fixed.unwrap_or(upper)));
+    apply_align(layout, style.align);
+}
 
 /// A text style with every token resolved to a concrete value.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -44,6 +159,8 @@ pub(crate) struct ResolvedText {
     pub color: Color,
     /// OpenType features applied to the run.
     pub features: FontFeatures,
+    /// Line-breaking refinement (greedy / balance / pretty).
+    pub wrap: TextWrap,
 }
 
 /// Resolves the text style group against the theme and size tokens.
@@ -69,6 +186,7 @@ pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
         max_lines: ts.max_lines,
         color: ts.color.unwrap_or(theme.text),
         features: ts.features,
+        wrap: ts.wrap,
     }
 }
 
@@ -84,6 +202,9 @@ struct LayoutKey {
     max_lines: Option<u32>,
     /// OpenType features (every flag affects shaping, so all are hashed).
     features: FontFeatures,
+    /// Line-breaking refinement; different modes search to different wrap
+    /// widths, so the result must not be cached across modes.
+    wrap: TextWrap,
     /// Quantized max advance (quarter-px buckets); `u32::MAX` = unbounded.
     width_bucket: u32,
 }
@@ -100,6 +221,7 @@ impl LayoutKey {
             align: style.align,
             max_lines: style.max_lines,
             features: style.features,
+            wrap: style.wrap,
             #[expect(clippy::cast_sign_loss, reason = "advances are non-negative")]
             width_bucket: match max_advance {
                 Some(w) => (w.max(0.0) * 4.0).round() as u32,
@@ -233,7 +355,11 @@ impl Fonts {
         layout
     }
 
-    fn shape(
+    /// Shapes and greedily wraps `text` (parley's native line breaking).
+    /// The pure pass: no balance/pretty refinement, so the prefix search in
+    /// [`Self::truncate`] and the `ch` advance in [`Self::ch_width`] use it
+    /// directly.
+    fn shape_greedy(
         &mut self,
         text: &str,
         style: &ResolvedText,
@@ -241,7 +367,7 @@ impl Fonts {
     ) -> Layout<LayoutBrush> {
         // parley's line breaker overflows (and asserts) on enormous or
         // non-finite advances; clamp at the boundary.
-        let max_advance = max_advance.and_then(|w| w.is_finite().then(|| w.clamp(0.0, 1.0e9)));
+        let max_advance = clamp_advance(max_advance);
         // Registered faces win for every role; Sans falls back to the
         // embedded Inter, Mono to the generic system monospace.
         let family = match self.roles.get(&style.family) {
@@ -268,12 +394,29 @@ impl Fonts {
         }
         let mut layout = builder.build(text);
         layout.break_all_lines(max_advance);
-        let alignment = match style.align {
-            TextAlign::Start => Alignment::Start,
-            TextAlign::Center => Alignment::Center,
-            TextAlign::End => Alignment::End,
-        };
-        layout.align(alignment, AlignmentOptions::default());
+        apply_align(&mut layout, style.align);
+        layout
+    }
+
+    /// Shapes `text` with the greedy wrap, then refines the line breaks per
+    /// [`ResolvedText::wrap`] (balance / pretty). Refinement re-breaks the
+    /// already-shaped layout — no glyph re-shaping — and only runs with a
+    /// finite wrap width; [`TextWrap::Normal`] (the default) is a pure passthrough.
+    fn shape(
+        &mut self,
+        text: &str,
+        style: &ResolvedText,
+        max_advance: Option<f32>,
+    ) -> Layout<LayoutBrush> {
+        let upper = clamp_advance(max_advance);
+        let mut layout = self.shape_greedy(text, style, max_advance);
+        if let Some(upper) = upper {
+            match style.wrap {
+                TextWrap::Normal => {}
+                TextWrap::Balance => rebalance(&mut layout, style, upper),
+                TextWrap::Pretty => prettify(&mut layout, text, style, upper),
+            }
+        }
         layout
     }
 
@@ -293,7 +436,11 @@ impl Fonts {
             .collect();
         let fits = |fonts: &mut Self, end: usize| {
             let candidate = format!("{}\u{2026}", text[..end].trim_end());
-            fonts.shape(&candidate, style, max_advance).lines().count() <= max_lines
+            fonts
+                .shape_greedy(&candidate, style, max_advance)
+                .lines()
+                .count()
+                <= max_lines
         };
         let (mut lo, mut hi) = (0_usize, boundaries.len() - 1);
         while lo < hi {
@@ -305,7 +452,7 @@ impl Fonts {
             }
         }
         let candidate = format!("{}\u{2026}", text[..boundaries[lo]].trim_end());
-        self.shape(&candidate, style, max_advance)
+        self.shape_greedy(&candidate, style, max_advance)
     }
 
     /// Shapes a rich paragraph: one layout, ranged style overrides per
@@ -340,7 +487,7 @@ impl Fonts {
                 FontFamily::named(name)
             }
         }
-        let max_advance = max_advance.and_then(|w| w.is_finite().then(|| w.clamp(0.0, 1.0e9)));
+        let max_advance = clamp_advance(max_advance);
         let mut builder = self
             .layout_cx
             .ranged_builder(&mut self.font_cx, &text, 1.0, true);
@@ -388,12 +535,16 @@ impl Fonts {
         }
         let mut layout = builder.build(&text);
         layout.break_all_lines(max_advance);
-        let alignment = match style.align {
-            TextAlign::Start => Alignment::Start,
-            TextAlign::Center => Alignment::Center,
-            TextAlign::End => Alignment::End,
-        };
-        layout.align(alignment, AlignmentOptions::default());
+        // Align the greedy break first (so an early-returning refinement on
+        // short text keeps a correctly-aligned layout), then refine in place.
+        apply_align(&mut layout, style.align);
+        if let Some(upper) = max_advance {
+            match style.wrap {
+                TextWrap::Normal => {}
+                TextWrap::Balance => rebalance(&mut layout, style, upper),
+                TextWrap::Pretty => prettify(&mut layout, &text, style, upper),
+            }
+        }
         layout
     }
 
@@ -404,8 +555,9 @@ impl Fonts {
         style: &ResolvedText,
         max_advance: Option<f32>,
     ) -> (f32, f32) {
+        let upper = clamp_advance(max_advance);
         let layout = self.shape_rich(spans, style, max_advance);
-        (layout.width().ceil(), layout.height().ceil())
+        (box_width(&layout, upper), layout.height().ceil())
     }
 
     /// First-line baseline of a rich paragraph.
@@ -557,8 +709,9 @@ impl Fonts {
         style: &ResolvedText,
         max_advance: Option<f32>,
     ) -> (f32, f32) {
+        let upper = clamp_advance(max_advance);
         let layout = self.layout(text, style, max_advance);
-        (layout.width().ceil(), layout.height().ceil())
+        (box_width(layout, upper), layout.height().ceil())
     }
 
     /// Width of one `ch`: the advance of the digit `'0'` shaped in `style`,
@@ -568,7 +721,7 @@ impl Fonts {
     pub(crate) fn ch_width(&mut self, style: &ResolvedText) -> f32 {
         let mut zero = *style;
         zero.letter_spacing = 0.0;
-        let layout = self.shape("0", &zero, None);
+        let layout = self.shape_greedy("0", &zero, None);
         let mut advance = 0.0_f32;
         for line in layout.lines() {
             for item in line.items() {
@@ -826,5 +979,237 @@ mod tests {
             x.small_caps = true;
         });
         assert!(!keys_differ(&a, &b));
+    }
+
+    // ----- text-wrap: balance / pretty -----
+
+    /// A `ResolvedText` at a free-form px size with a given wrap mode,
+    /// everything else default (display leading 1.25).
+    fn rt_px(px: f32, wrap: TextWrap) -> ResolvedText {
+        resolve_text(
+            &TextStyle {
+                size_px: Some(px),
+                wrap,
+                ..TextStyle::default()
+            },
+            &Theme::light(),
+        )
+    }
+
+    /// Visible filled width of each line (advance minus trailing whitespace).
+    fn line_advances(layout: &Layout<LayoutBrush>) -> Vec<f32> {
+        layout
+            .lines()
+            .map(|l| {
+                let m = l.metrics();
+                m.advance - m.trailing_whitespace
+            })
+            .collect()
+    }
+
+    /// Word count of the last line's source text.
+    fn last_words(layout: &Layout<LayoutBrush>, text: &str) -> usize {
+        layout
+            .lines()
+            .last()
+            .map(|l| text[l.text_range()].split_whitespace().count())
+            .unwrap_or(0)
+    }
+
+    fn max_adv(advs: &[f32]) -> f32 {
+        advs.iter().copied().fold(0.0_f32, f32::max)
+    }
+
+    fn min_adv(advs: &[f32]) -> f32 {
+        advs.iter().copied().fold(f32::MAX, f32::min)
+    }
+
+    #[test]
+    fn balance_evens_a_two_line_heading() {
+        let mut fonts = Fonts::embedded();
+        let text = "Balanced headings keep their lines visually even";
+        // Derive the width from the single-line advance so the greedy break
+        // is reliably [full, short] on the real Inter metrics, not a guess.
+        let full = fonts
+            .shape(text, &rt_px(28.0, TextWrap::Normal), None)
+            .width();
+        let w = full * 0.62;
+        let greedy = fonts.shape(text, &rt_px(28.0, TextWrap::Normal), Some(w));
+        let bal = fonts.shape(text, &rt_px(28.0, TextWrap::Balance), Some(w));
+        assert_eq!(greedy.len(), 2, "precondition: greedy wraps to two lines");
+        // Line count is preserved (explicit acceptance criterion).
+        assert_eq!(bal.len(), greedy.len(), "N preserved");
+        let g = line_advances(&greedy);
+        let b = line_advances(&bal);
+        // The balanced longest line is shorter, and the spread tightens.
+        assert!(
+            max_adv(&b) < max_adv(&g),
+            "balanced longest {} < greedy longest {}",
+            max_adv(&b),
+            max_adv(&g)
+        );
+        assert!(
+            (max_adv(&b) - min_adv(&b)) < (max_adv(&g) - min_adv(&g)),
+            "balanced spread {} < greedy spread {}",
+            max_adv(&b) - min_adv(&b),
+            max_adv(&g) - min_adv(&g)
+        );
+    }
+
+    #[test]
+    fn balance_single_line_is_noop() {
+        let mut fonts = Fonts::embedded();
+        let text = "Short title";
+        let full = fonts
+            .shape(text, &rt_px(28.0, TextWrap::Normal), None)
+            .width();
+        let w = full * 2.0; // plenty of room: one line either way
+        let normal = fonts.shape(text, &rt_px(28.0, TextWrap::Normal), Some(w));
+        let bal = fonts.shape(text, &rt_px(28.0, TextWrap::Balance), Some(w));
+        assert_eq!(normal.len(), 1);
+        assert_eq!(bal.len(), 1);
+        // Same single-line geometry: balance is a no-op (this is why the
+        // markdown golden stays byte-identical).
+        assert!((normal.width() - bal.width()).abs() < 1e-3);
+    }
+
+    #[test]
+    fn balance_preserves_line_count_never_overflows() {
+        let mut fonts = Fonts::embedded();
+        let text = "Balanced headings keep their lines visually even";
+        let full = fonts
+            .shape(text, &rt_px(28.0, TextWrap::Normal), None)
+            .width();
+        let w = full * 0.62;
+        let greedy = fonts.shape(text, &rt_px(28.0, TextWrap::Normal), Some(w));
+        let bal = fonts.shape(text, &rt_px(28.0, TextWrap::Balance), Some(w));
+        assert_eq!(bal.len(), greedy.len());
+        // No balanced line exceeds the requested upper bound.
+        assert!(
+            max_adv(&line_advances(&bal)) <= w + 0.5,
+            "widest balanced line exceeds W {w}"
+        );
+    }
+
+    #[test]
+    fn pretty_pulls_word_onto_last_line() {
+        let mut fonts = Fonts::embedded();
+        let text = "Typesetters avoid leaving a single short word stranded alone here";
+        let style_n = rt_px(18.0, TextWrap::Normal);
+        let full = fonts.shape(text, &style_n, None).width();
+        // Scan from the single-line width downward for the widest width that
+        // orphans the last word — that orphan is always fixable (narrowing
+        // a touch pulls the previous word down without adding a line).
+        let mut target = None;
+        let mut w = full;
+        while w > full * 0.2 {
+            let g = fonts.shape(text, &style_n, Some(w));
+            if g.len() >= 2 && last_words(&g, text) == 1 {
+                target = Some(w);
+                break;
+            }
+            w -= 1.0;
+        }
+        let w = target.expect("a width that strands the last word");
+        let greedy = fonts.shape(text, &style_n, Some(w));
+        let pretty = fonts.shape(text, &rt_px(18.0, TextWrap::Pretty), Some(w));
+        assert_eq!(pretty.len(), greedy.len(), "pretty adds no line");
+        assert!(
+            last_words(&pretty, text) >= 2,
+            "orphan pulled onto the last line"
+        );
+    }
+
+    #[test]
+    fn pretty_never_worse_when_no_orphan() {
+        let mut fonts = Fonts::embedded();
+        let text = "These words wrap into lines that each already end with several words";
+        let style_n = rt_px(18.0, TextWrap::Normal);
+        let full = fonts.shape(text, &style_n, None).width();
+        // Find a width whose greedy last line already holds >= 2 words.
+        let mut chosen = None;
+        let mut w = full;
+        while w > full * 0.2 {
+            let g = fonts.shape(text, &style_n, Some(w));
+            if g.len() >= 2 && last_words(&g, text) >= 2 {
+                chosen = Some(w);
+                break;
+            }
+            w -= 1.0;
+        }
+        let w = chosen.expect("a width with a non-orphan last line");
+        let greedy = fonts.shape(text, &style_n, Some(w));
+        let pretty = fonts.shape(text, &rt_px(18.0, TextWrap::Pretty), Some(w));
+        // Best-effort contract: never adds a line, never shortens the last
+        // line, and with no orphan it keeps the greedy break exactly.
+        assert_eq!(pretty.len(), greedy.len());
+        assert_eq!(last_words(&pretty, text), last_words(&greedy, text));
+        assert_eq!(
+            line_advances(&pretty),
+            line_advances(&greedy),
+            "no-op break"
+        );
+    }
+
+    #[test]
+    fn layout_key_differs_on_wrap() {
+        let mk = |wrap| {
+            let mut s = rt(TextSize::Base);
+            s.wrap = wrap;
+            s
+        };
+        let normal = mk(TextWrap::Normal);
+        let balance = mk(TextWrap::Balance);
+        let pretty = mk(TextWrap::Pretty);
+        assert!(keys_differ(&normal, &balance));
+        assert!(keys_differ(&normal, &pretty));
+        assert!(keys_differ(&balance, &pretty));
+        // Equal mode ⇒ equal key (cache hits).
+        assert!(!keys_differ(&balance, &mk(TextWrap::Balance)));
+    }
+
+    #[test]
+    fn balance_idempotent_reproduces_break() {
+        let mut fonts = Fonts::embedded();
+        let text = "Balanced headings keep their lines visually even";
+        let full = fonts
+            .shape(text, &rt_px(28.0, TextWrap::Normal), None)
+            .width();
+        let w = full * 0.62;
+        let bal = fonts.shape(text, &rt_px(28.0, TextWrap::Balance), Some(w));
+        // The measured box width feeds back as the paint-time wrap width.
+        let bw = box_width(&bal, clamp_advance(Some(w)));
+        let bal2 = fonts.shape(text, &rt_px(28.0, TextWrap::Balance), Some(bw));
+        // Re-deriving the refinement at the box width reproduces the break
+        // exactly — the fixpoint that keeps measure and paint in agreement.
+        assert_eq!(bal.len(), bal2.len());
+        assert_eq!(line_advances(&bal), line_advances(&bal2));
+    }
+
+    #[test]
+    fn pretty_idempotent_reproduces_break() {
+        // Pretty also narrows the measured box (it re-breaks below the column),
+        // so paint must re-derive the same break from that box width — the same
+        // measure/paint fixpoint balance has.
+        let mut fonts = Fonts::embedded();
+        let text = "Typesetters avoid leaving a single short word stranded alone here";
+        let style_n = rt_px(18.0, TextWrap::Normal);
+        let full = fonts.shape(text, &style_n, None).width();
+        let mut target = None;
+        let mut w = full;
+        while w > full * 0.2 {
+            let g = fonts.shape(text, &style_n, Some(w));
+            if g.len() >= 2 && last_words(&g, text) == 1 {
+                target = Some(w);
+                break;
+            }
+            w -= 1.0;
+        }
+        let w = target.expect("a width that strands the last word");
+        let pretty = fonts.shape(text, &rt_px(18.0, TextWrap::Pretty), Some(w));
+        let bw = box_width(&pretty, clamp_advance(Some(w)));
+        let pretty2 = fonts.shape(text, &rt_px(18.0, TextWrap::Pretty), Some(bw));
+        assert_eq!(pretty.len(), pretty2.len());
+        assert_eq!(line_advances(&pretty), line_advances(&pretty2));
     }
 }

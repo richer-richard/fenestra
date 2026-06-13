@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.17.0 — 2026-06-14
+
+Balanced and pretty text wrapping: headings break into even lines and
+paragraphs stop stranding a lone last word — CSS `text-wrap: balance / pretty`
+as a typed mode, built on top of parley's greedy line-breaker.
+
+### Added
+
+- **`TextWrap::{Normal, Balance, Pretty}`** with `.balance()` / `.pretty()` /
+  `.text_wrap(TextWrap)` builders on `Style` and `Element`. `Balance` binary-
+  searches the narrowest wrap width that preserves the greedy line count (even
+  lines); `Pretty` nudges the width down to pull a second word onto an orphaned
+  last line (best-effort, never adds a line). `Normal` is the default and costs
+  nothing. Refinement re-breaks an already-shaped layout (no glyph re-shaping),
+  is keyed into the layout cache, and reports its wrap width so measure and
+  paint reproduce the same break.
+- The **markdown** widget balances headings automatically (the no-links path).
+
+### Decided
+
+- See ARCHITECTURE.md "0.17: balanced and pretty text wrapping" — the re-break
+  (not re-shape) approach, the measure/paint fixpoint via `layout_max_advance`,
+  the `TextWrap` naming (vs flex `.wrap()`), and pretty as documented
+  best-effort.
+
 ## 0.16.0 — 2026-06-14
 
 Richer OpenType typography: the single `tabular_nums` bool grows into a typed

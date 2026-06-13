@@ -20,6 +20,17 @@ widget's prose, and the `ai_chat` showcase. Because fenestra has no style
 inheritance, set the container's `.size(..)` and `.family(..)` to match the
 prose it wraps, so the measure tracks the real glyphs.
 
+## Balanced & pretty wrapping
+
+parley breaks lines greedily (fill each line as full as it goes); `TextWrap`
+refines that result. `.balance()` (CSS `text-wrap: balance`) evens line lengths
+by re-wrapping at the narrowest width that keeps the same line count — for
+headings, titles, and pull quotes, not body copy. `.pretty()` (CSS `text-wrap:
+pretty`) nudges the width down just enough to pull a stranded last word up onto
+the previous line, never adding a line (best-effort). Both re-break the
+already-shaped layout — no glyph re-shaping — and `Normal` (the default) costs
+nothing. The markdown widget balances headings automatically.
+
 ## OpenType features
 
 Numerals and glyph variants are typed builders, not CSS strings. Figure shape

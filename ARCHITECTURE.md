@@ -1072,3 +1072,78 @@ instead of a CSS string.
   the same way; this change widens it from one feature to six). Static text is
   unaffected (it rebuilds styles per layout). A later pass should `remove` the
   property in the `else` branch, with a live-editor regression test.
+
+## 0.17: balanced and pretty text wrapping
+
+`TextWrap::{Normal, Balance, Pretty}` (CSS `text-wrap: balance / pretty`),
+exposed as `.balance()` / `.pretty()` / `.text_wrap(TextWrap)` on `Style` and
+`Element`. Greedy `Normal` stays the default and costs nothing. Markdown
+headings (the no-links fast path) opt into `.balance()` automatically.
+
+- **Refinement re-breaks, never re-shapes.** parley's `Layout::break_all_lines`
+  is re-runnable on one already-built layout (`BreakLines::new` clears prior
+  line data — verified in parley 0.10's `line_break.rs`), so balance is
+  `O(log W)` re-break passes (binary search for the smallest grid width still
+  yielding the greedy line count `n`) and pretty a bounded downward grid scan
+  (largest width that keeps `n` lines and un-orphans the last line) — both with
+  **zero glyph re-shaping**. `TextWrap::Normal` (≈ all text) skips refinement
+  entirely, so `perf_gate` (all-Normal leaves) is untouched — confirmed by
+  running it `--ignored` green.
+- **Measure/paint break reproduction via `layout_max_advance`.** taffy measures
+  a text leaf at the column width `W`; paint re-wraps at the leaf's final box
+  width — with balance these differ. The fix: a refined leaf reports its *wrap
+  width* `w*` (`= layout_max_advance().ceil()`, the width the last re-break
+  used), not its longest-line width, as the measured box width (`box_width()`).
+  The paint-time box is then always `>= w*`, so re-deriving the refinement at
+  the box width reproduces the identical break. `TextWrap::Normal` has
+  `layout_max_advance() == W`, so `box_width` returns `width().ceil()` exactly
+  as before (plain-text goldens byte-identical). Pinned by
+  `balance_idempotent_reproduces_break` (the fixpoint).
+- **Cache key (regression-locked).** `wrap` joins `LayoutKey`; measure (at `W`)
+  and paint (at `w*`) land in two quarter-px buckets that each compute the same
+  break. `WRAP_GRID = 0.25` is deliberately equal to the cache's
+  `width_bucket` quantum so the searched width and the cache bucket quantize on
+  the same grid. `layout_key_differs_on_wrap` was written first and watched
+  fail; the two load-bearing behavior tests (`balance_evens_a_two_line_heading`,
+  `pretty_pulls_word_onto_last_line`) were also red before the refinement
+  landed (balance left the longest line unchanged; pretty left the orphan).
+- **Balance scope.** Auto-width leaves in `items_start`/center/end containers
+  take the balanced (narrower) box; width-pinned and stretch leaves keep their
+  width and balance within it. Markdown applies `.balance()` only to the
+  no-links fast-path heading; a heading-with-inline-link falls back to Normal
+  (that path is a flex wrap-row of per-word pieces, not one parley layout).
+- **DEVIATION — rich (markdown) headings are not cached.** Plain balanced text
+  caches via the wrap-keyed `LayoutKey`; markdown headings render through
+  `rich_text` ⇒ `shape_rich`, which is uncached (pre-existing decision: span
+  lists are poor hash keys). Balance re-shapes them per frame, but they are
+  short and the cost is cheap re-breaks. (Future: a rich-layout cache makes this
+  free; out of scope.)
+- **DEVIATION — `TextWrap::Pretty` is best-effort.** When no narrower width removes
+  the orphan without adding a line, the greedy break is kept unchanged.
+  Guaranteed by `pretty_never_worse_when_no_orphan`: pretty never increases the
+  line count and never reduces the last-line word count. The downward scan is
+  the clearest "never worse" formulation (stops at the first/largest qualifying
+  width, or gives up the instant narrowing would add a line); for very wide
+  paragraphs a binary search keyed on the orphan predicate would be cheaper, but
+  pretty is for headings/short paragraphs and is opt-in (markdown body text
+  stays greedy).
+- **DEVIATION — example surfaces as a dedicated golden, not a kit panel.** The
+  blueprint suggested a `specimen` panel; instead the flagship eyeball artifact
+  is a self-contained `fenestra/tests/text_wrap_golden.rs` that stacks each
+  refinement directly under its greedy twin (ragged vs even heading; orphan vs
+  pulled-down paragraph), so the comparison is in one PNG and no kit golden
+  churns. Width is derived (heading at the panel width; paragraph capped at a
+  300px column where the macOS/Metal Inter metrics strand the last word).
+- **Eyeballed.** The `text_wrap` golden shows the heading going from
+  `[full, full, "and tidy"]` to three visually even lines (N=3 preserved), and
+  the paragraph's stranded `"anywhere."` pulled up to `"paragraph anywhere."`
+  (N=4 preserved). The `markdown`, `markdown_measure`, `poster`, `ai_chat`, and
+  `font_features` goldens stay byte-identical (their headings are single-line at
+  their widths ⇒ balance no-op; nothing else opts in).
+- **API naming (reviewed): the enum is `TextWrap`, not `Wrap`.** It matches the
+  text-style group's convention (`TextAlign`, `TextStyle`, `TextSize`) and
+  disambiguates from the pre-existing flexbox `.wrap()` / `Style::wrap` — a bare
+  `Wrap` next to `TextAlign` in the facade glob would read as flex-wrap. Renamed
+  pre-release (the builders `.balance()`/`.pretty()`/`.text_wrap(TextWrap)` are
+  unaffected). A `pretty_idempotent_reproduces_break` test mirrors the balance
+  fixpoint so pretty's measure/paint agreement is directly verified too.
