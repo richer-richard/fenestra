@@ -1147,3 +1147,67 @@ headings (the no-links fast path) opt into `.balance()` automatically.
   pre-release (the builders `.balance()`/`.pretty()`/`.text_wrap(TextWrap)` are
   unaffected). A `pretty_idempotent_reproduces_break` test mirrors the balance
   fixpoint so pretty's measure/paint agreement is directly verified too.
+
+## 0.18: themed OKLCH gradient builder
+
+`oklch_stops(anchors, steps)` plus the `linear_gradient` / `radial_gradient`
+free fns and `Theme::accent_gradient` — token-sourced gradients whose stops are
+pre-expanded so the rendered ramp tracks the OKLCH curve instead of sRGB's
+straight chord. `GRADIENT_STEPS = 16` is the default sub-segment count.
+
+- **vello ignores `interpolation_cs`.** Confirmed against `vello-0.9.0`: it
+  builds its gradient ramp LUT in sRGB and contains no `interpolation_cs` /
+  `ColorSpaceTag::Oklch` handling (`peniko-0.6.1` exposes the field, but vello
+  never reads it). Tagging the `peniko::Gradient` color space would be a no-op,
+  so fenestra **pre-expands** OKLCH stops in core: each anchor pair is walked in
+  `steps` sub-segments via `crate::anim::lerp_color` (the transition engine's
+  exact OKLCH lerp — shortest hue arc, powerless-hue endpoints, gamut clamp),
+  and vello's piecewise-linear sRGB interpolation between the dense stops tracks
+  the OKLCH path. Revisit if a future vello honors `interpolation_cs` — a
+  2-stop + Oklch-cs path could then replace the dense stops with **no public
+  API change** (the builders' signatures are renderer-agnostic).
+- **Pre-expansion over a new `Paint::OklchGradient` variant.** Chosen for
+  renderer-independence (goldens are byte-identical no matter whether the
+  renderer ever honors OKLCH), zero `painter.rs` / IR churn, and testability:
+  the chroma-floor acceptance test asserts on *emitted* intermediate stops,
+  which only exist under pre-expansion. `Paint` / `GradientStop` stay
+  `Copy`-friendly `Clone` and unchanged.
+- **`GRADIENT_STEPS = 16` is a calibrated default, not a hard spec number.**
+  Each sub-segment maps to ≈32 texels of vello's ~512-texel ramp LUT; the
+  residual sRGB-chord deviation from the OKLCH curve over ~32 texels is below a
+  perceptible step even across a ~180° hue arc. Verified by eye on the cross-hue
+  golden (no banding at sub-segment joints at 1× or 2×); raise it only if a
+  wide-hue ramp ever bands.
+- **Shared lerp with the transition engine.** `lerp_color` is the single OKLCH
+  path behind both animated color changes and gradient stop generation, so an
+  animated fill and a pre-expanded gradient between the same two colors trace
+  the identical perceptual curve. Endpoints are exact (`lerp_color` returns `a`
+  at `t≤0`, `b` at `t≥1`), so pre-expansion never shifts the anchor colors —
+  locked by `endpoints_are_exact`.
+- **Acceptance: no gray dead-zone.** `midpoint_keeps_chroma_no_gray_deadzone`
+  asserts the offset-0.5 stop of an accent→warning ramp keeps OKLCH chroma
+  >1.5× the naive sRGB average's (a regression floor; the real ratio is far
+  higher). `lightness_is_monotonic_across_stops` guards against a mid-ramp dark
+  bump; `offsets_sorted_and_span_anchors` covers sort + span + count;
+  `degenerate_inputs` pins empty / single-anchor / `steps == 0`.
+- **DEVIATION — eyeball artifact is a dedicated golden, not specimen-only**
+  (mirrors the 0.17 `text_wrap_golden` decision). `fenestra-kit/tests/`
+  `oklch_gradient_golden.rs` stacks a naive two-stop sRGB cross-hue gradient
+  directly above the OKLCH-built one over the same accent→warning anchors, so
+  the dead-zone elimination is unmistakable in one PNG (light + dark). The
+  specimen's own gradients are same-hue (accent ramp), so they change little —
+  the cross-hue A/B panel is where the win is visible.
+- **Converted sites stay token-sourced; goldens regenerated intentionally.**
+  The specimen's accent linear gradient now comes from `accent_gradient(135.0)`
+  and its radial from `radial_gradient` (A4→A9); the poster's paper-grain field
+  keeps its explicit 0.0/0.55/1.0 neutral offsets via `oklch_stops` directly.
+  `specimen_light/dark` and `poster` regenerated (same-hue / near-gray, so the
+  pixel delta is tiny but non-zero); `text_wrap` and all other goldens stayed
+  byte-identical.
+- **API decisions (reviewed).** The stop-expander is named `oklch_stops` (not
+  `oklch_gradient`) so the `*_gradient` family is type-consistent: `*_gradient`
+  fns return a `Paint`, `oklch_stops` returns `Vec<GradientStop>` — the name
+  tells you the return type and rules out a `.bg(oklch_stops(...))` mistake.
+  `linear_gradient`/`radial_gradient` guard degenerate input: fewer than two
+  colors collapse to a solid fill (the lone color, or transparent for none), so
+  the painter never receives a zero-stop gradient.

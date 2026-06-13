@@ -444,6 +444,14 @@ impl Theme {
         self.neutrals = neutrals;
     }
 
+    /// The brand accent ramp as a smooth OKLCH linear gradient (accent ramp
+    /// step 7 → step 10, the pairing the painting specimen uses) at a
+    /// CSS-style `angle_deg` (0 up, 90 right). A one-call themed gradient for
+    /// hero panels and brand fills.
+    pub fn accent_gradient(&self, angle_deg: f32) -> crate::style::Paint {
+        crate::style::linear_gradient(angle_deg, [self.accents.step(7), self.accents.step(10)])
+    }
+
     /// The default light theme (accent hue 262).
     pub fn light() -> Self {
         Self::from_accent(262.0, Mode::Light)

@@ -275,7 +275,10 @@ pub(crate) fn over(fg: Color, bg: Color) -> Color {
 }
 
 /// Lerps two sRGB colors through OKLCH (shorter hue arc), clamping the
-/// result back into sRGB range.
+/// result back into sRGB range. This is the shared OKLCH lerp behind both the
+/// transition engine (animated color changes) and gradient stop generation
+/// ([`crate::oklch_stops`]), so an animated color and a pre-expanded
+/// gradient walk the identical perceptual path.
 pub(crate) fn lerp_color(a: Color, b: Color, t: f32) -> Color {
     if t <= 0.0 {
         return a;

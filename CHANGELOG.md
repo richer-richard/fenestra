@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.18.0 — 2026-06-14
+
+Themed, OKLCH-interpolated gradient builders: gradients are pre-expanded into
+dense stops that ride the OKLCH curve, so a wide-hue ramp stays vivid through
+the middle instead of collapsing into a gray dead-zone the way a two-stop sRGB
+gradient does.
+
+### Added
+
+- **`oklch_stops(anchors, steps)`** expands `(offset, color)` anchors into
+  perceptually-even `GradientStop`s by walking each anchor pair through OKLCH
+  (the same shortest-hue, achromatic-aware, gamut-clamped path the transition
+  engine animates colors along), then **`linear_gradient(angle_deg, colors)`**
+  and **`radial_gradient(center, radius, colors)`** build a `Paint` from
+  evenly-spaced token colors expanded with `GRADIENT_STEPS`. Anchors are sorted
+  and endpoints preserved exactly.
+- **`GRADIENT_STEPS`** (16): the calibrated sub-segments-per-anchor-pair
+  default, tuned so a full hue-arc ramp shows no banding once vello resamples
+  the stops into its ~512-texel sRGB LUT.
+- **`Theme::accent_gradient(angle_deg)`**: the brand accent ramp (A7 → A10) as
+  a one-call smooth OKLCH linear gradient.
+- The **painting specimen** and the editorial **poster** field now build their
+  gradients through the new API (the specimen's accent linear via
+  `accent_gradient`); both stay token-sourced.
+
+### Decided
+
+- See ARCHITECTURE.md "0.18: themed OKLCH gradient builder" — pre-expansion in
+  core (vello 0.9 ignores `peniko`'s `interpolation_cs`, so the only perceptual
+  path is dense stops), chosen over a new `Paint` variant for
+  renderer-independence and testability; `GRADIENT_STEPS = 16` as a calibrated
+  default; and the dedicated A/B eyeball golden.
+
 ## 0.17.0 — 2026-06-14
 
 Balanced and pretty text wrapping: headings break into even lines and

@@ -321,6 +321,15 @@ pub const FOCUS_RING: FocusRing = FocusRing {
 /// the same transition as the press color.
 pub const PRESS_SCALE: f32 = 0.97;
 
+/// Sub-segments generated per anchor pair when expanding an OKLCH gradient
+/// ([`linear_gradient`](crate::linear_gradient) /
+/// [`radial_gradient`](crate::radial_gradient)). Calibrated so a full hue-arc
+/// ramp shows no perceptible banding once vello resamples the stops into its
+/// ~512-texel sRGB ramp LUT (≈32 texels per sub-segment at 16). A perceptual
+/// target, not a hard spec number: raise it if a wide-hue ramp ever bands at a
+/// sub-segment joint.
+pub const GRADIENT_STEPS: usize = 16;
+
 /// The Material state-layer recipe: a translucent veil of a control's *content*
 /// color, laid over its container to signal interaction — one set of opacities
 /// shared across the whole kit instead of per-widget hover colors. Hover is the

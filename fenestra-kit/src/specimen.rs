@@ -3,8 +3,8 @@
 //! golden image in both modes; this is M1's visual regression corpus.
 
 use fenestra_core::{
-    Element, GradientStop, Paint, R_FULL, R_LG, R_MD, R_SM, R_XL, SP1, SP2, SP4, SP6, SP8,
-    ShadowToken, Theme, col, div, row,
+    Element, R_FULL, R_LG, R_MD, R_SM, R_XL, SP1, SP2, SP4, SP6, SP8, ShadowToken, Theme, col, div,
+    radial_gradient, row,
 };
 
 fn swatch_row<Msg>(colors: impl IntoIterator<Item = fenestra_core::Color>) -> Element<Msg> {
@@ -39,33 +39,14 @@ pub fn specimen<Msg>(theme: &Theme) -> Element<Msg> {
             .border(1.0, theme.accent_border)
     };
 
-    let linear = Paint::LinearGradient {
-        angle_deg: 135.0,
-        stops: vec![
-            GradientStop {
-                offset: 0.0,
-                color: theme.accents.step(7),
-            },
-            GradientStop {
-                offset: 1.0,
-                color: theme.accents.step(10),
-            },
-        ],
-    };
-    let radial = Paint::RadialGradient {
-        center: (0.3, 0.3),
-        radius: 1.2,
-        stops: vec![
-            GradientStop {
-                offset: 0.0,
-                color: theme.accents.step(4),
-            },
-            GradientStop {
-                offset: 1.0,
-                color: theme.accents.step(9),
-            },
-        ],
-    };
+    // The brand accent ramp (A7 → A10) as a smooth OKLCH linear gradient.
+    let linear = theme.accent_gradient(135.0);
+    // A radial accent wash (A4 → A9), OKLCH-expanded for a perceptual ramp.
+    let radial = radial_gradient(
+        (0.3, 0.3),
+        1.2,
+        [theme.accents.step(4), theme.accents.step(9)],
+    );
 
     col().p(SP6).gap(SP6).bg(theme.bg).children([
         // 12-step ramps.

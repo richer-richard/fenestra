@@ -222,6 +222,118 @@ impl From<Color> for Paint {
     }
 }
 
+/// Expands OKLCH-interpolated color stops between anchor colors. Each adjacent
+/// anchor pair is walked in `steps` sub-segments through OKLCH (shortest hue
+/// arc, achromatic-endpoint handling, gamut-clamped — the exact OKLCH lerp the
+/// transition engine animates colors along), so the rendered ramp stays
+/// perceptually even with no desaturated "gray dead-zone" through the middle of
+/// a wide-hue transition. The vello renderer interpolates the returned stops in
+/// sRGB, but they sit densely on the OKLCH curve, so the on-screen ramp tracks
+/// it.
+/// Anchors are `(offset, color)` with offsets in `0.0..=1.0`; they are sorted
+/// ascending and the endpoints are preserved exactly. Colors must come from
+/// theme tokens or [`oklch`](crate::oklch) / [`oklch_of`](crate::oklch_of) —
+/// never a raw hex literal.
+///
+/// Edge cases: empty anchors yield `vec![]`; a single anchor yields one stop at
+/// its offset; `steps == 0` yields the (sorted) anchors verbatim, un-interpolated.
+#[must_use]
+pub fn oklch_stops(anchors: &[(f32, Color)], steps: usize) -> Vec<GradientStop> {
+    if anchors.is_empty() {
+        return Vec::new();
+    }
+    let mut sorted = anchors.to_vec();
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+    // A single anchor (or no sub-segments requested) has nothing to walk
+    // through; emit the anchors verbatim.
+    if sorted.len() == 1 || steps == 0 {
+        return sorted
+            .iter()
+            .map(|&(offset, color)| GradientStop { offset, color })
+            .collect();
+    }
+    let mut out = Vec::with_capacity((sorted.len() - 1) * steps + 1);
+    for (seg, pair) in sorted.windows(2).enumerate() {
+        let (o0, c0) = pair[0];
+        let (o1, c1) = pair[1];
+        // The shared boundary stop is emitted once: skip j == 0 on every
+        // segment after the first.
+        let first = usize::from(seg != 0);
+        for j in first..=steps {
+            #[expect(clippy::cast_precision_loss, reason = "gradient step counts are tiny")]
+            let t = j as f32 / steps as f32;
+            out.push(GradientStop {
+                offset: o0 + (o1 - o0) * t,
+                color: crate::anim::lerp_color(c0, c1, t),
+            });
+        }
+    }
+    out
+}
+
+/// Spaces `colors` evenly across `0.0..=1.0` as `(offset, color)` anchors. One
+/// color anchors at 0.0; the empty list yields no anchors.
+fn even_anchors(colors: impl IntoIterator<Item = Color>) -> Vec<(f32, Color)> {
+    let colors: Vec<Color> = colors.into_iter().collect();
+    let last = colors.len().saturating_sub(1);
+    if last == 0 {
+        return colors.into_iter().map(|c| (0.0, c)).collect();
+    }
+    colors
+        .into_iter()
+        .enumerate()
+        .map(|(i, c)| {
+            #[expect(clippy::cast_precision_loss, reason = "color counts are tiny")]
+            let offset = i as f32 / last as f32;
+            (offset, c)
+        })
+        .collect()
+}
+
+/// A gradient needs at least two colors to interpolate; fewer collapses to a
+/// solid fill (the lone color, or fully transparent for none) so the painter
+/// never receives a degenerate one-or-zero-stop list.
+fn degenerate_solid(colors: &[Color]) -> Option<Paint> {
+    match colors {
+        [] => Some(Paint::Solid(Color::new([0.0, 0.0, 0.0, 0.0]))),
+        [c] => Some(Paint::Solid(*c)),
+        _ => None,
+    }
+}
+
+/// A linear [`Paint`] whose `colors` are spaced evenly across `0.0..=1.0` and
+/// expanded into a perceptually smooth OKLCH ramp ([`oklch_stops`] with
+/// [`GRADIENT_STEPS`](crate::GRADIENT_STEPS)). `angle_deg` is CSS-style (0 up,
+/// 90 right). Reads from tokens, e.g.
+/// `bg(linear_gradient(135.0, [t.accent, t.accent_text]))`. Fewer than two
+/// colors collapse to a solid fill (one color, or transparent for none).
+#[must_use]
+pub fn linear_gradient(angle_deg: f32, colors: impl IntoIterator<Item = Color>) -> Paint {
+    let colors: Vec<Color> = colors.into_iter().collect();
+    degenerate_solid(&colors).unwrap_or_else(|| Paint::LinearGradient {
+        angle_deg,
+        stops: oklch_stops(&even_anchors(colors), crate::tokens::GRADIENT_STEPS),
+    })
+}
+
+/// A radial [`Paint`] (see [`Paint::RadialGradient`] for `center` / `radius`)
+/// whose `colors` are spaced evenly across `0.0..=1.0` and expanded into an
+/// OKLCH ramp ([`oklch_stops`] with [`GRADIENT_STEPS`](crate::GRADIENT_STEPS)).
+/// Fewer than two colors collapse to a solid fill (one color, or transparent).
+#[must_use]
+pub fn radial_gradient(
+    center: (f32, f32),
+    radius: f32,
+    colors: impl IntoIterator<Item = Color>,
+) -> Paint {
+    let colors: Vec<Color> = colors.into_iter().collect();
+    degenerate_solid(&colors).unwrap_or_else(|| Paint::RadialGradient {
+        center,
+        radius,
+        stops: oklch_stops(&even_anchors(colors), crate::tokens::GRADIENT_STEPS),
+    })
+}
+
 /// A uniform border: width and color (v1; per-side borders are out of scope).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Border {
@@ -1361,5 +1473,128 @@ mod feature_tests {
         let s = fs(style).unwrap();
         assert!(s.contains("\"lnum\""), "{s}");
         assert!(!s.contains("\"onum\""), "{s}");
+    }
+}
+
+#[cfg(test)]
+mod gradient_tests {
+    use super::*;
+    use crate::oklch_of;
+    use crate::theme::Theme;
+    use crate::tokens::GRADIENT_STEPS;
+
+    #[test]
+    fn midpoint_keeps_chroma_no_gray_deadzone() {
+        // A wide-hue transition (accent ~262° → warning ~80°): the naive sRGB
+        // average of the two anchors collapses toward gray, but the OKLCH
+        // midpoint stays vivid.
+        let theme = Theme::light();
+        let a = theme.accent;
+        let b = theme.warning.solid;
+        let stops = oklch_stops(&[(0.0, a), (1.0, b)], GRADIENT_STEPS);
+        let mid = stops
+            .iter()
+            .min_by(|x, y| (x.offset - 0.5).abs().total_cmp(&(y.offset - 0.5).abs()))
+            .unwrap();
+        let ca = a.components;
+        let cb = b.components;
+        let srgb_mid = Color::new([
+            (ca[0] + cb[0]) / 2.0,
+            (ca[1] + cb[1]) / 2.0,
+            (ca[2] + cb[2]) / 2.0,
+            (ca[3] + cb[3]) / 2.0,
+        ]);
+        let c_oklch = oklch_of(mid.color)[1];
+        let c_srgb = oklch_of(srgb_mid)[1];
+        assert!(
+            c_oklch > 1.5 * c_srgb,
+            "OKLCH mid chroma {c_oklch} should far exceed sRGB mid chroma {c_srgb}"
+        );
+    }
+
+    #[test]
+    fn lightness_is_monotonic_across_stops() {
+        // A9-style same-hue ramp (A7 L 0.725 → A10 L 0.545), fully in gamut:
+        // lightness must never reverse (no dark bump mid-ramp). The epsilon
+        // absorbs per-channel gamut-clamp noise.
+        let theme = Theme::light();
+        let a = theme.accents.step(7);
+        let b = theme.accents.step(10);
+        let stops = oklch_stops(&[(0.0, a), (1.0, b)], GRADIENT_STEPS);
+        for w in stops.windows(2) {
+            let l0 = oklch_of(w[0].color)[0];
+            let l1 = oklch_of(w[1].color)[0];
+            assert!(l1 <= l0 + 1e-3, "lightness rose mid-ramp: {l0} -> {l1}");
+        }
+    }
+
+    #[test]
+    fn offsets_sorted_and_span_anchors() {
+        let theme = Theme::light();
+        let a = theme.accent;
+        let b = theme.warning.solid;
+        let stops = oklch_stops(&[(0.0, a), (1.0, b)], 16);
+        assert_eq!(stops.len(), 17);
+        assert_eq!(stops.first().unwrap().offset, 0.0);
+        assert_eq!(stops.last().unwrap().offset, 1.0);
+        for w in stops.windows(2) {
+            assert!(w[1].offset > w[0].offset, "offsets must strictly increase");
+        }
+        // Unsorted anchors must produce the identical result.
+        let unsorted = oklch_stops(&[(1.0, b), (0.0, a)], 16);
+        assert_eq!(unsorted, stops);
+    }
+
+    #[test]
+    fn endpoints_are_exact() {
+        // Pre-expansion must never shift the anchors themselves.
+        let theme = Theme::light();
+        let a = theme.accent;
+        let b = theme.warning.solid;
+        let stops = oklch_stops(&[(0.0, a), (1.0, b)], 16);
+        assert_eq!(stops.first().unwrap().color.to_rgba8(), a.to_rgba8());
+        assert_eq!(stops.last().unwrap().color.to_rgba8(), b.to_rgba8());
+    }
+
+    #[test]
+    fn linear_gradient_even_spacing() {
+        let theme = Theme::light();
+        let (a, b, c) = (theme.accent, theme.warning.solid, theme.success.solid);
+        let paint = linear_gradient(90.0, [a, b, c]);
+        let Paint::LinearGradient { angle_deg, stops } = paint else {
+            panic!("linear_gradient must build a LinearGradient");
+        };
+        assert_eq!(angle_deg, 90.0);
+        // Three colors land evenly at 0.0 / 0.5 / 1.0, each carrying its anchor.
+        for (off, color) in [(0.0, a), (0.5, b), (1.0, c)] {
+            let found = stops
+                .iter()
+                .find(|s| (s.offset - off).abs() < 1e-4)
+                .unwrap_or_else(|| panic!("no stop at offset {off}"));
+            assert_eq!(
+                found.color.to_rgba8(),
+                color.to_rgba8(),
+                "anchor color at offset {off}"
+            );
+        }
+    }
+
+    #[test]
+    fn degenerate_inputs() {
+        let theme = Theme::light();
+        let a = theme.accent;
+        let b = theme.warning.solid;
+        // Empty anchors → empty.
+        assert!(oklch_stops(&[], 16).is_empty());
+        // Single anchor → one stop at its offset.
+        let single = oklch_stops(&[(0.3, a)], 16);
+        assert_eq!(single.len(), 1);
+        assert_eq!(single[0].offset, 0.3);
+        assert_eq!(single[0].color.to_rgba8(), a.to_rgba8());
+        // steps == 0 → exactly the two endpoints, no interpolation.
+        let zero_steps = oklch_stops(&[(0.0, a), (1.0, b)], 0);
+        assert_eq!(zero_steps.len(), 2);
+        assert_eq!(zero_steps[0].color.to_rgba8(), a.to_rgba8());
+        assert_eq!(zero_steps[1].color.to_rgba8(), b.to_rgba8());
     }
 }

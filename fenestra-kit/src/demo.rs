@@ -189,24 +189,22 @@ pub fn scroll_demo<Msg>(theme: &Theme) -> Element<Msg> {
 /// (`Fonts::register`), build a duotone theme, and render — every color
 /// still routes through theme tokens.
 pub fn poster<Msg: 'static>(theme: &Theme) -> Element<Msg> {
-    use fenestra_core::{FamilyRole, GradientStop, Length, Paint, SP2, SP4, SP6, SP8, stack};
+    use fenestra_core::{
+        FamilyRole, GRADIENT_STEPS, Length, Paint, SP2, SP4, SP6, SP8, oklch_stops, stack,
+    };
 
+    // Paper grain: a near-gray neutral wash with explicit, uneven stops
+    // (N3 → N2 at 0.55 → N1), OKLCH-expanded so the subtle ramp stays clean.
     let field = Paint::LinearGradient {
         angle_deg: 8.0,
-        stops: vec![
-            GradientStop {
-                offset: 0.0,
-                color: theme.neutrals.step(3),
-            },
-            GradientStop {
-                offset: 0.55,
-                color: theme.neutrals.step(2),
-            },
-            GradientStop {
-                offset: 1.0,
-                color: theme.neutrals.step(1),
-            },
-        ],
+        stops: oklch_stops(
+            &[
+                (0.0, theme.neutrals.step(3)),
+                (0.55, theme.neutrals.step(2)),
+                (1.0, theme.neutrals.step(1)),
+            ],
+            GRADIENT_STEPS,
+        ),
     };
 
     // Faint ruled lines: paper grain.
