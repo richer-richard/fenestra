@@ -21,6 +21,74 @@ div().themed(|t: &Theme, s| s.bg(t.surface).border(1.0, t.border))
 Flip `Mode::Light`/`Mode::Dark` (or return a different theme from
 `App::theme`) and everything follows.
 
+## The 12-step scale
+
+Each ramp follows the Radix model, so styling is arithmetic rather than
+art. The neutral steps carry names:
+
+| step | role | step | role |
+|------|------|------|------|
+| 1 `bg` | app background | 7 `border_strong` | strong border |
+| 2 `surface` | subtle surface | 9 `text_subtle` | low-emphasis text |
+| 3 `element` | element fill | 11 `text_muted` | secondary text |
+| 4 `element_hover` | hovered fill | 12 `text` | primary text |
+| 5 `element_active` | pressed fill | | |
+| 6 `border` | border | | |
+
+Interaction is "+1 step": a control rests on `element`, hovers to
+`element_hover`, presses to `element_active`. Solid accents do the same —
+`accent` → `accent_hover` → `accent_active` (one OKLCH-lightness notch
+darker), and each status color carries `solid` / `solid_hover` /
+`solid_active`. Pressed colors are mode-invariant, so a button feels the
+same in light and dark.
+
+Every ramp also has a translucent **alpha twin** (`neutral_alpha`,
+`accent_alpha`) — the same step rendered as the lowest-alpha color that
+composites over `bg` back to the solid value. Use a twin where a tint must
+read correctly over an arbitrary surface, not just the page background.
+
+## Provably legible: APCA
+
+Because fenestra resolves every color at construction, it can *prove* a
+theme is readable — something no CSS framework can do:
+
+```rust,ignore
+let theme = Theme::from_accent(262.0, Mode::Dark);
+assert!(theme.validate_contrast().is_ok()); // every text pair clears its floor
+```
+
+`validate_contrast` scores each text/background role pair with APCA
+(`apca::lc`, the APCA-W3 `0.98G-4g` algorithm) against a role-tiered
+lightness-contrast floor — primary text Lc 75 (the stock themes reach
+90+), secondary text 55, control labels 60, colored component text 40 —
+and returns the pairs that fall short. The built-in themes and every
+shipped Look are asserted to pass in headless tests, and your own themes
+can be too. (APCA scores text legibility, so borders and other non-text
+contrast aren't checked.)
+
+## Elevation
+
+Shadows are layered (a tight contact shadow under a soft ambient one) and
+tinted with the *surface hue* at low chroma rather than flat black, so an
+editorial green field casts a green-black shadow. `ShadowToken` runs
+`Xs`/`Sm`/`Md`/`Lg`/`Xl`; the `Xl` token is a three-layer overlay shadow
+for modals. In dark mode, elevation lightens surfaces
+(`elevated_surface(level)`) rather than relying on shadows. Solid controls
+can carry a 1px inset top highlight (`.highlight_top(color)`) — the subtle
+top sheen that reads as "raised."
+
+## Typography
+
+Letter spacing follows Inter's dynamic-metrics tracking curve at the
+actual font size (positive at caption sizes, tightening as text grows), so
+display sizes are tracked correctly without hand-tuning. Tabular figures
+are one call — `.tabular()` — for tables, timers, and any numbers that
+align in columns or update in place:
+
+```rust,ignore
+text(format!("{revenue:>10}")).tabular()
+```
+
 ## Beyond the SaaS look
 
 `Theme::duotone(neutral_hue, neutral_chroma, accent_hue, mode)` builds

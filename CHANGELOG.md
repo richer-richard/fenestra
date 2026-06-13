@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.11.0 — 2026-06-13
+
+The craft release: structural sophistication on top of the OKLCH ramps.
+
+### Added
+
+- **Semantic element states**: `Theme::element` / `element_hover` /
+  `element_active` (neutral steps 3/4/5, Radix's UI-element-fill model),
+  plus `accent_active` and `StatusColors::solid_active` — pressed states
+  one OKLCH-lightness notch below hover, mode-invariant. Kit interaction
+  styling is now scale arithmetic rather than hand-picked steps.
+- **Alpha twins**: `Theme::neutral_alpha` / `accent_alpha` — translucent
+  twins of each ramp (the smallest alpha that composites over `bg` back
+  to the solid step) for overlays and state layers that must read over
+  any surface, not just `bg`.
+- **APCA-validated themes**: `apca::lc` / `lc_abs` / `meets` (APCA-W3
+  `0.98G-4g` lightness contrast) and `Theme::validate_contrast`, which
+  checks every text/background role pair against role-tiered Lc floors.
+  Every built-in theme and shipped Look is asserted legible in headless
+  tests — a guarantee no CSS framework can make.
+- **Layered, hued elevation**: shadows take the surface hue at low chroma
+  instead of flat black (`Theme::shadow_tint`); a new `ShadowToken::Xl`
+  three-layer overlay shadow (modals); a 1px inset top highlight on solid
+  buttons (`Style::highlight_top` / `Element::highlight_top`).
+- **Typography from a formula**: letter spacing follows Inter's
+  dynamic-metrics tracking curve at the actual font size (`tracking_em`),
+  and tabular figures are one call — `Style::tabular` / `Element::tabular`
+  — applied to numeric kit widgets (stat cards, tables, chart labels).
+
+### Changed
+
+- Pressed Primary and Danger buttons use the new `accent_active` /
+  `danger.solid_active` (a deeper, richer press) instead of reusing a
+  text-role color as a fill; selected rows in tree/table use the named
+  `accent_bg`.
+- Modal overlays use the deeper `ShadowToken::Xl`.
+
+### Decided
+
+- Line height stays the hand-tuned per-size scale: it already curves
+  smaller-looser / larger-tighter more aggressively than a naive linear
+  fit, and `Base = 24px` is the line box virtualization is pinned to.
+  APCA validation covers text pairs only (it scores text, not borders).
+  See ARCHITECTURE.md.
+
 ## 0.10.0 — 2026-06-13
 
 Performance honesty.

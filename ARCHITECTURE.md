@@ -731,3 +731,67 @@ apps showing untrusted text could panic until then.
   closes, Xilem switches its default renderer, and our own spike
   proves bit-exactness on the full golden corpus. Until then we track
   releases and re-run the spike at each minor.
+
+## 0.11: the craft release (Tier 1)
+
+Web-grade sophistication is structural, not per-widget effort: scales
+with *semantics*, *derivation rules*, and *state machinery* so every
+widget inherits craft. 0.11 builds that layer on top of the OKLCH ramps
+that have existed since 0.7.
+
+- **Semantic element states + mode-correct pressed states.** The
+  neutral ramp's steps 3/4/5 are named `element` / `element_hover` /
+  `element_active` (Radix's UI-element-fill model), so kit interaction
+  styling is scale arithmetic, not hand-picked colors. Pressed states
+  (`accent_active`, `StatusColors::solid_active`) drop one OKLCH
+  lightness notch (`ACTIVE_DL = 0.045`) below the step-10 hover — in
+  light mode the accent lands exactly on A11's lightness at A10's
+  chroma, and because steps 9/10 are mode-invariant the pressed colors
+  are too. This replaced a wart where the danger button's pressed fill
+  reused `danger.text` (a text role) as a background.
+- **Alpha twins.** Each ramp gets a translucent twin (`neutral_alpha`,
+  `accent_alpha`): the smallest-alpha color that, composited over `bg`,
+  reproduces the solid step (per channel, the minimal alpha keeping the
+  back-solved foreground in `[0,1]`; the max across channels wins, so a
+  tint both bluer and darker than a near-white bg forces alpha toward
+  opaque). The reconstruction is exact at f32, so a property test
+  round-trips every twin over `bg` back to its solid step. Twins let
+  overlays and state layers read correctly over any surface, not just
+  `bg`.
+- **APCA-validated legibility — the differentiator.** `apca::lc` is the
+  APCA-W3 `0.98G-4g` lightness-contrast (verified against the published
+  reference vectors to <0.01). `Theme::validate_contrast` checks every
+  text/background role pair against a tiered floor — primary text Lc 75
+  (the stock themes reach 90+), secondary/muted 55, control labels 60,
+  colored component text 40 — and headless tests assert every built-in
+  theme *and* every shipped Look passes. No CSS framework can enforce
+  this, because none resolves its colors at construction. Deliberate
+  scope: only text pairs are checked. APCA models text legibility, not
+  delineation, and on dark themes opaque low-contrast borders score ~0
+  Lc; `text_subtle` (a hint color at ~28 Lc in dark) is likewise not a
+  body-text role and is excluded.
+- **Layered, hued elevation.** Shadows carry the surface hue at low
+  chroma (`Theme::shadow_tint`, a near-black derived from `bg`'s OKLCH
+  hue) instead of flat `#000` — subtle on neutral themes, visible on the
+  tinted ones (the editorial field casts green-black). A new
+  `ShadowToken::Xl` is a three-layer contact+ambient ramp for modals.
+  Solid buttons get a 1px inset top highlight (`Style::highlight_top`,
+  white at low alpha, clipped to the corner radius) — the premium-flat
+  top sheen Linear/Vercel use; the skeuomorphic glossy version is not
+  in fenestra's flat-modern language and was not adopted. Dark-mode
+  elevation continues to lighten surfaces (shadows read poorly on dark).
+- **Typography from a formula.** Letter spacing follows Inter's
+  published dynamic-metrics tracking curve
+  `-0.0223 + 0.185·e^(-0.1745·px)`, applied at the actual size (so
+  free-form display sizes track correctly too) instead of three
+  hand-set steps. Tabular figures (`tnum`) are a one-call
+  `Style::tabular` / `Element::tabular`, applied to numeric kit widgets
+  (stat cards, tables, chart labels) so digits align in columns.
+  - **Line height stays the per-size scale, deliberately.** The
+    research prescribed a line-height *curve* too, but the existing
+    hand-tuned scale already implements smaller-looser / larger-tighter
+    more aggressively than a naive linear (12→48px ⇒ 1.5→1.0) fit, and
+    `Base = 1.5 × 16px = 24px` is the line box variable-height
+    virtualization is pinned to. A formula would loosen mid-size
+    headings and disturb that invariant for no gain, so it was not
+    adopted.
