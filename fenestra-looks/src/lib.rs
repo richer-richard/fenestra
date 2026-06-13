@@ -1,6 +1,6 @@
 //! Looks: complete design languages for fenestra — theme, typefaces,
 //! and character bundled into one value and applied in one call. The
-//! same app, three voices:
+//! same app, five voices:
 //!
 //! - [`product`] — the stock voice: Inter, neutral surfaces, blue
 //!   accent. What the kit ships as.
@@ -8,6 +8,10 @@
 //!   deep duotone field (the poster's language, packaged).
 //! - [`terminal`] — instrument panel: JetBrains Mono everywhere,
 //!   phosphor-green accent, built for dense tools.
+//! - [`warm_editorial`] — warm paper and ink: a cream-and-terracotta field
+//!   ([`Theme::derive`]) with Playfair serif prose under sans chrome.
+//! - [`playful`] — a soft pastel canvas with a saturated accent, for
+//!   whiteboard-class, friendly tools.
 //!
 //! ```
 //! use fenestra_core::Mode;
@@ -18,7 +22,7 @@
 //!
 //! Typefaces are vendored under their OFL licenses (see `assets/`).
 
-use fenestra_core::{FamilyRole, Fonts, Mode, Theme};
+use fenestra_core::{BaseField, Contrast, FamilyRole, Fonts, Mode, Theme};
 
 /// A packaged design language: a resolved theme plus the typefaces
 /// that give it its voice.
@@ -96,7 +100,58 @@ pub fn terminal(mode: Mode) -> Look {
     }
 }
 
+/// Warm paper and ink: a cream-and-terracotta field with Playfair serif prose
+/// under sans chrome. The palette is *derived* — a warm neutral field (hue 80,
+/// a touch off gray) and a terracotta accent (hue 40) at crisp contrast — not
+/// hand-placed, so light and dark stay coherent. Apps set prose runs to
+/// [`FamilyRole::Serif`] and keep controls on the sans default; elevation reads
+/// as borders more than shadows on paper.
+pub fn warm_editorial(mode: Mode) -> Look {
+    Look {
+        name: "warm-editorial",
+        theme: Theme::derive(
+            BaseField {
+                hue: 80.0,
+                chroma: 2.5,
+            },
+            40.0,
+            Contrast::High,
+            mode,
+        ),
+        faces: vec![
+            (FamilyRole::Serif, PLAYFAIR),
+            (FamilyRole::Display, PLAYFAIR),
+        ],
+    }
+}
+
+/// A soft pastel canvas with a saturated accent — the whiteboard/FigJam voice:
+/// faintly tinted surfaces (derived from a cool field at low chroma) under a
+/// vivid magenta accent, so accent strokes pop against pastel fills. (Ships
+/// with the base sans; a hand-drawn display face is a future addition.)
+pub fn playful(mode: Mode) -> Look {
+    Look {
+        name: "playful",
+        theme: Theme::derive(
+            BaseField {
+                hue: 280.0,
+                chroma: 2.0,
+            },
+            330.0,
+            Contrast::Standard,
+            mode,
+        ),
+        faces: Vec::new(),
+    }
+}
+
 /// Every shipped look, for galleries and pickers.
 pub fn all(mode: Mode) -> Vec<Look> {
-    vec![product(mode), editorial(mode), terminal(mode)]
+    vec![
+        product(mode),
+        editorial(mode),
+        terminal(mode),
+        warm_editorial(mode),
+        playful(mode),
+    ]
 }

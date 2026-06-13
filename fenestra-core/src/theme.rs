@@ -18,6 +18,45 @@ pub enum Mode {
     Dark,
 }
 
+/// The neutral-field character for [`Theme::derive`]: the hue the neutral ramp
+/// is tinted with and how far it departs from gray. `chroma` multiplies the
+/// neutral table's (very low) base chroma — `1.0` is the stock near-gray SaaS
+/// tint, `4`–`10` an atmospheric duotone field (deep green, warm paper), `0`
+/// pure gray.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BaseField {
+    /// Neutral ramp hue in OKLCH degrees.
+    pub hue: f32,
+    /// Chroma multiplier on the neutral table's base chroma.
+    pub chroma: f32,
+}
+
+/// Contrast level for [`Theme::derive`]: scales every neutral step's lightness
+/// distance from the background, so text and UI separation widen or soften from
+/// one knob. `Standard` reproduces the stock ramps exactly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Contrast {
+    /// Gentler separation (0.92× the stock spread).
+    Low,
+    /// The stock ramps (1.0×).
+    #[default]
+    Standard,
+    /// Crisper separation (1.10×).
+    High,
+}
+
+impl Contrast {
+    /// Lightness-distance multiplier from the background step.
+    fn factor(self) -> f32 {
+        match self {
+            Self::Low => 0.92,
+            Self::Standard => 1.0,
+            Self::High => 1.10,
+        }
+    }
+}
+
 /// A 12-step color ramp.
 #[derive(Debug, Clone)]
 pub struct Ramp(pub [Color; 12]);
@@ -325,9 +364,9 @@ impl Theme {
     /// is gamut-mapped per color, never clipped.
     pub fn duotone(neutral_hue: f32, neutral_chroma: f32, accent_hue: f32, mode: Mode) -> Self {
         let mut theme = Self::from_accent(accent_hue, mode);
-        let (neutral_table, accent_table) = match mode {
-            Mode::Light => (&NEUTRAL_LIGHT, &ACCENT_LIGHT),
-            Mode::Dark => (&NEUTRAL_DARK, &ACCENT_DARK),
+        let neutral_table = match mode {
+            Mode::Light => &NEUTRAL_LIGHT,
+            Mode::Dark => &NEUTRAL_DARK,
         };
         let hue = neutral_hue.rem_euclid(360.0);
         let boost = neutral_chroma.clamp(0.0, 40.0);
@@ -335,31 +374,74 @@ impl Theme {
             let (l, c) = neutral_table[i];
             oklch(l, c * boost, hue)
         }));
-        theme.bg = neutrals.step(1);
-        theme.surface = neutrals.step(2);
-        if matches!(mode, Mode::Dark) {
-            theme.surface_raised = neutrals.step(3);
-        }
-        theme.border_subtle = neutrals.step(5);
-        theme.border = neutrals.step(6);
-        theme.border_strong = neutrals.step(7);
-        theme.text = neutrals.step(12);
-        theme.text_muted = neutrals.step(11);
-        theme.text_subtle = neutrals.step(9);
-        theme.text_disabled = neutrals.step(8);
-        if accent_table[8].0 >= 0.65 {
-            theme.on_accent = neutrals.step(12);
-        }
-        let bg = neutrals.step(1);
-        theme.element = neutrals.step(3);
-        theme.element_hover = neutrals.step(4);
-        theme.element_active = neutrals.step(5);
-        theme.neutral_alpha = alpha_ramp(&neutrals, bg);
-        theme.accent_alpha = alpha_ramp(&theme.accents, bg);
-        theme.neutral_hue = hue;
-        theme.neutral_chroma_mult = boost;
-        theme.neutrals = neutrals;
+        theme.apply_neutral_field(neutrals, hue, boost);
         theme
+    }
+
+    /// Web-grade by default: the whole palette from three inputs (Linear's
+    /// model collapsed onto fenestra's OKLCH scales). `base` is the neutral
+    /// field (hue + how far from gray), `accent_hue` the brand hue, and
+    /// `contrast` the separation level. [`from_accent`](Self::from_accent) and
+    /// [`duotone`](Self::duotone) are special cases — `duotone(hue, c, accent,
+    /// mode)` equals `derive(BaseField{hue, chroma: c}, accent, Standard, mode)`.
+    /// A matching radius family comes from [`RadiusScale::from_base`].
+    ///
+    /// [`RadiusScale::from_base`]: crate::RadiusScale::from_base
+    pub fn derive(base: BaseField, accent_hue: f32, contrast: Contrast, mode: Mode) -> Self {
+        let mut theme = Self::from_accent(accent_hue, mode);
+        let neutral_table = match mode {
+            Mode::Light => &NEUTRAL_LIGHT,
+            Mode::Dark => &NEUTRAL_DARK,
+        };
+        let hue = base.hue.rem_euclid(360.0);
+        let chroma_mult = base.chroma.clamp(0.0, 40.0);
+        let k = contrast.factor();
+        let l_bg = neutral_table[0].0;
+        let neutrals = Ramp(std::array::from_fn(|i| {
+            let (l, c) = neutral_table[i];
+            // Scale each step's lightness distance from the page background, so
+            // contrast widens or softens against a fixed bg rather than drifting.
+            let l = (l_bg + (l - l_bg) * k).clamp(0.0, 1.0);
+            oklch(l, c * chroma_mult, hue)
+        }));
+        theme.apply_neutral_field(neutrals, hue, chroma_mult);
+        theme
+    }
+
+    /// Re-points every neutral-derived role at `neutrals` (already built for
+    /// `hue` at `chroma_mult` × the base table chroma). Shared by `duotone`
+    /// and `derive`; the accent ramp, status colors, and shadows are untouched.
+    fn apply_neutral_field(&mut self, neutrals: Ramp, hue: f32, chroma_mult: f32) {
+        let accent_table = match self.mode {
+            Mode::Light => &ACCENT_LIGHT,
+            Mode::Dark => &ACCENT_DARK,
+        };
+        let bg = neutrals.step(1);
+        self.bg = bg;
+        self.surface = neutrals.step(2);
+        if matches!(self.mode, Mode::Dark) {
+            self.surface_raised = neutrals.step(3);
+        }
+        self.element = neutrals.step(3);
+        self.element_hover = neutrals.step(4);
+        self.element_active = neutrals.step(5);
+        self.border_subtle = neutrals.step(5);
+        self.border = neutrals.step(6);
+        self.border_strong = neutrals.step(7);
+        self.text = neutrals.step(12);
+        self.text_muted = neutrals.step(11);
+        self.text_subtle = neutrals.step(9);
+        self.text_disabled = neutrals.step(8);
+        // A light accent (table L >= 0.65) takes dark on-accent text from the
+        // new field, matching `from_accent`'s rule against the field neutrals.
+        if accent_table[8].0 >= 0.65 {
+            self.on_accent = neutrals.step(12);
+        }
+        self.neutral_alpha = alpha_ramp(&neutrals, bg);
+        self.accent_alpha = alpha_ramp(&self.accents, bg);
+        self.neutral_hue = hue;
+        self.neutral_chroma_mult = chroma_mult;
+        self.neutrals = neutrals;
     }
 
     /// The default light theme (accent hue 262).
@@ -789,8 +871,8 @@ fn hex(c: Color) -> String {
 /// {"mode": "dark", "duotone": {"neutral_hue": 152.0, "chroma": 6.0, "accent_hue": 72.0}}
 /// ```
 ///
-/// Precedence: `duotone` wins over `accent_hue`; neither means the
-/// stock palette for `mode`.
+/// Precedence: `derive` wins over `duotone` wins over `accent_hue`; none
+/// means the stock palette for `mode`.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ThemeSpec {
@@ -802,6 +884,9 @@ pub struct ThemeSpec {
     /// Duotone field (`Theme::duotone`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duotone: Option<DuotoneSpec>,
+    /// Three-input derivation (`Theme::derive`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub derive: Option<DeriveSpec>,
 }
 
 /// The duotone parameters of a [`ThemeSpec`].
@@ -816,9 +901,35 @@ pub struct DuotoneSpec {
     pub accent_hue: f32,
 }
 
+/// The three-input parameters of a [`ThemeSpec`] (`Theme::derive`).
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeriveSpec {
+    /// Neutral-field hue (OKLCH degrees).
+    pub base_hue: f32,
+    /// Neutral-field chroma multiplier.
+    pub base_chroma: f32,
+    /// Accent hue (OKLCH degrees).
+    pub accent_hue: f32,
+    /// Contrast level (defaults to `standard`).
+    #[serde(default)]
+    pub contrast: Contrast,
+}
+
 impl ThemeSpec {
     /// Resolves the recipe into a full [`Theme`].
     pub fn theme(&self) -> Theme {
+        if let Some(d) = &self.derive {
+            return Theme::derive(
+                BaseField {
+                    hue: d.base_hue,
+                    chroma: d.base_chroma,
+                },
+                d.accent_hue,
+                d.contrast,
+                self.mode,
+            );
+        }
         if let Some(d) = &self.duotone {
             return Theme::duotone(d.neutral_hue, d.chroma, d.accent_hue, self.mode);
         }
@@ -996,5 +1107,89 @@ mod tests {
             (r2 - b2).abs() > 1e-3,
             "stock shadow tint should carry a hue"
         );
+    }
+
+    #[test]
+    fn derive_reproduces_from_accent_and_duotone() {
+        // derive is the general path: at chroma 1.0 / Standard contrast it is
+        // from_accent, and at a boosted chroma / Standard it is duotone.
+        for mode in [Mode::Light, Mode::Dark] {
+            let as_accent = Theme::derive(
+                BaseField {
+                    hue: 262.0,
+                    chroma: 1.0,
+                },
+                262.0,
+                Contrast::Standard,
+                mode,
+            );
+            assert_eq!(as_accent.dump(), Theme::from_accent(262.0, mode).dump());
+
+            let as_duotone = Theme::derive(
+                BaseField {
+                    hue: 152.0,
+                    chroma: 6.0,
+                },
+                72.0,
+                Contrast::Standard,
+                mode,
+            );
+            assert_eq!(
+                as_duotone.dump(),
+                Theme::duotone(152.0, 6.0, 72.0, mode).dump()
+            );
+        }
+    }
+
+    #[test]
+    fn derive_contrast_orders_legibility_and_stays_legible() {
+        let base = BaseField {
+            hue: 262.0,
+            chroma: 1.0,
+        };
+        let low = Theme::derive(base, 262.0, Contrast::Low, Mode::Light);
+        let std = Theme::derive(base, 262.0, Contrast::Standard, Mode::Light);
+        let high = Theme::derive(base, 262.0, Contrast::High, Mode::Light);
+        let lc = |t: &Theme| crate::apca::lc_abs(t.text, t.bg);
+        assert!(lc(&high) > lc(&std), "High must be crisper than Standard");
+        assert!(lc(&std) > lc(&low), "Standard must be crisper than Low");
+        // Every level still clears the APCA floors — derivation never ships an
+        // illegible theme.
+        for t in [&low, &std, &high] {
+            assert!(
+                t.validate_contrast().is_ok(),
+                "derived theme failed contrast: {:?}",
+                t.validate_contrast()
+            );
+        }
+    }
+
+    #[test]
+    fn derive_recipe_round_trips() {
+        let spec = ThemeSpec {
+            mode: Mode::Dark,
+            accent_hue: None,
+            duotone: None,
+            derive: Some(DeriveSpec {
+                base_hue: 90.0,
+                base_chroma: 2.0,
+                accent_hue: 40.0,
+                contrast: Contrast::High,
+            }),
+        };
+        let json = spec.to_json();
+        let back = ThemeSpec::from_json(&json).expect("round-trip");
+        assert_eq!(spec, back);
+        // The recipe resolves to the same theme as the direct call.
+        let direct = Theme::derive(
+            BaseField {
+                hue: 90.0,
+                chroma: 2.0,
+            },
+            40.0,
+            Contrast::High,
+            Mode::Dark,
+        );
+        assert_eq!(spec.theme().dump(), direct.dump());
     }
 }

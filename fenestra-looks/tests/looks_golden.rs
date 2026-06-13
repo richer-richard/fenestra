@@ -5,7 +5,7 @@ use fenestra_core::{
     Element, FamilyRole, Mode, R_MD, SP2, SP3, SP4, Semantics, ShadowToken, TextSize, Theme,
     Weight, col, div, rich_text, row, span, text,
 };
-use fenestra_looks::{Look, all, editorial, product, terminal};
+use fenestra_looks::{Look, all, editorial, playful, product, terminal, warm_editorial};
 use fenestra_shell::render_element_with;
 use fenestra_shell::testing::assert_png_snapshot;
 
@@ -91,7 +91,34 @@ fn terminal_look_golden() {
 }
 
 #[test]
+fn warm_editorial_look_golden() {
+    assert_png_snapshot(
+        snapshot_dir(),
+        "look_warm_editorial",
+        &shoot(&warm_editorial(Mode::Light)),
+    );
+}
+
+#[test]
+fn playful_look_golden() {
+    assert_png_snapshot(
+        snapshot_dir(),
+        "look_playful",
+        &shoot(&playful(Mode::Light)),
+    );
+}
+
+#[test]
 fn all_returns_every_look() {
     let names: Vec<&str> = all(Mode::Light).iter().map(|l| l.name).collect();
-    assert_eq!(names, vec!["product", "editorial", "terminal"]);
+    assert_eq!(
+        names,
+        vec![
+            "product",
+            "editorial",
+            "terminal",
+            "warm-editorial",
+            "playful"
+        ]
+    );
 }

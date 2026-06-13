@@ -41,7 +41,10 @@ pub use proxy::Proxy;
 pub use query::{Query, QueryError, TextMatch, by};
 pub use style::*;
 pub use text::Fonts;
-pub use theme::{ContrastViolation, DuotoneSpec, Mode, Ramp, StatusColors, Theme, ThemeSpec};
+pub use theme::{
+    BaseField, Contrast, ContrastViolation, DeriveSpec, DuotoneSpec, Mode, Ramp, StatusColors,
+    Theme, ThemeSpec,
+};
 pub use tokens::*;
 
 // Re-exported so dependents (kit, apps) never need a direct peniko dep.

@@ -37,6 +37,44 @@ pub const R_XL: f32 = 20.0;
 /// Fully-rounded (pills, avatars); clamped to half the box size at paint.
 pub const R_FULL: f32 = f32::INFINITY;
 
+/// A corner-radius family derived from one base measure, so a theme can be
+/// tighter or rounder from a single knob. The ratios (0.6 / 1.0 / 1.4 / 2.0 ×
+/// base) are fenestra's: a base of `10` reproduces [`R_SM`] / [`R_MD`] /
+/// [`R_LG`] / [`R_XL`] exactly, which is why the kit's constants and the
+/// default scale agree.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct RadiusScale {
+    /// Small radius (badges, chips).
+    pub sm: f32,
+    /// Medium radius (controls).
+    pub md: f32,
+    /// Large radius (cards).
+    pub lg: f32,
+    /// Extra-large radius (modals).
+    pub xl: f32,
+}
+
+impl RadiusScale {
+    /// The family derived from a base radius: `0.6 / 1.0 / 1.4 / 2.0 × base`.
+    #[must_use]
+    pub fn from_base(base: f32) -> Self {
+        let b = base.max(0.0);
+        Self {
+            sm: b * 0.6,
+            md: b,
+            lg: b * 1.4,
+            xl: b * 2.0,
+        }
+    }
+}
+
+impl Default for RadiusScale {
+    /// The stock family (base `R_MD` = 10): `R_SM` / `R_MD` / `R_LG` / `R_XL`.
+    fn default() -> Self {
+        Self::from_base(R_MD)
+    }
+}
+
 /// The typographic scale. Sizes are logical px.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum TextSize {
@@ -382,5 +420,20 @@ mod tests {
     #[test]
     fn press_scale_is_a_subtle_shrink() {
         assert!((0.96..=0.97).contains(&PRESS_SCALE));
+    }
+
+    #[test]
+    fn radius_scale_default_matches_the_constants() {
+        // The default family (base R_MD) must reproduce the kit's constants, so
+        // a theme on the default scale looks identical to one using R_SM..R_XL.
+        let r = RadiusScale::default();
+        assert_eq!(r.sm, R_SM);
+        assert_eq!(r.md, R_MD);
+        assert_eq!(r.lg, R_LG);
+        assert_eq!(r.xl, R_XL);
+        // A tighter base scales the whole family down proportionally.
+        let tight = RadiusScale::from_base(5.0);
+        assert_eq!(tight.md, 5.0);
+        assert!(tight.sm < tight.md && tight.md < tight.lg && tight.lg < tight.xl);
     }
 }
