@@ -34,21 +34,21 @@ pub const SNAP_GRID: f32 = 8.0;
 /// [`ZOOM_MAX`].
 #[must_use]
 pub fn zoom_in(z: f32) -> f32 {
-    ZOOMS
-        .iter()
-        .copied()
-        .find(|&s| s > z + 1e-4)
-        .unwrap_or(ZOOM_MAX)
+    // Strictly above z: an exact ladder value advances to the next step (it is
+    // not `> itself`), while an off-ladder value snaps up to the adjacent step.
+    ZOOMS.iter().copied().find(|&s| s > z).unwrap_or(ZOOM_MAX)
 }
 
 /// Steps to the next discrete zoom level below `z`; clamps at [`ZOOM_MIN`].
 #[must_use]
 pub fn zoom_out(z: f32) -> f32 {
+    // Strictly below z (mirror of `zoom_in`): exact values step down, and
+    // off-ladder values snap down to the adjacent step.
     ZOOMS
         .iter()
         .rev()
         .copied()
-        .find(|&s| s < z - 1e-4)
+        .find(|&s| s < z)
         .unwrap_or(ZOOM_MIN)
 }
 
@@ -141,6 +141,11 @@ mod tests {
         assert_eq!(zoom_out(1.5), 1.0); // next step below
         assert_eq!(zoom_in(ZOOM_MAX), ZOOM_MAX); // clamps
         assert_eq!(zoom_out(ZOOM_MIN), ZOOM_MIN);
+        // Off-ladder (a continuous/pinch zoom): step to the ADJACENT ladder
+        // level, never past it. A value a hair below 0.1 must zoom in to 0.1,
+        // not skip to 0.25.
+        assert_eq!(zoom_in(0.099_95), 0.1);
+        assert_eq!(zoom_out(0.100_05), 0.1);
     }
 
     #[test]
