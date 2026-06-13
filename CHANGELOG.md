@@ -1,5 +1,41 @@
 # Changelog
 
+## 0.13.0 — 2026-06-13
+
+Derivation as product: the whole palette from three inputs, and two new Looks
+that prove the range.
+
+### Added
+
+- **`Theme::derive(base, accent, contrast, mode)`** — the entire palette from
+  three inputs (Linear's model on fenestra's OKLCH scales): a neutral
+  `BaseField` (hue + chroma-from-gray), an accent hue, and a `Contrast` level
+  (`Low`/`Standard`/`High`) that scales every step's lightness distance from the
+  background. `from_accent` and `duotone` are special cases — `derive` at
+  `Standard` reproduces them byte-for-byte — and every level still clears the
+  APCA floors. Carried in `ThemeSpec` as a `derive` recipe (precedence
+  derive > duotone > accent_hue).
+- **`RadiusScale::from_base(f32)`** — a corner-radius family (`sm`/`md`/`lg`/`xl`
+  at 0.6 / 1.0 / 1.4 / 2.0 ×) from one knob; the default base (10) reproduces
+  `R_SM`…`R_XL`.
+- **Two new Looks** (`fenestra-looks`): **warm-editorial** — a derived
+  cream-and-terracotta paper field with Playfair serif prose under sans chrome;
+  **playful** — a soft pastel canvas with a saturated magenta accent for
+  whiteboard-class tools. Both are golden-locked and APCA-asserted in both
+  modes. `all()` now returns five voices.
+
+### Changed
+
+- `duotone` is now a thin wrapper over the shared neutral-field path that
+  `derive` uses (identical output).
+
+### Decided
+
+- See ARCHITECTURE.md "0.13: derivation as product (Tier 3)" — the contrast
+  model (distance-from-background), why the radius knob is a standalone family
+  rather than a per-theme field the kit reads, and the playful Look's deferred
+  hand-drawn typeface.
+
 ## 0.12.0 — 2026-06-13
 
 The interaction release: a uniform state-layer engine, Material 3 motion

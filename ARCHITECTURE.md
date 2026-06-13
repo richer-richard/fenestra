@@ -854,3 +854,51 @@ interaction is now *one recipe* instead of per-widget color swaps.
   font, icon }` bundle so a button, input, and select on the same row align.
   Default `Md` is unchanged (36 px) so default-sized goldens did not move; `Sm`
   (28→32) and `Lg` (44→40) shifted onto the grid.
+
+## 0.13: derivation as product (Tier 3)
+
+The palette becomes a function of three numbers, and two new Looks prove the
+generator's range.
+
+- **`Theme::derive(base, accent, contrast, mode)`.** Linear collapsed ~98
+  variables into three; on fenestra's OKLCH scales that is almost free.
+  `BaseField { hue, chroma }` is the neutral field (chroma is a multiplier on
+  the table's base chroma: 1 = stock SaaS tint, 4–10 = duotone, 0 = gray),
+  `accent_hue` the brand, and `Contrast { Low, Standard, High }` a separation
+  level. `from_accent` and `duotone` are now special cases of `derive` — at
+  `Standard` contrast it reproduces them byte-for-byte (verified by snapshot
+  dumps), so the generalization carries zero regression. The accent ramp,
+  status colors, and shadows are untouched; only the neutral field is rebuilt,
+  through a shared `apply_neutral_field` that `duotone` also uses.
+  - **Contrast = distance from the background, not from mid-gray.** Each
+    neutral step's lightness is remapped `L' = L_bg + (L − L_bg) · k`, with
+    `k` 0.92 / 1.0 / 1.10. Scaling against the fixed page color (step 1) keeps
+    `bg` stable and widens or softens everything else against it, which is what
+    "contrast" means perceptually; scaling around 0.5 would drift the
+    background itself. Every level still clears the APCA floors (asserted), so
+    `derive` cannot ship an illegible theme. DECISION.
+  - **`ThemeSpec` gains a `derive` recipe** (precedence derive > duotone >
+    accent_hue), so the three-input model round-trips through theme files.
+
+- **Radius knob — a standalone family, not a theme field.** `RadiusScale::
+  from_base(b)` derives `{sm, md, lg, xl}` at `0.6 / 1.0 / 1.4 / 2.0 × b`; the
+  default base (`R_MD` = 10) reproduces `R_SM`…`R_XL` exactly. It is deliberately
+  *not* a `Theme.radius` field the kit reads: kit widgets set radii outside
+  their `themed` closures (`.rounded(R_MD)`), with no theme in scope, so a
+  per-theme radius would mean threading it through ~90 call sites for little
+  gain. The derivation primitive is the deliverable; apps and Looks opt in.
+  DECISION.
+
+- **Two new Looks (proof-of-range).** `warm_editorial` is `derive` with a warm
+  paper field (hue 80, low chroma) + a terracotta accent (hue 40) at `High`
+  contrast, with Playfair carrying `Serif`/`Display` for serif prose under sans
+  chrome — the Claude-like voice, generated rather than hand-placed. `playful`
+  is a cool pastel field (hue 280, low chroma) + a saturated magenta accent
+  (hue 330), the whiteboard/FigJam color character. Both are golden-locked and
+  pass the APCA gate in both modes; `all()` now returns five Looks.
+  - **The playful Look's hand-drawn typeface is deferred.** A FigJam voice
+    wants a hand-drawn face (Excalifont, OFL); vendoring a new font binary
+    (with its license, and the history-bloat risk) is its own change, so the
+    Look ships its palette now on the base sans, with the face noted as a
+    follow-up. The palette — saturated accent over pastel fills — is the
+    substance and is fully delivered. DEVIATION.

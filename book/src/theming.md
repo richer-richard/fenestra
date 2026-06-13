@@ -21,6 +21,32 @@ div().themed(|t: &Theme, s| s.bg(t.surface).border(1.0, t.border))
 Flip `Mode::Light`/`Mode::Dark` (or return a different theme from
 `App::theme`) and everything follows.
 
+## Web-grade by default: `derive`
+
+When you don't want to think in ramps at all, derive the whole palette from
+three inputs — Linear's model, on fenestra's OKLCH scales:
+
+```rust,ignore
+let theme = Theme::derive(
+    BaseField { hue: 80.0, chroma: 2.5 }, // warm paper field
+    40.0,                                  // terracotta accent hue
+    Contrast::High,                        // crisp ink-on-paper
+    Mode::Light,
+);
+```
+
+`base` is the neutral field (its hue and how far it departs from gray),
+`accent_hue` the brand hue, and `contrast` (`Low` / `Standard` / `High`) scales
+every step's lightness distance from the page background. `from_accent` and
+`duotone` are special cases — `derive` at `Standard` contrast reproduces them
+exactly — and every contrast level still clears the APCA floors, so derivation
+never ships an illegible theme. Recipes carry it too:
+`{"mode":"light","derive":{"base_hue":80,"base_chroma":2.5,"accent_hue":40,"contrast":"high"}}`.
+
+A matching corner-radius family comes from one knob:
+`RadiusScale::from_base(8.0)` yields `{sm, md, lg, xl}` at fenestra's ratios
+(0.6 / 1.0 / 1.4 / 2.0 ×); the default base (10) reproduces `R_SM`…`R_XL`.
+
 ## The 12-step scale
 
 Each ramp follows the Radix model, so styling is arithmetic rather than
