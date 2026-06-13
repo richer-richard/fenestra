@@ -902,3 +902,45 @@ generator's range.
     Look ships its palette now on the base sans, with the face noted as a
     follow-up. The palette — saturated accent over pastel fills — is the
     substance and is fully delivered. DEVIATION.
+
+## 0.14: kit and showcase (Tier 4)
+
+The token system reaches dense app chrome, the charts gain a real palette, and
+two showcases prove the range is real, not aspirational.
+
+- **Editor-chrome tier (`chrome.rs`).** `ChromeText` (11/12/13/14px, Figma's
+  per-size tracking, 16/24px line boxes) is a SEPARATE register from the product
+  `TextSize` scale (which starts at 12px reading text): dense chrome is a
+  different context, so it gets its own tokens rather than stretching the
+  product scale downward. `ChromeElevation` (Popover/Modal/Thumb) encodes
+  Figma's flat, layered panel shadows — two soft black drops over a 0.5px
+  hairline ring (a zero-blur *spread* shadow, which the painter renders as a
+  crisp sub-pixel edge) — deliberately flat and mode-independent, unlike the
+  hue-tinted, themed `ShadowToken` used for product surfaces. The 32px control
+  row is `ControlSize::Sm` (no new token). DECISION: chrome is its own tier, not
+  an extension of the product tokens.
+- **Canvas substrate (`canvas.rs`).** Pure geometry — no rendering, no state —
+  so it composes with the element tree and runs headless: tldraw's `ZOOMS`, the
+  step logic, a `Camera` with eased zoom (`EASE_IN_OUT_CUBIC`, the CSS-bezier
+  approximation of tldraw's piecewise `easeInOutCubic` — noted in the source),
+  world↔screen transforms, the 8px snap grid, and the `world_len`/`screen_len`
+  zoom-compensation that keeps selection chrome a constant size on screen.
+  Placed in core (it is geometry, usable headless) though app-facing.
+- **`oklch` / `oklch_of` made public.** The framework's gamut-safe color
+  constructor and its inverse — used by the theme ramps, Looks, and now the
+  chart palette — are the principled escape hatch for data-viz and custom
+  palettes, which legitimately need colors beyond the named theme tokens.
+- **Chart palette (`charts`).** Observable10 light verbatim; the dark variant is
+  re-picked generatively (each swatch lifted +0.08 L and eased ×0.82 C in
+  OKLCH), never inverted — the recognized data-viz exception to "color only
+  through theme tokens," kept principled and mode-aware. The sequential and
+  diverging generators follow the standard OKLCH recipes (linear lightness ramp;
+  two arms through a light neutral midpoint). The charts crate still depends
+  ONLY on fenestra-core's public API — the reference widget-crate constraint.
+- **Showcases.** `editor_panel` (a Figma inspector, golden-locked light+dark)
+  and `ai_chat` (the Claude-look AI reading view: a 768px column, bubble/flat
+  turn asymmetry, a streaming caret, a thinking shimmer — golden under the
+  warm-editorial theme with a Playfair serif).
+- **Deferred:** the playful Look's hand-drawn typeface (Tier 3) is still a
+  font-vendoring follow-up; the canvas substrate is math only (no canvas
+  *widget* ships yet) — both are noted rather than silently scoped out.

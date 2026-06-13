@@ -26,6 +26,43 @@ fn card_component() -> Element<CardMsg> { /* ... */ }
 let el: Element<AppMsg> = card_component().map(AppMsg::Card);
 ```
 
+## Beautiful by construction
+
+The web styles with CSS — a universal solvent that can express anything,
+including the ugly, the illegible, and the inconsistent. Beauty in CSS is
+discipline *you* supply. fenestra inverts that: the architecture makes the
+beautiful path the only easy path, and then *proves* the result. The
+constraints are the feature.
+
+- **Typed IR, not strings.** `Style` is a typed struct (layout / paint / text);
+  every property autocompletes and type-checks. No `style="…"` to typo, no
+  cascade or specificity to fight, no `!important`. An invalid style doesn't
+  compile.
+- **You can't name a raw color.** Color comes only from theme tokens
+  (`t.accent`, `element_hover`, …) — the API funnels you to the OKLCH ramps,
+  never `#bada55`. Clashing ad-hoc colors are unreachable. (Data viz is the one
+  recognized exception, and even it routes through the gamut-safe `oklch`.)
+- **Generated, perceptually-uniform, gamut-safe.** Palettes are generated in
+  OKLCH and gamut-mapped by reducing *chroma, not lightness*, so the ramp's
+  rhythm survives. The 12-step semantic scale makes interaction arithmetic
+  ("+1 step"), not art; `Theme::derive` collapses the whole palette to three
+  inputs.
+- **Provably legible (APCA).** Because color resolves at construction,
+  `validate_contrast` proves every text pair clears its floor — for every theme
+  and Look, in tests. No CSS framework can guarantee that.
+- **One interaction recipe.** The state layer, motion tokens, focus ring, and
+  control sizes are uniform tokens, not per-widget — consistency is structural.
+- **No cascade.** `themed` closures defer color to the theme; one flip restyles
+  everything coherently.
+- **Beauty is testable.** Headless golden PNGs lock the rendered output; every
+  flagship is rendered and eyeballed against a pixel budget in CI. The aesthetic
+  is enforced, not aspirational.
+
+The thesis: a curated, generated, validated, golden-locked design system
+expressed as types. You reach for tokens because the tokens are the path of
+least resistance, and what they compose to has already been proven legible and
+locked to a reference render.
+
 ## Influences
 
 fenestra's design steals deliberately, and credit is part of the

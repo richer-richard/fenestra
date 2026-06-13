@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.14.0 — 2026-06-13
+
+The showcase release: an editor-chrome tier and canvas substrate, an upgraded
+chart palette, and an AI-chat showcase.
+
+### Added
+
+- **Editor-chrome token tier** (`ChromeText`, `ChromeElevation`): Figma's dense
+  panel anatomy — 11–14px text with per-size tracking, the 32px control row
+  (reusing `ControlSize::Sm`), and the floating two-drop + 0.5px hairline-ring
+  elevation (popover / modal / thumb), flat black in contrast to the themed,
+  hue-tinted `ShadowToken`.
+- **Canvas substrate** (`fenestra_core::canvas`): tldraw's camera/zoom/snap math
+  — `ZOOMS` (5%–800%), `zoom_in`/`zoom_out`, a `Camera` with eased zoom-to-fit
+  (`EASE_IN_OUT_CUBIC`, `CAMERA_MS` = 320 ms), `world_len`/`screen_len`
+  zoom-compensated strokes, and `snap` (8px). The substrate for building a
+  Figma-class tool. The `editor_panel` demo shows the chrome tier in one panel.
+- **Chart palette** (`fenestra_charts::ChartPalette`): Observable10 categorical
+  (light verbatim, dark *re-picked* — lifted in lightness and eased in chroma
+  in OKLCH, never inverted), OKLCH `sequential` and `diverging` generators, and
+  a `multi_line_chart`.
+- **AI-chat showcase** (`ai_chat`): a 768px reading column with turn asymmetry
+  (the human in an accent bubble, the assistant in flat serif prose), a
+  streaming caret, and a thinking shimmer — wearing the warm-editorial look.
+- **Color primitives**: `oklch` (gamut-mapped OKLCH → sRGB) and its inverse
+  `oklch_of` are now public — the framework's color constructor, for custom
+  palettes and Looks.
+
+### Decided
+
+- See ARCHITECTURE.md "0.14: kit and showcase (Tier 4)", and the book's
+  "Thinking in fenestra" essay on why fenestra's styling is beautiful by
+  construction — a typed, generated, validated, golden-locked design system,
+  the inverse of CSS's permissive solvent.
+
 ## 0.13.0 — 2026-06-13
 
 Derivation as product: the whole palette from three inputs, and two new Looks
