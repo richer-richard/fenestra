@@ -394,3 +394,95 @@ pub fn editor_panel<Msg>(_theme: &Theme) -> Element<Msg> {
             field("Corner radius", "6"),
         ))
 }
+
+/// An AI-chat reading view — the showcase for "the GUI framework AI agents can
+/// see," meant to wear the warm-editorial (Claude-like) look. It demonstrates
+/// the chat vocabulary: a 768px reading column; turn asymmetry (the human
+/// speaks in a right-aligned accent bubble, the assistant in flat serif prose,
+/// no bubble); a blinking streaming caret on the in-progress reply; and a
+/// "thinking" shimmer. Register a serif under `FamilyRole::Serif` (the warm
+/// look does) for the prose voice; without one it falls back to the sans.
+pub fn ai_chat<Msg: 'static>(_theme: &Theme) -> Element<Msg> {
+    use fenestra_core::{FamilyRole, Keyframes, Length, SP5, SP6, rich_text, span};
+
+    // The human turn: a right-aligned accent bubble.
+    let user = |s: &str| {
+        row().w_full().justify_end().child(
+            col()
+                .max_w(Length::Px(460.0))
+                .px(SP4)
+                .py(SP3)
+                .rounded(R_LG)
+                .themed(|t: &Theme, st| st.bg(t.accent_bg))
+                .child(
+                    text(s.to_owned())
+                        .size(TextSize::Base)
+                        .themed(|t: &Theme, st| st.color(t.accent_text)),
+                ),
+        )
+    };
+
+    // The assistant turn: flat serif prose, full column, no bubble.
+    let assistant = |s: &str| {
+        rich_text::<Msg>([span(s).family(FamilyRole::Serif)])
+            .w_full()
+            .size(TextSize::Lg)
+            .leading(1.6)
+            .themed(|t: &Theme, st| st.color(t.text))
+    };
+
+    // A thin accent block that blinks at the end of the streaming line.
+    let caret = div::<Msg>()
+        .w(3.0)
+        .h(22.0)
+        .rounded(1.5)
+        .themed(|t: &Theme, s| s.bg(t.accent))
+        .keyframes(
+            Keyframes::new(1060.0)
+                .stop(0.0, |s| s.opacity(1.0))
+                .stop(0.5, |s| s.opacity(1.0))
+                .stop(0.5001, |s| s.opacity(0.0))
+                .stop(1.0, |s| s.opacity(0.0)),
+        );
+
+    // A "thinking" shimmer: three dots breathing.
+    let shimmer = row().gap(SP2).items_center().children((0..3).map(|_| {
+        div::<Msg>()
+            .w(7.0)
+            .h(7.0)
+            .rounded_full()
+            .themed(|t: &Theme, s| s.bg(t.text_muted))
+            .keyframes(
+                Keyframes::new(1200.0)
+                    .stop(0.0, |s| s.opacity(0.3))
+                    .stop(0.5, |s| s.opacity(1.0))
+                    .stop(1.0, |s| s.opacity(0.3)),
+            )
+    }));
+
+    let streaming = row().w_full().items_center().gap(SP1).children((
+        rich_text::<Msg>(
+            [span("Because color resolves at construction").family(FamilyRole::Serif)],
+        )
+        .size(TextSize::Lg)
+        .themed(|t: &Theme, st| st.color(t.text)),
+        caret,
+    ));
+
+    let column = col().w(Length::Px(768.0)).gap(SP5).children([
+        assistant("Ask me anything — I render what I build, then look at it, the way an agent reads its own output."),
+        user("Explain APCA in one line."),
+        assistant("APCA predicts how legible text will be from the lightness contrast between it and its background — which is why fenestra can prove a theme readable before it ever paints a pixel."),
+        user("And the streaming feels alive."),
+        streaming,
+        shimmer,
+    ]);
+
+    col()
+        .w_full()
+        .items_center()
+        .px(SP6)
+        .py(SP6)
+        .themed(|t: &Theme, s| s.bg(t.bg))
+        .children([column])
+}
