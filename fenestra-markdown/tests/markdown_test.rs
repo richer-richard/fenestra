@@ -7,6 +7,15 @@ use fenestra_markdown::markdown;
 use fenestra_shell::testing::assert_png_snapshot;
 use fenestra_shell::{Harness, render_element};
 
+/// A long single paragraph: in a wide canvas it must wrap at the default
+/// reading measure, not span the full width.
+const LONG_PARA: &str = "The reading measure is the width of a text column, \
+measured in characters per line; typographers have long held that roughly \
+sixty-six characters makes the most comfortable line for sustained reading, \
+because the eye tracks back to the start of the next line without losing its \
+place, and the column stays narrow enough to read in a single relaxed sweep \
+rather than a wide swing of the head from one margin to the other.";
+
 const DOC: &str = "\
 # Release notes
 
@@ -78,6 +87,50 @@ fn markdown_golden() {
         .children([Element::from(markdown(DOC).on_link(|_| ()))]);
     let image = render_element(view, &Theme::light(), (500, 560));
     assert_png_snapshot(snapshot_dir(), "markdown", &image);
+}
+
+#[test]
+fn measure_caps_prose_golden() {
+    // A wide canvas: the default measure must cap the column, leaving an
+    // empty gutter on the right rather than spanning the full 1000px.
+    let view: Element<()> = col()
+        .p(16.0)
+        .children([Element::from(markdown(LONG_PARA).on_link(|_| ()))]);
+    let image = render_element(view, &Theme::light(), (1000, 400));
+    assert_png_snapshot(snapshot_dir(), "markdown_measure", &image);
+}
+
+#[derive(Default)]
+struct Wide;
+
+impl App for Wide {
+    type Msg = ();
+
+    fn update(&mut self, (): ()) {}
+
+    fn view(&self) -> Element<()> {
+        col().p(16.0).children([Element::from(markdown(LONG_PARA))])
+    }
+}
+
+#[test]
+fn measure_caps_paragraph_width() {
+    // The canvas is 1000px wide (content box ~968px), but the default measure
+    // caps the prose column near the reading width (~525px at body size: 52ch ×
+    // ~10.1px '0'), so the wrapped paragraph never approaches the full width.
+    let h = Harness::new(Wide, Theme::light(), (1000, 400));
+    let para = h
+        .query(&by::label_contains("reading measure is the width"))
+        .expect("paragraph leaf");
+    let width = para.rect.width();
+    assert!(
+        width < 620.0,
+        "paragraph width {width} should be capped near the measure"
+    );
+    assert!(
+        width > 450.0,
+        "paragraph width {width} should fill the reading column"
+    );
 }
 
 #[test]

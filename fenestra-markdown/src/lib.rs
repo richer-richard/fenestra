@@ -12,8 +12,8 @@
 //! ```
 
 use fenestra_core::{
-    Element, FamilyRole, Semantics, Span, TextSize, Theme, Weight, col, div, divider, rich_text,
-    row, span, text,
+    Element, FamilyRole, MEASURE_CH, Semantics, Span, TextSize, Theme, Weight, col, div, divider,
+    rich_text, row, span, text,
 };
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
@@ -354,6 +354,14 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
             &md.on_link,
         );
 
-        col().gap(10.0).items_start().children(blocks)
+        // Cap the document at the default reading measure (~66ch), resolved
+        // against the body text size: a long paragraph wraps at the reading
+        // column instead of spanning an arbitrarily wide canvas. Narrower
+        // containers (the cap doesn't bind) are unaffected.
+        col()
+            .gap(10.0)
+            .items_start()
+            .measure(MEASURE_CH)
+            .children(blocks)
     }
 }

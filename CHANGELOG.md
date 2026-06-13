@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.15.0 — 2026-06-14
+
+The reading measure: a `ch`-based prose column, the single biggest readability
+lever, expressed as a typed primitive.
+
+### Added
+
+- **`Length::Ch(f32)` + `Style::measure(chars)`** (with `w_ch`/`min_w_ch`/
+  `max_w_ch`): a reading-column cap in CSS `ch` units — 1ch is the advance of
+  `'0'` in the element's own resolved text style. Resolved to pixels during
+  layout (taffy has no font context), guarded so only `ch`-using elements pay
+  the metric lookup. `MEASURE_CH = 52` is the default, calibrated so a
+  proportional body face renders ~66 characters per line (`'0'` is wider than
+  the average glyph, so `ch` < characters).
+- **`reading_column()`** (kit): a prose column pre-capped at `MEASURE_CH`.
+- The **markdown** widget caps its prose at the default measure, and the
+  **`ai_chat`** showcase now uses the measure (matched to its 20px serif prose)
+  instead of a hard-coded 768px.
+
+### Decided
+
+- See ARCHITECTURE.md "0.15: the reading measure" — the `ch`-resolution timing
+  (in `frame::build`, before taffy), the `ch` ≠ characters calibration (52, not
+  66; found and fixed in review), the per-container vs per-block cap, and the
+  code-block follow-up.
+
 ## 0.14.0 — 2026-06-13
 
 The showcase release: an editor-chrome tier and canvas substrate, an upgraded

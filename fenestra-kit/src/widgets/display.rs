@@ -2,11 +2,27 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    Element, Keyframes, Length, MotionDuration, R_FULL, R_LG, R_MD, SP1, SP2, SP3, SP4, SP6,
-    Semantics, ShadowToken, StatusColors, TextSize, Theme, Track, Transition, Weight, col, div,
-    path, row, text,
+    Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, R_LG, R_MD, SP1, SP2, SP3, SP4,
+    SP6, Semantics, ShadowToken, StatusColors, TextSize, Theme, Track, Transition, Weight, col,
+    div, path, row, text,
 };
 use kurbo::BezPath;
+
+/// A vertical prose column pre-capped at the default reading measure
+/// ([`MEASURE_CH`]). Children stack with no gap; add text and the column holds
+/// about 66 characters per line regardless of window width. Set `.size(..)` to
+/// match the prose so the measure tracks the real glyph width (1ch is the
+/// advance of `'0'` in the column's own resolved text style).
+///
+/// ```
+/// use fenestra_core::text;
+/// use fenestra_kit::reading_column;
+///
+/// let el: fenestra_core::Element<()> = reading_column().children([text("Body")]);
+/// ```
+pub fn reading_column<Msg>() -> Element<Msg> {
+    col().measure(MEASURE_CH)
+}
 
 /// The signature card: raised surface, subtle border, large radius, small
 /// shadow, SP6 padding.

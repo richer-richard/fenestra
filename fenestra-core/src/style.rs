@@ -12,9 +12,27 @@ pub enum Length {
     Px(f32),
     /// Percent of the parent, 0.0..=100.0.
     Pct(f32),
+    /// A reading measure in CSS `ch` units: 1ch is the advance width of the
+    /// digit `'0'` in the element's own resolved text style. Used to cap a
+    /// prose column near the optimal line length (the default
+    /// [`MEASURE_CH`](crate::MEASURE_CH) is calibrated for ~66 characters)
+    /// independent of window width. Resolved to `Px` during layout, where font
+    /// metrics are available; treat it as `Auto` if it ever reaches taffy
+    /// unresolved.
+    Ch(f32),
     /// Let layout decide.
     #[default]
     Auto,
+}
+
+impl Length {
+    /// Resolves a `Ch(n)` to `Px(n * ch_px)`; other variants pass through.
+    pub(crate) fn resolved(self, ch_px: f32) -> Length {
+        match self {
+            Length::Ch(n) => Length::Px(n * ch_px),
+            other => other,
+        }
+    }
 }
 
 /// Display mode of a box.
@@ -755,6 +773,37 @@ impl Style {
         self
     }
 
+    /// Caps this element's width at a reading measure of `chars` `ch` units
+    /// (a `ch`-based `max-width`). 1ch is the advance of `'0'` in this
+    /// element's resolved text style, so the column is `chars` `'0'`-widths
+    /// wide regardless of how wide the window is — a proportional face fits
+    /// somewhat *more* than `chars` real glyphs per line (the default
+    /// [`MEASURE_CH`](crate::MEASURE_CH) is tuned for ~66 characters). Set the
+    /// element's text `size` and `family` to the prose it wraps so the measure
+    /// tracks the real text.
+    pub fn measure(mut self, chars: f32) -> Self {
+        self.max_width = Length::Ch(chars);
+        self
+    }
+
+    /// Preferred width in `ch` units (see [`Length::Ch`]).
+    pub fn w_ch(mut self, chars: f32) -> Self {
+        self.width = Length::Ch(chars);
+        self
+    }
+
+    /// Minimum width in `ch` units.
+    pub fn min_w_ch(mut self, chars: f32) -> Self {
+        self.min_width = Length::Ch(chars);
+        self
+    }
+
+    /// Maximum width in `ch` units (alias of [`Style::measure`] for symmetry).
+    pub fn max_w_ch(mut self, chars: f32) -> Self {
+        self.max_width = Length::Ch(chars);
+        self
+    }
+
     /// Flex grow 1.
     pub fn grow(mut self) -> Self {
         self.flex_grow = 1.0;
@@ -1031,5 +1080,32 @@ impl Style {
             span: (span > 1).then_some(span),
         };
         self
+    }
+}
+
+impl Style {
+    /// True if any size constraint is expressed in `ch` (needs font metrics
+    /// to resolve before taffy runs).
+    pub(crate) fn has_ch(&self) -> bool {
+        matches!(self.width, Length::Ch(_))
+            || matches!(self.min_width, Length::Ch(_))
+            || matches!(self.max_width, Length::Ch(_))
+            || matches!(self.height, Length::Ch(_))
+            || matches!(self.min_height, Length::Ch(_))
+            || matches!(self.max_height, Length::Ch(_))
+            || matches!(self.flex_basis, Length::Ch(_))
+    }
+
+    /// Replaces every `Length::Ch(n)` size constraint with `Length::Px(n *
+    /// ch_px)`, using the advance of `'0'` in this element's resolved text
+    /// style. Called during `build` once font metrics are available.
+    pub(crate) fn resolve_ch(&mut self, ch_px: f32) {
+        self.width = self.width.resolved(ch_px);
+        self.min_width = self.min_width.resolved(ch_px);
+        self.max_width = self.max_width.resolved(ch_px);
+        self.height = self.height.resolved(ch_px);
+        self.min_height = self.min_height.resolved(ch_px);
+        self.max_height = self.max_height.resolved(ch_px);
+        self.flex_basis = self.flex_basis.resolved(ch_px);
     }
 }

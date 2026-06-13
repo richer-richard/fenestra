@@ -235,6 +235,10 @@ fn lerp_length(a: Length, b: Length, t: f32) -> Length {
     match (a, b) {
         (Length::Px(a), Length::Px(b)) => Length::Px(lerp_f32(a, b, t)),
         (Length::Pct(a), Length::Pct(b)) => Length::Pct(lerp_f32(a, b, t)),
+        // Mismatched units (and `Ch` reading measures) snap to the target.
+        // A `Ch` cap is resolved to `Px` in `build` after animation, and a
+        // changed measure snaps rather than tweening — measures are static
+        // caps in practice, not animated values.
         _ => b,
     }
 }

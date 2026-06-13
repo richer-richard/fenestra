@@ -560,6 +560,27 @@ impl Fonts {
         (layout.width().ceil(), layout.height().ceil())
     }
 
+    /// Width of one `ch`: the advance of the digit `'0'` shaped in `style`,
+    /// in logical px, ignoring letter-spacing (CSS `ch` semantics). Used to
+    /// resolve [`crate::style::Length::Ch`] before layout. Sub-pixel: the
+    /// raw glyph advance (un-`ceil`'d, unlike [`Self::measure`]).
+    pub(crate) fn ch_width(&mut self, style: &ResolvedText) -> f32 {
+        let mut zero = *style;
+        zero.letter_spacing = 0.0;
+        let layout = self.shape("0", &zero, None);
+        let mut advance = 0.0_f32;
+        for line in layout.lines() {
+            for item in line.items() {
+                if let PositionedLayoutItem::GlyphRun(run) = item {
+                    for glyph in run.glyphs() {
+                        advance += glyph.advance;
+                    }
+                }
+            }
+        }
+        advance
+    }
+
     /// Distance from the top of the text box to the first line's baseline.
     pub(crate) fn first_baseline(
         &mut self,
@@ -633,5 +654,103 @@ impl Fonts {
                     );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::style::{Length, Style, TextStyle};
+    use crate::tokens::{MEASURE_CH, TextSize};
+
+    fn rt(size: TextSize) -> ResolvedText {
+        resolve_text(
+            &TextStyle {
+                size,
+                ..TextStyle::default()
+            },
+            &Theme::light(),
+        )
+    }
+
+    /// Sums the glyph advances of `text` shaped in `style` (no caching, no
+    /// `ceil`) — the independent reference for the `ch` advance.
+    fn glyph_advance_sum(fonts: &mut Fonts, text: &str, style: &ResolvedText) -> f32 {
+        let layout = fonts.shape(text, style, None);
+        let mut advance = 0.0_f32;
+        for line in layout.lines() {
+            for item in line.items() {
+                if let PositionedLayoutItem::GlyphRun(run) = item {
+                    for glyph in run.glyphs() {
+                        advance += glyph.advance;
+                    }
+                }
+            }
+        }
+        advance
+    }
+
+    #[test]
+    fn ch_width_matches_zero_advance() {
+        let mut fonts = Fonts::embedded();
+        let style = rt(TextSize::Base);
+        let ch = fonts.ch_width(&style);
+        // The embedded Inter's `'0'` advance at 16px (~10.09px on the
+        // macOS/Metal golden-reference build).
+        assert!((9.5..=10.5).contains(&ch), "ch {ch}");
+        // It is exactly the summed glyph advance of `'0'` with letter spacing
+        // ignored (CSS `ch` semantics).
+        let mut zeroed = style;
+        zeroed.letter_spacing = 0.0;
+        let independent = glyph_advance_sum(&mut fonts, "0", &zeroed);
+        assert!((ch - independent).abs() < 1e-3, "ch {ch} vs {independent}");
+    }
+
+    #[test]
+    fn ch_width_ignores_letter_spacing() {
+        let mut fonts = Fonts::embedded();
+        let mut tight = rt(TextSize::Base);
+        tight.letter_spacing = -2.0;
+        let mut loose = rt(TextSize::Base);
+        loose.letter_spacing = 5.0;
+        // CSS `ch` is the bare `'0'` advance, independent of tracking.
+        assert!((fonts.ch_width(&tight) - fonts.ch_width(&loose)).abs() < 1e-3);
+    }
+
+    #[test]
+    fn resolve_ch_scales_by_zero_advance() {
+        let mut fonts = Fonts::embedded();
+        let ch = fonts.ch_width(&rt(TextSize::Base));
+        let mut style = Style::default().measure(MEASURE_CH);
+        style.resolve_ch(ch);
+        // The cap is exactly MEASURE_CH zero-advances of px.
+        assert_eq!(style.max_width, Length::Px(MEASURE_CH * ch));
+        // …which lands the reading column near 525px at body size with the
+        // embedded Inter (52ch × ~10.1px '0'; derived, not hardcoded).
+        let px = MEASURE_CH * ch;
+        assert!((490.0..=560.0).contains(&px), "{MEASURE_CH}ch = {px}px");
+    }
+
+    #[test]
+    fn resolve_ch_tracks_text_size() {
+        let mut fonts = Fonts::embedded();
+        let ch_base = fonts.ch_width(&rt(TextSize::Base)); // 16px
+        let ch_lg = fonts.ch_width(&rt(TextSize::Lg)); // 20px
+        // A larger text style yields a wider measure: the column follows the
+        // element's own prose, and the advance scales with the 20/16 ratio.
+        assert!(ch_lg > ch_base, "lg {ch_lg} base {ch_base}");
+        assert!(
+            (ch_lg - ch_base * 1.25).abs() < 0.5,
+            "lg {ch_lg} base {ch_base}"
+        );
+    }
+
+    #[test]
+    fn has_ch_only_flags_ch_lengths() {
+        assert!(!Style::default().has_ch());
+        assert!(Style::default().measure(MEASURE_CH).has_ch());
+        assert!(Style::default().w_ch(40.0).has_ch());
+        // A pixel width is not a `ch` constraint.
+        assert!(!Style::default().w(100.0).has_ch());
     }
 }

@@ -35,3 +35,33 @@ fn ai_chat_golden() {
         &image,
     );
 }
+
+/// Finds the first node whose label contains `needle`, depth-first.
+fn find_label<'a>(node: &'a AccessNode, needle: &str) -> Option<&'a AccessNode> {
+    if node.label.as_deref().is_some_and(|l| l.contains(needle)) {
+        return Some(node);
+    }
+    node.children.iter().find_map(|c| find_label(c, needle))
+}
+
+#[test]
+fn ai_chat_column_is_metric_derived() {
+    // The reading column is capped at the default measure resolved against its
+    // own 20px prose, not a literal 768px. This guard uses embedded fonts (no
+    // serif registered), so the Serif role falls back to Inter: 1ch ≈ 12.6px
+    // ('0' at 20px), and MEASURE_CH (52) ≈ 655px — the metric-derived reading
+    // column. The full-width assistant prose fills it exactly.
+    let mut fonts = Fonts::embedded();
+    let theme = Theme::light();
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+    let el = ai_chat::<()>(&theme);
+    let frame = build_frame(&el, &theme, &mut fonts, &mut state, (900.0, 640.0), 1.0);
+    let tree = frame.access_tree();
+    let prose = find_label(&tree, "Ask me anything").expect("assistant prose leaf");
+    let width = prose.rect.width();
+    assert!(
+        (600.0..=720.0).contains(&width),
+        "reading-column prose width {width} should be metric-derived (~655px), not 768px",
+    );
+}

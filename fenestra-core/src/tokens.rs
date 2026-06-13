@@ -26,6 +26,16 @@ pub const SP12: f32 = 48.0;
 /// 64px.
 pub const SP16: f32 = 64.0;
 
+/// The default reading measure, in CSS `ch` units (1ch = the advance of the
+/// digit `'0'`; see [`crate::Length::Ch`]). Set to 52 so a proportional body
+/// face renders ~66 characters per line — the classic optimum for sustained
+/// reading (the comfortable band is 45–75). The value is below 66 on purpose:
+/// `'0'` is wider than the average glyph, so a column of N `ch` holds somewhat
+/// more than N real characters; 52ch lands the rendered line near 66. A wider
+/// face fits fewer characters per line, a narrower one more. Prose containers
+/// cap their width here via [`crate::Style::measure`].
+pub const MEASURE_CH: f32 = 52.0;
+
 /// Small radius (badges, small chips): 6px.
 pub const R_SM: f32 = 6.0;
 /// Medium radius (controls: buttons, inputs): 10px.

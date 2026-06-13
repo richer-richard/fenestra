@@ -139,6 +139,11 @@ fn dimension(l: Length) -> taffy::style::Dimension {
         Length::Px(v) if !v.is_finite() => auto(),
         Length::Px(v) => length(v.clamp(0.0, MAX_DIMENSION)),
         Length::Pct(v) => percent(finite(v) / 100.0),
+        // `Ch` reading measures are resolved to `Px` during `build` (where
+        // font metrics are available) before taffy ever runs. A leaked value
+        // is treated as `Auto` defensively — it cannot occur in the normal
+        // pipeline.
+        Length::Ch(_) => auto(),
         Length::Auto => auto(),
     }
 }

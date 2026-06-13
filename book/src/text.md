@@ -8,6 +8,18 @@ provides per-script fallback (CJK works out of the box).
 aligns with `.text_align(..)`, and exposes the full editorial controls:
 `.size_px`, `.tracking`, `.leading`, `.family`.
 
+## Reading measure
+
+Long prose reads best in a column near ~66 characters per line, not the full
+window. `.measure(chars)` caps an element's width in CSS `ch` units (1ch is the
+advance of `'0'` in its *own* resolved text style), so the column holds a
+comfortable line at any window width — resolved to pixels during layout, where
+the font metrics live. The default `MEASURE_CH` (52ch, tuned so the body face
+renders ~66 characters) drives the kit's `reading_column()`, the markdown
+widget's prose, and the `ai_chat` showcase. Because fenestra has no style
+inheritance, set the container's `.size(..)` and `.family(..)` to match the
+prose it wraps, so the measure tracks the real glyphs.
+
 ## Single-line input
 
 `text_input(&self.value).placeholder("Search…").on_input(Msg::Set).id("q")`

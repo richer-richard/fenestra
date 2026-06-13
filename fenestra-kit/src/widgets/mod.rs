@@ -29,7 +29,7 @@ pub use data_table::{DataTable, data_table};
 pub use date_picker::{Date, DatePicker, date_picker};
 pub use display::{
     StatCard, Status, avatar, badge, badge_dot, callout, card, progress, progress_indeterminate,
-    spinner, stat_card, table, tabs,
+    reading_column, spinner, stat_card, table, tabs,
 };
 pub use menu::{context_menu, dropdown_menu, menu, popover};
 pub use overlay_widgets::{Modal, modal, tooltip};

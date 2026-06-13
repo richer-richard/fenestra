@@ -915,6 +915,31 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Caps this element's width at a reading measure of `chars` characters
+    /// (a `ch`-based `max-width`); see [`Style::measure`](crate::Style::measure).
+    pub fn measure(mut self, chars: f32) -> Self {
+        self.style = self.style.measure(chars);
+        self
+    }
+
+    /// Preferred width in `ch` units (see [`Length::Ch`](crate::Length::Ch)).
+    pub fn w_ch(mut self, chars: f32) -> Self {
+        self.style = self.style.w_ch(chars);
+        self
+    }
+
+    /// Minimum width in `ch` units.
+    pub fn min_w_ch(mut self, chars: f32) -> Self {
+        self.style = self.style.min_w_ch(chars);
+        self
+    }
+
+    /// Maximum width in `ch` units (alias of [`Element::measure`]).
+    pub fn max_w_ch(mut self, chars: f32) -> Self {
+        self.style = self.style.max_w_ch(chars);
+        self
+    }
+
     /// Width 100%.
     pub fn w_full(mut self) -> Self {
         self.style = self.style.w_full();

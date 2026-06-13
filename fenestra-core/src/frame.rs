@@ -420,6 +420,7 @@ struct PendingOverlay {
 fn build<Msg>(
     el: &Element<Msg>,
     theme: &Theme,
+    fonts: &mut Fonts,
     tree: &mut TaffyTree<MeasureCtx>,
     state: &mut FrameState,
     animating: &mut bool,
@@ -443,8 +444,17 @@ fn build<Msg>(
             state.focus_visible = false;
         }
     }
-    let (style, anim) = resolve(el, theme, state, id);
+    let (mut style, anim) = resolve(el, theme, state, id);
     *animating |= anim;
+    // Resolve any `ch`-based reading measure now that font metrics are
+    // available: 1ch is the advance of `'0'` in this element's own resolved
+    // text style. This mutates the stored style, so every later `to_taffy`
+    // (root override, overlay layout) sees only `Px`. The `'0'` shaping cost
+    // is paid only by ch-using elements.
+    if style.has_ch() {
+        let ch = fonts.ch_width(&resolve_text(&style.text, theme));
+        style.resolve_ch(ch);
+    }
     // Virtual containers swap their declared children for the materialized
     // window. Overlays inside virtual rows are unsupported (the overlay
     // path machinery indexes the declared tree).
@@ -476,7 +486,8 @@ fn build<Msg>(
             }
             path.push(i);
             let node = build(
-                c, theme, tree, state, animating, child_id, el.stack, path, pending, viewport,
+                c, theme, fonts, tree, state, animating, child_id, el.stack, path, pending,
+                viewport,
             );
             path.pop();
             Some(node)
@@ -920,6 +931,7 @@ pub fn build_frame<Msg>(
     let mut node = build(
         root,
         theme,
+        fonts,
         &mut tree,
         state,
         &mut transitions_running,
@@ -1034,6 +1046,7 @@ pub fn build_frame<Msg>(
             let built = build(
                 el,
                 theme,
+                fonts,
                 &mut tree,
                 state,
                 &mut animating,

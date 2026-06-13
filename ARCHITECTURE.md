@@ -938,9 +938,79 @@ two showcases prove the range is real, not aspirational.
   two arms through a light neutral midpoint). The charts crate still depends
   ONLY on fenestra-core's public API — the reference widget-crate constraint.
 - **Showcases.** `editor_panel` (a Figma inspector, golden-locked light+dark)
-  and `ai_chat` (the Claude-look AI reading view: a 768px column, bubble/flat
-  turn asymmetry, a streaming caret, a thinking shimmer — golden under the
-  warm-editorial theme with a Playfair serif).
+  and `ai_chat` (the Claude-look AI reading view: a `ch`-based reading column
+  (see 0.15), bubble/flat turn asymmetry, a streaming caret, a thinking shimmer
+  — golden under the warm-editorial theme with a Playfair serif).
 - **Deferred:** the playful Look's hand-drawn typeface (Tier 3) is still a
   font-vendoring follow-up; the canvas substrate is math only (no canvas
   *widget* ships yet) — both are noted rather than silently scoped out.
+
+## 0.15: the reading measure (ch-based prose column)
+
+A `ch`-based reading measure caps prose near the optimal line length (~66
+characters) independent of window width — the web-canonical `max-width` for an
+article, expressed in the unit that actually matters for legibility.
+
+- **`Length::Ch(f32)` + `Style::measure(chars)` (and `w_ch`/`min_w_ch`/
+  `max_w_ch`).** 1ch is the advance of the digit `'0'` in the element's resolved
+  text style (CSS `ch` semantics, letter-spacing ignored). `measure` is a
+  `ch`-based `max-width`; `MEASURE_CH = 52.0` is the default. `reading_column()`
+  (kit) is `col().measure(MEASURE_CH)`.
+- **CALIBRATION (`ch` ≠ characters): `MEASURE_CH = 52`, not 66.** `'0'` is wider
+  than the average glyph, so a column of N `ch` holds noticeably *more* than N
+  real characters. At `66ch` the embedded Inter renders ~83 characters per line
+  (verified in the golden) — above the comfortable 45–75 band the feature
+  targets. `52ch` lands the rendered body line near the ~66-character optimum
+  while keeping `Length::Ch` faithful to the CSS `'0'`-advance definition.
+  (Tailwind's `prose` uses 65ch and reads wide; we tune the default to the
+  *rendered* character count instead.) Found in review and recalibrated before
+  release.
+- **Resolution timing — the crux.** taffy has no font context, so `Ch` cannot
+  reach it. It is resolved to `Px` in `frame::build`, right after `resolve()`
+  returns the concrete (animation-applied) `Style` and *before* `to_taffy`: if
+  `style.has_ch()`, `Fonts::ch_width(&resolve_text(&style.text, theme))` gives
+  the `'0'` advance and `Style::resolve_ch` rewrites every `Ch` length to `Px`.
+  Because this mutates the stored `BuiltNode.style`, every later `to_taffy`
+  (root override, overlay layout) sees only `Px`. The `'0'` shaping is paid only
+  by ch-using elements (guarded by `has_ch`, protecting `perf_gate`). To thread
+  metrics in, `build` gained a `&mut Fonts` parameter. DECISION: resolve `Ch`
+  during build, not in `to_taffy` (no font context there) and not lazily in the
+  measure closure (the cap is a container property, not a leaf measurement).
+- **DEVIATION (semantics): `Ch` resolves against the element's OWN resolved
+  text style**, not the prose nested inside a container (fenestra has no style
+  inheritance — each leaf calls `resolve_text` on its own `style.text`). So
+  `measure` on a container needs `.size(..)` **and `.family(..)`** set to match
+  its prose; documented on `Style::measure`. `ai_chat` therefore sets
+  `.size(TextSize::Lg).family(FamilyRole::Serif)` on the column (20px Playfair
+  prose — the family was added in review so the measure tracks the actual serif
+  `'0'`, not Inter's) and markdown leaves the body default (16px sans).
+- **DEVIATION (per-block vs single cap): measure is one column cap, not a
+  per-block `ch` width.** Per-paragraph/per-heading caps give ragged measures
+  (headings wrap wider than body); the web-canonical single `max-width` on the
+  article container — resolved at body size — yields one consistent reading
+  column that still caps paragraphs, list items, and headings (all inside it).
+  markdown applies it to its outer `col`; narrower containers (the 460px doc in
+  the existing golden) don't bind, so that golden is unchanged.
+- **Measured metric.** The embedded Inter `'0'` advance is ~10.09px at 16px
+  (~12.6px at 20px). With `MEASURE_CH = 52`, the body reading column is ~525px
+  and the `ai_chat` guard column (Serif → Inter fallback under embedded fonts)
+  is ~655px. Test bounds and the `ai_chat` width guard are pinned to the real
+  macOS/Metal metric; the `markdown_measure` and `ai_chat` goldens are
+  regenerated and eyeballed.
+- **Known limitation (follow-up): the document-level measure also caps fenced
+  code blocks.** Mono code inside the prose column wraps at the reading measure
+  rather than extending; the existing markdown golden's 460px container is below
+  the cap so nothing ships visibly broken. A later pass can let code blocks
+  scroll horizontally (Tailwind `prose` keeps `<pre>` in the column with
+  overflow-x) instead of wrapping.
+- **API decisions (reviewed, kept):** `measure(chars)` and `max_w_ch(chars)`
+  intentionally coexist — `measure` is the intent-revealing prose name,
+  `max_w_ch` the mechanical setter symmetric with `w_ch`/`min_w_ch` (same
+  pattern as `w_full`/`rounded_full`). `Length` is left non-`#[non_exhaustive]`,
+  consistent with every other fenestra enum (`TextSize`, `ShadowToken`, …): the
+  workspace is the only consumer pre-1.0 and snapshots lock the surface.
+- **Animation.** `Ch` is resolved after `resolve()` (which applies animation),
+  so the animator never sees it; `lerp_length` snaps any `Ch` to its target — a
+  changed measure snaps rather than tweening, which is correct (measures are
+  static caps, not animated values). `layout::dimension` treats a leaked `Ch` as
+  `Auto` defensively — unreachable in the normal pipeline.

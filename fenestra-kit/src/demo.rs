@@ -397,13 +397,14 @@ pub fn editor_panel<Msg>(_theme: &Theme) -> Element<Msg> {
 
 /// An AI-chat reading view — the showcase for "the GUI framework AI agents can
 /// see," meant to wear the warm-editorial (Claude-like) look. It demonstrates
-/// the chat vocabulary: a 768px reading column; turn asymmetry (the human
+/// the chat vocabulary: a reading column capped at the default measure
+/// (~66ch, resolved against the column's 20px prose); turn asymmetry (the human
 /// speaks in a right-aligned accent bubble, the assistant in flat serif prose,
 /// no bubble); a blinking streaming caret on the in-progress reply; and a
 /// "thinking" shimmer. Register a serif under `FamilyRole::Serif` (the warm
 /// look does) for the prose voice; without one it falls back to the sans.
 pub fn ai_chat<Msg: 'static>(_theme: &Theme) -> Element<Msg> {
-    use fenestra_core::{FamilyRole, Keyframes, Length, SP5, SP6, rich_text, span};
+    use fenestra_core::{FamilyRole, Keyframes, Length, MEASURE_CH, SP5, SP6, rich_text, span};
 
     // The human turn: a right-aligned accent bubble.
     let user = |s: &str| {
@@ -469,7 +470,14 @@ pub fn ai_chat<Msg: 'static>(_theme: &Theme) -> Element<Msg> {
         caret,
     ));
 
-    let column = col().w(Length::Px(768.0)).gap(SP5).children([
+    // The column's own text style drives the `ch` measure, so match it to the
+    // assistant prose it wraps (20px serif) — not the sans default.
+    let column = col()
+        .size(TextSize::Lg)
+        .family(FamilyRole::Serif)
+        .measure(MEASURE_CH)
+        .gap(SP5)
+        .children([
         assistant("Ask me anything — I render what I build, then look at it, the way an agent reads its own output."),
         user("Explain APCA in one line."),
         assistant("APCA predicts how legible text will be from the lightness contrast between it and its background — which is why fenestra can prove a theme readable before it ever paints a pixel."),
