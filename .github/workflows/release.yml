@@ -53,16 +53,34 @@ jobs:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
           set -euo pipefail
+          # Is this exact version already on crates.io? (same endpoint used to
+          # decide whether to skip, and to wait for index propagation below.)
+          is_published() {
+            curl -sf -A "fenestra-release-ci" \
+              "https://crates.io/api/v1/crates/$1/$2" >/dev/null
+          }
           # Order matters: kit dev-depends on shell (golden tests), so
           # shell publishes before kit.
           for crate in fenestra-core fenestra-shell fenestra-kit fenestra fenestra-charts fenestra-markdown fenestra-looks; do
             version=$(cargo pkgid -p "$crate" | sed 's/.*[@#]//')
-            if curl -sf -A "fenestra-release-ci" \
-              "https://crates.io/api/v1/crates/$crate/$version" >/dev/null; then
+            if is_published "$crate" "$version"; then
               echo "$crate $version already published; skipping"
-            else
-              cargo publish -p "$crate" --locked
+              continue
             fi
+            cargo publish -p "$crate" --locked
+            # Wait for the new version to land in the index before publishing a
+            # dependent crate. cargo's own post-publish wait can time out under
+            # registry backlog, which then fails the next crate's resolution
+            # (e.g. the facade not finding the just-published kit). Re-running is
+            # idempotent, but waiting here makes a single run reliable.
+            echo "waiting for $crate $version to appear on crates.io…"
+            for _ in $(seq 1 60); do
+              if is_published "$crate" "$version"; then
+                echo "  $crate $version is available"
+                break
+              fi
+              sleep 10
+            done
           done
 
   github-release:
