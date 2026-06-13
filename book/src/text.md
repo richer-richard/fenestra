@@ -20,6 +20,24 @@ widget's prose, and the `ai_chat` showcase. Because fenestra has no style
 inheritance, set the container's `.size(..)` and `.family(..)` to match the
 prose it wraps, so the measure tracks the real glyphs.
 
+## OpenType features
+
+Numerals and glyph variants are typed builders, not CSS strings. Figure shape
+and figure spacing are orthogonal axes that compose freely:
+
+- `.tabular()` / `.proportional_nums()` — fixed-width (`tnum`) vs prose-spaced
+  (`pnum`) figures. Tabular digits align in columns and don't jump when a value
+  updates in place; use them for tables, timers, and charts.
+- `.lining_nums()` / `.oldstyle_nums()` — uniform cap-height (`lnum`) vs
+  ascending/descending text figures (`onum`) that sit naturally in serif prose.
+- `.small_caps()` (`smcp`), `.ligatures(bool)` (`liga`), and `.fractions()`
+  (`frac`, turning `1/2` into a single glyph) are independent toggles.
+
+Each feature is only as visible as the face supports it — the embedded Inter
+carries `tnum`/`pnum`/`frac`; a registered serif such as Playfair adds
+`onum`/`lnum`/`smcp`. The kit's `font_feature_specimen()` shows each one side by
+side against the font's default.
+
 ## Single-line input
 
 `text_input(&self.value).placeholder("Search…").on_input(Msg::Set).id("q")`

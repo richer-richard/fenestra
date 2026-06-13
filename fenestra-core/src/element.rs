@@ -1134,10 +1134,47 @@ impl<Msg> Element<Msg> {
         self
     }
 
-    /// Tabular (fixed-width) numerals — digits align in columns. For tables,
-    /// timers, charts, and numeric data.
+    /// Tabular (fixed-width) numerals (`tnum`) — digits align in columns. For
+    /// tables, timers, charts, and numeric data.
     pub fn tabular(mut self) -> Self {
         self.style = self.style.tabular();
+        self
+    }
+
+    /// Proportional numerals — individually spaced for prose (`pnum`).
+    pub fn proportional_nums(mut self) -> Self {
+        self.style = self.style.proportional_nums();
+        self
+    }
+
+    /// Old-style / text figures (`onum`): ascending and descending digits
+    /// that sit naturally in serif prose.
+    pub fn oldstyle_nums(mut self) -> Self {
+        self.style = self.style.oldstyle_nums();
+        self
+    }
+
+    /// Lining figures (`lnum`): uniform cap-height digits for data and UI.
+    pub fn lining_nums(mut self) -> Self {
+        self.style = self.style.lining_nums();
+        self
+    }
+
+    /// Render lowercase letters as small capitals (`smcp`).
+    pub fn small_caps(mut self) -> Self {
+        self.style = self.style.small_caps();
+        self
+    }
+
+    /// Enable or disable standard ligatures (`liga`); most fonts default on.
+    pub fn ligatures(mut self, on: bool) -> Self {
+        self.style = self.style.ligatures(on);
+        self
+    }
+
+    /// Common fractions (`frac`): `1/2` becomes a single fraction glyph.
+    pub fn fractions(mut self) -> Self {
+        self.style = self.style.fractions();
         self
     }
 

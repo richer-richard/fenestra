@@ -131,7 +131,7 @@ impl EditorState {
 }
 
 fn apply_style(editor: &mut parley::PlainEditor<LayoutBrush>, style: &ResolvedText) {
-    use parley::{FontFamily, FontFeatures, FontWeight, GenericFamily, LineHeight, StyleProperty};
+    use parley::{FontFamily, FontWeight, GenericFamily, LineHeight, StyleProperty};
     let styles = editor.edit_styles();
     styles.insert(StyleProperty::FontSize(style.px));
     styles.insert(StyleProperty::FontWeight(FontWeight::new(style.weight)));
@@ -139,9 +139,9 @@ fn apply_style(editor: &mut parley::PlainEditor<LayoutBrush>, style: &ResolvedTe
         style.line_height,
     )));
     styles.insert(StyleProperty::LetterSpacing(style.letter_spacing));
-    if style.tabular_nums {
-        styles.insert(StyleProperty::FontFeatures(FontFeatures::from(
-            "\"tnum\" 1",
+    if let Some(s) = style.features.feature_string() {
+        styles.insert(StyleProperty::FontFeatures(parley::FontFeatures::Source(
+            std::borrow::Cow::Owned(s),
         )));
     }
     styles.insert(StyleProperty::FontFamily(match style.family {

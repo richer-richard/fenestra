@@ -7,13 +7,13 @@ use std::collections::HashMap;
 use fontique::{Blob, CollectionOptions, GenericFamily};
 use kurbo::{Affine, Rect};
 use parley::{
-    Alignment, AlignmentOptions, FontContext, FontFamily, FontFeatures, FontWeight, Layout,
-    LayoutContext, LineHeight, PositionedLayoutItem, StyleProperty,
+    Alignment, AlignmentOptions, FontContext, FontFamily, FontWeight, Layout, LayoutContext,
+    LineHeight, PositionedLayoutItem, StyleProperty,
 };
 use peniko::{Color, Fill};
 use vello::Scene;
 
-use crate::style::{TextAlign, TextStyle};
+use crate::style::{FontFeatures, TextAlign, TextStyle};
 use crate::theme::Theme;
 use crate::tokens::{FamilyRole, tracking_em};
 
@@ -42,8 +42,8 @@ pub(crate) struct ResolvedText {
     pub align: TextAlign,
     pub max_lines: Option<u32>,
     pub color: Color,
-    /// Tabular figures (`tnum`).
-    pub tabular_nums: bool,
+    /// OpenType features applied to the run.
+    pub features: FontFeatures,
 }
 
 /// Resolves the text style group against the theme and size tokens.
@@ -68,7 +68,7 @@ pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
         align: ts.align,
         max_lines: ts.max_lines,
         color: ts.color.unwrap_or(theme.text),
-        tabular_nums: ts.tabular_nums,
+        features: ts.features,
     }
 }
 
@@ -82,7 +82,8 @@ struct LayoutKey {
     family: FamilyRole,
     align: TextAlign,
     max_lines: Option<u32>,
-    tabular_nums: bool,
+    /// OpenType features (every flag affects shaping, so all are hashed).
+    features: FontFeatures,
     /// Quantized max advance (quarter-px buckets); `u32::MAX` = unbounded.
     width_bucket: u32,
 }
@@ -98,7 +99,7 @@ impl LayoutKey {
             family: style.family,
             align: style.align,
             max_lines: style.max_lines,
-            tabular_nums: style.tabular_nums,
+            features: style.features,
             #[expect(clippy::cast_sign_loss, reason = "advances are non-negative")]
             width_bucket: match max_advance {
                 Some(w) => (w.max(0.0) * 4.0).round() as u32,
@@ -260,9 +261,9 @@ impl Fonts {
             style.line_height,
         )));
         builder.push_default(StyleProperty::LetterSpacing(style.letter_spacing));
-        if style.tabular_nums {
-            builder.push_default(StyleProperty::FontFeatures(FontFeatures::from(
-                "\"tnum\" 1",
+        if let Some(s) = style.features.feature_string() {
+            builder.push_default(StyleProperty::FontFeatures(parley::FontFeatures::Source(
+                std::borrow::Cow::Owned(s),
             )));
         }
         let mut layout = builder.build(text);
@@ -350,9 +351,9 @@ impl Fonts {
             style.line_height,
         )));
         builder.push_default(StyleProperty::LetterSpacing(style.letter_spacing));
-        if style.tabular_nums {
-            builder.push_default(StyleProperty::FontFeatures(FontFeatures::from(
-                "\"tnum\" 1",
+        if let Some(s) = style.features.feature_string() {
+            builder.push_default(StyleProperty::FontFeatures(parley::FontFeatures::Source(
+                std::borrow::Cow::Owned(s),
             )));
         }
         builder.push_default(StyleProperty::Brush(base_brush));
@@ -752,5 +753,78 @@ mod tests {
         assert!(Style::default().w_ch(40.0).has_ch());
         // A pixel width is not a `ch` constraint.
         assert!(!Style::default().w(100.0).has_ch());
+    }
+
+    /// True when two styles produce distinct layout cache keys for the same
+    /// text and wrap width — i.e. a flag flip is not silently cached away.
+    fn keys_differ(a: &ResolvedText, b: &ResolvedText) -> bool {
+        LayoutKey::new("0123456789", a, None) != LayoutKey::new("0123456789", b, None)
+    }
+
+    /// A `ResolvedText` whose features are set by `f`, everything else default.
+    fn rt_feat(f: impl FnOnce(&mut crate::style::FontFeatures)) -> ResolvedText {
+        let mut style = rt(TextSize::Base);
+        f(&mut style.features);
+        style
+    }
+
+    #[test]
+    fn layout_key_differs_on_spacing() {
+        use crate::style::NumericSpacing::{Default, Proportional, Tabular};
+        let def = rt_feat(|x| x.spacing = Default);
+        let tab = rt_feat(|x| x.spacing = Tabular);
+        let prop = rt_feat(|x| x.spacing = Proportional);
+        assert!(keys_differ(&def, &tab));
+        assert!(keys_differ(&def, &prop));
+        assert!(keys_differ(&tab, &prop));
+    }
+
+    #[test]
+    fn layout_key_differs_on_figures() {
+        use crate::style::FigureStyle::{Default, Lining, OldStyle};
+        let def = rt_feat(|x| x.figures = Default);
+        let lin = rt_feat(|x| x.figures = Lining);
+        let old = rt_feat(|x| x.figures = OldStyle);
+        assert!(keys_differ(&def, &lin));
+        assert!(keys_differ(&def, &old));
+        assert!(keys_differ(&lin, &old));
+    }
+
+    #[test]
+    fn layout_key_differs_on_small_caps() {
+        let off = rt_feat(|x| x.small_caps = false);
+        let on = rt_feat(|x| x.small_caps = true);
+        assert!(keys_differ(&off, &on));
+    }
+
+    #[test]
+    fn layout_key_differs_on_ligatures() {
+        let def = rt_feat(|x| x.ligatures = None);
+        let off = rt_feat(|x| x.ligatures = Some(false));
+        let on = rt_feat(|x| x.ligatures = Some(true));
+        assert!(keys_differ(&def, &off));
+        assert!(keys_differ(&def, &on));
+        assert!(keys_differ(&off, &on));
+    }
+
+    #[test]
+    fn layout_key_differs_on_fractions() {
+        let off = rt_feat(|x| x.fractions = false);
+        let on = rt_feat(|x| x.fractions = true);
+        assert!(keys_differ(&off, &on));
+    }
+
+    #[test]
+    fn layout_key_equal_when_features_equal() {
+        // Negative control: identical features ⇒ identical key (cache hits).
+        let a = rt_feat(|x| {
+            x.spacing = crate::style::NumericSpacing::Tabular;
+            x.small_caps = true;
+        });
+        let b = rt_feat(|x| {
+            x.spacing = crate::style::NumericSpacing::Tabular;
+            x.small_caps = true;
+        });
+        assert!(!keys_differ(&a, &b));
     }
 }

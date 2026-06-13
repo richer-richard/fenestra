@@ -1014,3 +1014,61 @@ article, expressed in the unit that actually matters for legibility.
   changed measure snaps rather than tweening, which is correct (measures are
   static caps, not animated values). `layout::dimension` treats a leaked `Ch` as
   `Auto` defensively — unreachable in the normal pipeline.
+
+## 0.16: richer font features
+
+Typed `FontFeatures` (figure shape + figure spacing axes, plus `small_caps`,
+`ligatures`, and `fractions` toggles) replaces the single `tabular_nums` bool.
+The web-canonical `font-feature-settings`, expressed as autocompleting builders
+instead of a CSS string.
+
+- **One value type, one source of truth.** `FontFeatures::feature_string()`
+  emits the CSS `font-feature-settings` list in a fixed tag order (figures,
+  spacing, small caps, ligatures, fractions) and is the only place tags are
+  produced. All three former feature-push sites (`text.rs` plain + rich shaping
+  and `input.rs` editor styling) now call it through one shared path
+  (`parley::FontFeatures::Source(Cow::Owned(s))` — owned so it satisfies the
+  `'static` `PlainEditor::edit_styles()` slot without lifetime gymnastics), and
+  our public `FontFeatures` is dropped from the two `use parley::{…}` globs to
+  avoid the name clash.
+- **Orthogonal axes.** Figure shape (`onum`/`lnum`) and figure spacing
+  (`pnum`/`tnum`) are independent enums, so tabular + old-style is expressible;
+  `.tabular()` is unchanged (`spacing = Tabular` ⇒ `"tnum" 1`) so every prior
+  golden is byte-identical. `.tabular()`/`.proportional_nums()` share the
+  spacing slot and `.oldstyle_nums()`/`.lining_nums()` share the figure slot
+  (last builder wins).
+- **Cache key (the bug the regression locks).** Every flag is now hashed into
+  `LayoutKey`; the prior key carried only `tabular_nums`, so any new feature
+  would have been cached away (flip a flag, hit the stale layout). Per-axis
+  `LayoutKey` regression tests were written first and watched fail (keys equal
+  across a flag flip) before `features` was added to the key.
+- **DEVIATION (font-dependent golden split).** Feature support is a property of
+  the face, not the framework. The embedded Inter (the headless golden font)
+  carries `tnum/pnum/frac` but **not** `onum/lnum/smcp/liga`; the bundled
+  Playfair Display carries `onum/lnum/smcp/liga/frac` but **not** `tnum/pnum`.
+  So the `font_features` golden demonstrates figure shape, small caps, and
+  fractions on the **Serif** role (Playfair) and tabular↔proportional on
+  **Sans** (Inter), and lives in the `fenestra` crate (which registers
+  Playfair, the pattern proven by `ai_chat_golden`) rather than the
+  embedded-only kit suite. The unit acceptance criteria (feature-string
+  contents, `LayoutKey` distinctness) are font-independent and fully covered.
+- **Eyeballed.** The light-theme golden shows old-style figures descending
+  below the baseline (3/4/5/7/9) and rising above x-height (6/8) against the
+  flat lining row, lowercase becoming small capitals, `1/2 3/4 7/8` collapsing
+  to single fraction glyphs, and the tabular digit column aligning on a fixed
+  grid where the proportional one is ragged.
+- **API decisions (reviewed, kept).** `.tabular()` keeps its bare name (it is
+  the established, widely-used builder) while its spacing sibling is
+  `.proportional_nums()` — a small naming asymmetry accepted in exchange for not
+  churning every `.tabular()` call site. `FontFeatures` is left
+  non-`#[non_exhaustive]`, consistent with every other open public-field struct
+  in the crate (`TextStyle`, `Style`, `Border`, `Shadow`); downstream code uses
+  the builders, not struct literals, so growth lands through new builders.
+- **Known limitation (follow-up): live editors don't clear a removed feature.**
+  `input.rs::apply_style` inserts the `FontFeatures` style property only when
+  `feature_string()` is `Some`; toggling a feature *off* on a persistent
+  `text_input` instance leaves the prior property in the editor's style set
+  until it is recreated (pre-existing in form — the old `tnum`-only path gated
+  the same way; this change widens it from one feature to six). Static text is
+  unaffected (it rebuilds styles per layout). A later pass should `remove` the
+  property in the `else` branch, with a live-editor regression test.

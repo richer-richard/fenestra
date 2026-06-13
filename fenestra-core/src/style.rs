@@ -283,6 +283,93 @@ pub enum TextAlign {
     End,
 }
 
+/// Figure (numeral) shape. Old-style figures have varying heights and
+/// descenders that sit naturally in serif prose; lining figures are
+/// uniform cap-height digits for data and UI. `Default` leaves the font's
+/// own default figures untouched. Maps to the `onum`/`lnum` OpenType features.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum FigureStyle {
+    /// Leave the font's default figures.
+    #[default]
+    Default,
+    /// Lining figures (`lnum`): uniform cap-height digits.
+    Lining,
+    /// Old-style / text figures (`onum`): ascending and descending digits.
+    OldStyle,
+}
+
+/// Figure spacing. Proportional figures are individually spaced for prose;
+/// tabular figures share one advance so columns of numbers align and values
+/// that update in place don't jump. `Default` leaves the font's own spacing.
+/// Maps to the `pnum`/`tnum` OpenType features.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum NumericSpacing {
+    /// Leave the font's default spacing.
+    #[default]
+    Default,
+    /// Proportional figures (`pnum`): naturally spaced for prose.
+    Proportional,
+    /// Tabular figures (`tnum`): fixed-width for aligned columns.
+    Tabular,
+}
+
+/// A typed set of OpenType features applied to a text run. Orthogonal axes:
+/// figure shape (`figures`) and figure spacing (`spacing`) compose freely
+/// (e.g. tabular + old-style is valid), small caps, standard ligatures, and
+/// fractions are independent toggles. The default enables nothing, leaving
+/// every glyph at the font's own defaults. Built into a CSS
+/// `font-feature-settings` string for parley; part of the layout cache key.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub struct FontFeatures {
+    /// Figure shape (`onum`/`lnum`).
+    pub figures: FigureStyle,
+    /// Figure spacing (`pnum`/`tnum`).
+    pub spacing: NumericSpacing,
+    /// Small capitals for lowercase letters (`smcp`).
+    pub small_caps: bool,
+    /// Standard ligatures (`liga`): `None` = font default, `Some(false)`
+    /// disables, `Some(true)` forces on. Most fonts enable `liga` already.
+    pub ligatures: Option<bool>,
+    /// Common fractions (`frac`): turns `1/2` into a single fraction glyph.
+    pub fractions: bool,
+}
+
+impl FontFeatures {
+    /// The CSS `font-feature-settings` string for these features, or `None`
+    /// when nothing is enabled. Tags are emitted in a fixed order so the
+    /// output is deterministic: figures, spacing, small caps, ligatures,
+    /// fractions — e.g. `"onum" 1, "tnum" 1`.
+    pub(crate) fn feature_string(&self) -> Option<String> {
+        let mut parts: Vec<&'static str> = Vec::new();
+        match self.figures {
+            FigureStyle::Default => {}
+            FigureStyle::Lining => parts.push("\"lnum\" 1"),
+            FigureStyle::OldStyle => parts.push("\"onum\" 1"),
+        }
+        match self.spacing {
+            NumericSpacing::Default => {}
+            NumericSpacing::Proportional => parts.push("\"pnum\" 1"),
+            NumericSpacing::Tabular => parts.push("\"tnum\" 1"),
+        }
+        if self.small_caps {
+            parts.push("\"smcp\" 1");
+        }
+        match self.ligatures {
+            None => {}
+            Some(true) => parts.push("\"liga\" 1"),
+            Some(false) => parts.push("\"liga\" 0"),
+        }
+        if self.fractions {
+            parts.push("\"frac\" 1");
+        }
+        if parts.is_empty() {
+            None
+        } else {
+            Some(parts.join(", "))
+        }
+    }
+}
+
 /// The text style group. `color`, `line_height`, and `letter_spacing`
 /// default to the theme/text-size tokens when `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -306,9 +393,9 @@ pub struct TextStyle {
     pub align: TextAlign,
     /// Maximum number of lines before truncation with an ellipsis.
     pub max_lines: Option<u32>,
-    /// Tabular (fixed-width) figures via the `tnum` OpenType feature, so
-    /// digits align in columns. For tables, timers, and numeric data.
-    pub tabular_nums: bool,
+    /// OpenType features applied to the run (figures, spacing, small caps,
+    /// ligatures, fractions). Defaults to the font's own defaults.
+    pub features: FontFeatures,
 }
 
 /// The complete style of an element: layout, paint, and text groups.
@@ -998,10 +1085,47 @@ impl Style {
         self
     }
 
-    /// Tabular (fixed-width) numerals — digits align in columns. For tables,
-    /// timers, charts, and any numeric data that updates in place.
+    /// Tabular (fixed-width) numerals (`tnum`) — digits align in columns. For
+    /// tables, timers, charts, and any numeric data that updates in place.
     pub fn tabular(mut self) -> Self {
-        self.text.tabular_nums = true;
+        self.text.features.spacing = NumericSpacing::Tabular;
+        self
+    }
+
+    /// Proportional numerals — individually spaced for prose (`pnum`).
+    pub fn proportional_nums(mut self) -> Self {
+        self.text.features.spacing = NumericSpacing::Proportional;
+        self
+    }
+
+    /// Old-style / text figures (`onum`): ascending and descending digits
+    /// that sit naturally in serif prose.
+    pub fn oldstyle_nums(mut self) -> Self {
+        self.text.features.figures = FigureStyle::OldStyle;
+        self
+    }
+
+    /// Lining figures (`lnum`): uniform cap-height digits for data and UI.
+    pub fn lining_nums(mut self) -> Self {
+        self.text.features.figures = FigureStyle::Lining;
+        self
+    }
+
+    /// Render lowercase letters as small capitals (`smcp`).
+    pub fn small_caps(mut self) -> Self {
+        self.text.features.small_caps = true;
+        self
+    }
+
+    /// Enable or disable standard ligatures (`liga`); most fonts default on.
+    pub fn ligatures(mut self, on: bool) -> Self {
+        self.text.features.ligatures = Some(on);
+        self
+    }
+
+    /// Common fractions (`frac`): `1/2` becomes a single fraction glyph.
+    pub fn fractions(mut self) -> Self {
+        self.text.features.fractions = true;
         self
     }
 
@@ -1107,5 +1231,86 @@ impl Style {
         self.min_height = self.min_height.resolved(ch_px);
         self.max_height = self.max_height.resolved(ch_px);
         self.flex_basis = self.flex_basis.resolved(ch_px);
+    }
+}
+
+#[cfg(test)]
+mod feature_tests {
+    use super::*;
+
+    /// The feature string of a style built with the given builders.
+    fn fs(style: Style) -> Option<String> {
+        style.text.features.feature_string()
+    }
+
+    #[test]
+    fn default_features_emit_nothing() {
+        assert_eq!(FontFeatures::default().feature_string(), None);
+    }
+
+    #[test]
+    fn tabular_unchanged() {
+        // Locks the exact prior `.tabular()` behavior (`"tnum" 1`), so every
+        // existing golden that uses it stays byte-identical.
+        assert_eq!(
+            fs(Style::default().tabular()),
+            Some("\"tnum\" 1".to_owned())
+        );
+    }
+
+    #[test]
+    fn oldstyle_and_smcp() {
+        let s = fs(Style::default().oldstyle_nums().small_caps()).unwrap();
+        assert!(s.contains("\"onum\" 1"), "{s}");
+        assert!(s.contains("\"smcp\" 1"), "{s}");
+        assert!(!s.contains("\"lnum\""), "{s}");
+        assert!(!s.contains("\"tnum\""), "{s}");
+        assert!(!s.contains("\"pnum\""), "{s}");
+    }
+
+    #[test]
+    fn tnum_onum_mutually_consistent() {
+        // Figure shape and figure spacing are orthogonal axes; both apply.
+        let s = fs(Style::default().tabular().oldstyle_nums()).unwrap();
+        assert!(s.contains("\"tnum\" 1"), "{s}");
+        assert!(s.contains("\"onum\" 1"), "{s}");
+    }
+
+    #[test]
+    fn ligatures_off_and_on() {
+        assert!(
+            fs(Style::default().ligatures(false))
+                .unwrap()
+                .contains("\"liga\" 0")
+        );
+        assert!(
+            fs(Style::default().ligatures(true))
+                .unwrap()
+                .contains("\"liga\" 1")
+        );
+    }
+
+    #[test]
+    fn fractions_and_proportional() {
+        assert!(
+            fs(Style::default().fractions())
+                .unwrap()
+                .contains("\"frac\" 1")
+        );
+        assert!(
+            fs(Style::default().proportional_nums())
+                .unwrap()
+                .contains("\"pnum\" 1")
+        );
+    }
+
+    #[test]
+    fn figure_axis_is_exclusive() {
+        // The figure axis is one slot: the last builder wins.
+        let style = Style::default().oldstyle_nums().lining_nums();
+        assert_eq!(style.text.features.figures, FigureStyle::Lining);
+        let s = fs(style).unwrap();
+        assert!(s.contains("\"lnum\""), "{s}");
+        assert!(!s.contains("\"onum\""), "{s}");
     }
 }

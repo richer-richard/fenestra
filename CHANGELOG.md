@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.16.0 — 2026-06-14
+
+Richer OpenType typography: the single `tabular_nums` bool grows into a typed
+`FontFeatures` set covering figure shape, figure spacing, small caps,
+ligatures, and fractions.
+
+### Added
+
+- **`FontFeatures`** (with `FigureStyle` and `NumericSpacing` axes) on
+  `TextStyle.features`, and the builders `proportional_nums`, `oldstyle_nums`,
+  `lining_nums`, `small_caps`, `ligatures(bool)`, and `fractions` on both
+  `Style` and `Element` (alongside the unchanged `tabular`). Figure shape
+  (`onum`/`lnum`) and figure spacing (`pnum`/`tnum`) are orthogonal and
+  compose; small caps (`smcp`), ligatures (`liga`), and fractions (`frac`) are
+  independent toggles. All flow into the parley `font-feature-settings` string
+  through a single source of truth and are part of the layout cache key.
+- **`font_feature_specimen()`** (kit): a showcase of every feature, shown side
+  by side against the font's default.
+
+### Changed
+
+- `TextStyle.tabular_nums: bool` is replaced by `TextStyle.features:
+  FontFeatures`. `.tabular()` keeps identical behavior (`"tnum" 1`), so every
+  existing golden is byte-identical.
+
+### Fixed
+
+- Every font feature now participates in the layout cache key. (The prior
+  `tabular_nums`-only key would have cached away any new feature flag — caught
+  by the new per-axis `LayoutKey` regression tests, written first to fail.)
+
+### Decided
+
+- See ARCHITECTURE.md "0.16: richer font features" — the feature support is
+  font-dependent, so the golden splits figure-shape/small-caps onto the Serif
+  role (Playfair) and tabular↔proportional onto Sans (Inter).
+
 ## 0.15.0 — 2026-06-14
 
 The reading measure: a `ch`-based prose column, the single biggest readability
