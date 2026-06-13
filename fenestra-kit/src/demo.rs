@@ -2,8 +2,8 @@
 //! and a nested scrolling layout. Shared by examples and golden tests.
 
 use fenestra_core::{
-    Element, R_LG, R_SM, SP1, SP2, SP3, SP4, ShadowToken, TextSize, Theme, Track, Weight, col, div,
-    divider, row, text,
+    ChromeElevation, ChromeText, Element, R_LG, R_SM, SP1, SP2, SP3, SP4, ShadowToken, TextSize,
+    Theme, Track, Weight, col, div, divider, row, text,
 };
 
 /// The holy-grail layout: header and footer spanning three grid columns,
@@ -337,4 +337,60 @@ fn branch_path() -> kurbo::BezPath {
         p.extend(kurbo::Circle::new(tip, r).path_elements(0.1));
     }
     p
+}
+
+/// A Figma-style inspector panel: the editor-chrome token tier in one screen —
+/// dense 11–13px labels ([`ChromeText`]), 32px control rows, and the floating
+/// two-drop + 0.5px hairline-ring elevation ([`ChromeElevation::Popover`]).
+/// The visual proof that fenestra can dress as a creative tool, not just a
+/// SaaS app. Pair it with the [`canvas`](fenestra_core::canvas) substrate.
+pub fn editor_panel<Msg>(_theme: &Theme) -> Element<Msg> {
+    let label = |s: &str| {
+        text(s.to_owned())
+            .size_px(ChromeText::Sm.px())
+            .tracking(ChromeText::Sm.tracking())
+            .themed(|t: &Theme, st| st.color(t.text_muted))
+    };
+    let value = |s: &str| {
+        text(s.to_owned())
+            .size_px(ChromeText::Sm.px())
+            .tracking(ChromeText::Sm.tracking())
+            .themed(|t: &Theme, st| st.color(t.text))
+    };
+    let field = |name: &str, val: &str| {
+        row()
+            .h(32.0)
+            .items_center()
+            .justify_between()
+            .px(SP3)
+            .children((label(name), value(val)))
+    };
+
+    col()
+        .w(240.0)
+        .m(SP4)
+        .rounded(R_SM)
+        .py(SP2)
+        // The panel's own elevation IS the editor-chrome vocabulary: two soft
+        // drops over a 0.5px hairline ring, flat black (not the themed hue).
+        .themed(|t: &Theme, mut s| {
+            s.shadows = ChromeElevation::Popover.shadows();
+            s.bg(t.surface_raised).border(1.0, t.border_subtle)
+        })
+        .children((
+            row()
+                .h(32.0)
+                .items_center()
+                .px(SP3)
+                .children([text("Layout".to_owned())
+                    .size_px(ChromeText::Lg.px())
+                    .tracking(ChromeText::Lg.tracking())
+                    .weight(Weight::Semibold)
+                    .themed(|t: &Theme, st| st.color(t.text))]),
+            divider(),
+            field("Width", "240"),
+            field("Height", "auto"),
+            field("Opacity", "100%"),
+            field("Corner radius", "6"),
+        ))
 }

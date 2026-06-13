@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use fenestra_core::{Fonts, FrameState, Theme, build_frame};
-use fenestra_kit::{holy_grail, scroll_demo};
+use fenestra_kit::{editor_panel, holy_grail, scroll_demo};
 use fenestra_shell::{render_element, render_element_with_state, testing::assert_png_snapshot};
 use kurbo::Point;
 
@@ -26,6 +26,22 @@ fn holy_grail_dark() {
     let theme = Theme::dark();
     let image = render_element(holy_grail::<()>(&theme), &theme, SIZE);
     assert_png_snapshot(snapshot_dir(), "holy_grail_dark", &image);
+}
+
+/// The editor-chrome tier: a Figma-style inspector panel (dense type + the
+/// two-drop/hairline-ring popover elevation), locked in both modes.
+#[test]
+fn editor_panel_light() {
+    let theme = Theme::light();
+    let image = render_element(editor_panel::<()>(&theme), &theme, (300, 240));
+    assert_png_snapshot(snapshot_dir(), "editor_panel_light", &image);
+}
+
+#[test]
+fn editor_panel_dark() {
+    let theme = Theme::dark();
+    let image = render_element(editor_panel::<()>(&theme), &theme, (300, 240));
+    assert_png_snapshot(snapshot_dir(), "editor_panel_dark", &image);
 }
 
 #[test]

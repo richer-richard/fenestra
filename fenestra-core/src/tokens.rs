@@ -272,6 +272,17 @@ pub const EASE_ACCELERATE: CubicBezier = CubicBezier {
 /// Exit easing; the historical name for [`EASE_ACCELERATE`].
 pub const EASE_EXIT: CubicBezier = EASE_ACCELERATE;
 
+/// Symmetric ease for camera moves and large surface transitions (CSS
+/// `easeInOutCubic`): (0.65, 0, 0.35, 1). The canvas camera
+/// ([`crate::canvas`]) eases zoom-to-fit and zoom-to-selection with it — the
+/// curve Figma and tldraw use for canvas motion.
+pub const EASE_IN_OUT_CUBIC: CubicBezier = CubicBezier {
+    x1: 0.65,
+    y1: 0.0,
+    x2: 0.35,
+    y2: 1.0,
+};
+
 /// The focus-ring spec (shadcn v4 model). On keyboard focus a control swaps
 /// its border to the ring color and draws a soft halo `width` px wide at
 /// `alpha`, `offset` px outside the border (0 = flush). The ring color is the

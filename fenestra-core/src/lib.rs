@@ -7,7 +7,9 @@
 mod anim;
 mod apca;
 mod app;
+pub mod canvas;
 mod children;
+mod chrome;
 mod clipboard;
 mod element;
 mod events;
@@ -27,6 +29,7 @@ mod tokens;
 pub use apca::{lc, lc_abs, meets};
 pub use app::{App, MAIN_WINDOW, WindowDesc};
 pub use children::{FromIter, FromTuple, IntoChildren};
+pub use chrome::{ChromeElevation, ChromeText};
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
     Cursor, Element, ImageData, InputData, Kind, Overlay, OverlayMode, OverlayPlacement, PathData,
