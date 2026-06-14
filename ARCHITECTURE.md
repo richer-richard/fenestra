@@ -1528,3 +1528,29 @@ rather than its bounding box).
   Threading optical overshoot/centering automatically into the icon/path render
   pass (so every circular icon and asymmetric glyph self-corrects) is a clean
   follow-up.
+
+## 0.26: effect nodes (generated fields)
+
+`fenestra_core::effects` ships the "bespoke" effects as deterministic generated
+RGBA8 textures, consumed via `image_rgba8`: `mesh` (a multi-point gradient field)
+and `grain` (seeded film noise).
+
+- **Generated, not shaded.** vello 0.9 has no custom-shader path, so the
+  Stripe-style mesh field and the film grain are computed into pixel buffers in
+  pure Rust — which makes them deterministic and golden-lockable (the
+  `effects_showcase` golden), unlike a per-frame shader. The inputs (size, color
+  points, seed, intensity) tokenize; only the resulting pixels are "art".
+- **Mesh blends in OKLab.** Each pixel is an inverse-distance²-weighted blend of
+  the color points, performed in OKLab (OKLCH's Cartesian form: `a = C·cosH`,
+  `b = C·sinH`) so there is no hue-wraparound and no gray dead-zone through the
+  middle — the same perceptual principle as the 0.18 gradient builder,
+  generalized to a 2-D field; the result gamut-maps through `oklch`. Colors are
+  theme tokens.
+- **`grain` is a seeded xorshift64\*** — no `rand` dependency and no clock, so
+  the same seed always yields the same texture (CI-stable). Monochrome value
+  noise at the requested alpha.
+- **Scope.** Ships `mesh` + `grain`; the third common effect, a scroll-edge
+  fade, is just a `linear_gradient` from the chrome surface color to its
+  transparent twin (no new primitive needed) and is documented as such. A live
+  backdrop/refraction shader remains out of scope for the current renderer (see
+  0.22).

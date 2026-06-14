@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.26.0 — 2026-06-14
+
+Generated effect fields — the "bespoke" end of the design system as
+deterministic, token-colored RGBA8 textures.
+
+### Added
+
+- **`effects::mesh(width, height, &[MeshPoint])`**: a multi-point mesh gradient
+  (the Stripe "liquid light" field) — every pixel an inverse-distance blend of
+  the color points in OKLab, so it stays vivid through the middle with no gray
+  dead-zone.
+- **`effects::grain(width, height, seed, intensity)`**: fine film grain from a
+  seeded PRNG (deterministic), to break up banding and add a tactile paper
+  texture. Both return RGBA8 buffers for `image_rgba8`; an `effects_showcase`
+  golden renders the mesh field with a grain overlay.
+
+### Decided
+
+- See ARCHITECTURE.md "0.26: effect nodes" — generated textures (pure,
+  deterministic, golden-locked) rather than a live shader; colors are theme
+  tokens; the third effect-family member, a scroll-edge fade, needs no new
+  primitive (a `linear_gradient` surface→transparent is the fade).
+
 ## 0.25.0 — 2026-06-14
 
 Optical-adjustment helpers — the small geometric corrections that make shapes

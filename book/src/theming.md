@@ -206,6 +206,12 @@ The repository's `poster` example reproduces an editorial study-guide
 cover this way — golden-tested like everything else. The point: design
 languages are code, and beauty is testable.
 
+For the most expressive surfaces, `fenestra_core::effects` generates textures:
+`mesh(w, h, &[MeshPoint])` is a multi-point gradient field (the Stripe "liquid
+light" look, blended in OKLab from theme-token colors), and `grain(w, h, seed,
+intensity)` is deterministic film grain to break up banding. Both return RGBA8
+for `image_rgba8` — generated, not shaded, so they golden-lock too.
+
 ## Theme files
 
 Themes serialize as *recipes* — the few numbers a theme generates from,

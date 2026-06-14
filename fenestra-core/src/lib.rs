@@ -11,6 +11,7 @@ pub mod canvas;
 mod children;
 mod chrome;
 mod clipboard;
+pub mod effects;
 mod element;
 mod events;
 mod frame;
