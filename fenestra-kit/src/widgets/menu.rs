@@ -16,8 +16,7 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Overlay, R_MD, SP2, Semantics, ShadowToken, TextSize, Theme, Transition, col,
-    row, text,
+    Cursor, Element, Overlay, R_LG, SP2, Semantics, Surface, TextSize, Transition, col, row, text,
 };
 
 /// The styled panel of menu items (no overlay attached): rows that emit
@@ -30,16 +29,14 @@ pub fn menu<Msg: Clone + 'static>(
         .p(4.0)
         .gap(2.0)
         .min_w(160.0)
-        .rounded(R_MD)
-        .shadow(ShadowToken::Lg)
-        .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
+        .surface(Surface::Menu)
         .children(items.into_iter().map(|(label, msg)| {
             let label = label.into();
             row()
                 .items_center()
                 .px(SP2)
                 .h(30.0)
-                .rounded(R_MD - 4.0)
+                .rounded(R_LG - 4.0)
                 .shrink0()
                 .cursor(Cursor::Pointer)
                 .on_click(msg)
@@ -76,9 +73,7 @@ pub fn context_menu<Msg: Clone + 'static>(
 pub fn popover<Msg: 'static>(content: impl Into<Element<Msg>>) -> Element<Msg> {
     col()
         .p(SP2)
-        .rounded(R_MD)
-        .shadow(ShadowToken::Lg)
-        .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
+        .surface(Surface::Popover)
         .child(content)
         .overlay(Overlay::menu())
 }

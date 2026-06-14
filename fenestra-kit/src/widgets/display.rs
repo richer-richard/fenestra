@@ -2,9 +2,9 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, R_LG, R_MD, SP1, SP2, SP3, SP4,
-    SP6, Semantics, ShadowToken, StatusColors, TextSize, Theme, Track, Transition, Weight, col,
-    div, path, row, text,
+    Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, R_MD, SP1, SP2, SP3, SP4, SP6,
+    Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition, Weight, col, div, path,
+    row, text,
 };
 use kurbo::BezPath;
 
@@ -34,12 +34,7 @@ pub fn reading_column<Msg>() -> Element<Msg> {
 /// let el: fenestra_core::Element<()> = card().children([text("Content")]);
 /// ```
 pub fn card<Msg>() -> Element<Msg> {
-    col()
-        .p(SP6)
-        .gap(SP3)
-        .rounded(R_LG)
-        .shadow(ShadowToken::Sm)
-        .themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.0, t.border_subtle))
+    col().p(SP6).gap(SP3).surface(Surface::Card)
 }
 
 /// Which status palette a badge or callout uses.

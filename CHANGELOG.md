@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.19.0 — 2026-06-14
+
+Surface materials: one typed primitive per elevation role, so every elevated
+surface in the kit derives its radius, fill, border, shadow, and highlight from
+a single table instead of re-typing the recipe at each call site.
+
+### Added
+
+- **`Surface`** (`Card`, `Raised`, `Popover`, `Menu`, `Modal`, `Thumb`,
+  `Tooltip`) — a semantic material role that bundles corner radius + fill role +
+  border role + shadow token + optional top-highlight into a `SurfaceBundle`,
+  resolved against the theme. `Element::surface(role)` (deferred via `.themed`),
+  `Theme::surface_style(role)` (theme in scope), and the low-level
+  `SurfaceBundle::apply(theme, base)`. Floating roles carry radius and shadow
+  depth ≥ resting roles by construction (locked by an ordering-invariant test).
+- Seven kit widgets (card, menu/popover, select listbox, modal, tooltip, toast,
+  slider thumb) now derive their elevated look from the bundle.
+
+### Changed
+
+- Floating surfaces (menu/popover/select/toast) unify on the card's 14px radius
+  so "every floating thing matches." `select_open` and `toast_stack` goldens
+  regenerated; all other widget and Look goldens are byte-identical.
+
+### Decided
+
+- See ARCHITECTURE.md "0.19: surface / material bundle" — the standalone
+  role-enum + resolver, the floating ≥ resting invariant, the `Thumb`/`Tooltip`
+  exemptions, `#[non_exhaustive]` on the growable axes (for 0.22's glass fill),
+  and dropping the convention-breaking `Style::surface`.
+
 ## 0.18.0 — 2026-06-14
 
 Themed, OKLCH-interpolated gradient builders: gradients are pre-expanded into

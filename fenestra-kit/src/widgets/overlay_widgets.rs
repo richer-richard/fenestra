@@ -1,8 +1,7 @@
 //! Tooltip and Modal: overlay widgets on the core overlay stack.
 
 use fenestra_core::{
-    Element, Overlay, R_SM, R_XL, SP2, SP3, SP6, Semantics, ShadowToken, TextSize, Theme, Weight,
-    col, row, text,
+    Element, Overlay, SP2, SP3, SP6, Semantics, Surface, TextSize, Theme, Weight, col, row, text,
 };
 
 use super::button::{ButtonVariant, icon_button};
@@ -27,9 +26,7 @@ pub fn tooltip<Msg>(target: impl Into<Element<Msg>>, label: impl Into<String>) -
         .overlay(Overlay::tooltip())
         .px(SP2)
         .py(4.0)
-        .rounded(R_SM)
-        .shadow(ShadowToken::Md)
-        .themed(|t: &Theme, s| s.bg(t.neutrals.step(12)))
+        .surface(Surface::Tooltip)
         .children([text(label)
             .size(TextSize::Sm)
             .themed(|t: &Theme, s| s.color(t.neutrals.step(1)))]);
@@ -123,9 +120,7 @@ impl<Msg: Clone + 'static> From<Modal<Msg>> for Element<Msg> {
             .w(m.max_width)
             .p(SP6)
             .gap(SP3)
-            .rounded(R_XL)
-            .shadow(ShadowToken::Xl)
-            .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
+            .surface(Surface::Modal)
             .children([header])
             .children(m.content)
             .semantics(Semantics::Dialog)

@@ -15,8 +15,8 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Key, Overlay, R_MD, SP2, SP3, Semantics, ShadowToken, Theme, Transition, col,
-    row, spacer, text,
+    Cursor, Element, Key, Overlay, R_LG, R_MD, SP2, SP3, Semantics, Surface, Theme, Transition,
+    col, row, spacer, text,
 };
 
 use super::ControlSize;
@@ -98,16 +98,14 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             .w(sel.width)
             .p(4.0)
             .gap(2.0)
-            .rounded(R_MD)
-            .shadow(ShadowToken::Lg)
-            .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
+            .surface(Surface::Menu)
             .children(sel.options.iter().enumerate().map(|(i, opt)| {
                 let is_selected = i == selected;
                 let mut option = row()
                     .items_center()
                     .px(SP2)
                     .h(30.0)
-                    .rounded(R_MD - 4.0)
+                    .rounded(R_LG - 4.0)
                     .shrink0()
                     .cursor(Cursor::Pointer)
                     .children([text(opt.clone()).size(sel.size.text_size()).themed(

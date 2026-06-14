@@ -103,6 +103,14 @@ for modals. In dark mode, elevation lightens surfaces
 can carry a 1px inset top highlight (`.highlight_top(color)`) — the subtle
 top sheen that reads as "raised."
 
+Rather than re-typing radius + fill + border + shadow at each call site, a
+`Surface` material bundles them per elevation *role* — `Card`, `Raised`,
+`Popover`, `Menu`, `Modal`, `Thumb`, `Tooltip` — resolved against the theme.
+`el.surface(Surface::Menu)` gives a floating panel its whole look in one call;
+floating roles carry radius and shadow depth at or above the resting card by
+construction, so every floating thing matches. The kit's cards, menus, modals,
+toasts, tooltips, and slider thumbs all derive from this one table.
+
 ## Typography
 
 Letter spacing follows Inter's dynamic-metrics tracking curve at the

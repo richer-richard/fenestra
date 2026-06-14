@@ -13,7 +13,7 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Key, Length, R_FULL, Semantics, ShadowToken, Theme, Transition, div, row,
+    Cursor, Element, Key, Length, R_FULL, Semantics, Surface, Theme, Transition, div, row,
 };
 
 /// A slider under construction; converts into an [`Element`].
@@ -100,11 +100,9 @@ impl<Msg: 'static> From<Slider<Msg>> for Element<Msg> {
             .left(thumb_left)
             .w(THUMB)
             .h(THUMB)
-            .rounded_full()
-            .shadow(ShadowToken::Sm)
+            .surface(Surface::Thumb)
             .cursor(Cursor::Pointer)
             .disabled(sl.disabled)
-            .themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.0, t.border))
             .hover_themed(move |t, s| {
                 // Grow 16 -> 18 around the same center (offset both axes).
                 s.w(THUMB + 2.0)

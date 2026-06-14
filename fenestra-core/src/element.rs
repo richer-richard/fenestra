@@ -1098,6 +1098,16 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Applies a [`Surface`](crate::Surface) material — the kit ergonomic. The
+    /// fill, border, radius, shadow, and highlight resolve at theme-resolution
+    /// time (so it needs no theme in `view()`), replacing the
+    /// `.rounded(..).shadow(..).themed(|t, s| s.bg(..).border(..))` combo. Call
+    /// it once as the element's material; chain a `.themed` after it to tweak a
+    /// single property.
+    pub fn surface(self, role: crate::surface::Surface) -> Self {
+        self.themed(move |t, s| role.bundle().apply(t, s))
+    }
+
     /// Subtree opacity.
     pub fn opacity(mut self, v: f32) -> Self {
         self.style = self.style.opacity(v);
@@ -1489,5 +1499,19 @@ impl<Msg> Element<Msg> {
     pub fn grid_row(mut self, start: i16, span: u16) -> Self {
         self.style = self.style.grid_row(start, span);
         self
+    }
+}
+
+#[cfg(test)]
+mod surface_tests {
+    use super::div;
+    use crate::surface::Surface;
+
+    #[test]
+    fn element_surface_defers_to_resolution() {
+        // The fill is installed by the deferred `themed`, not the base style,
+        // so `.surface(..)` needs no theme at build time.
+        let el = div::<()>().surface(Surface::Card);
+        assert!(el.style().fill.is_none());
     }
 }

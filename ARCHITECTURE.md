@@ -1211,3 +1211,79 @@ straight chord. `GRADIENT_STEPS = 16` is the default sub-segment count.
   `linear_gradient`/`radial_gradient` guard degenerate input: fewer than two
   colors collapse to a solid fill (the lone color, or transparent for none), so
   the painter never receives a zero-stop gradient.
+
+## 0.19: surface / material bundle
+
+`Surface` is one typed primitive per elevation *material* (Geist/Apple
+"materials"): a semantic role (`Card`, `Raised`, `Popover`, `Menu`, `Modal`,
+`Thumb`, `Tooltip`) that bundles a corner radius, a fill role, a border role, a
+shadow token, and an optional top-highlight alpha into a `SurfaceBundle`,
+resolved against a `Theme` into a `Style` overlay. Two entry points:
+`Theme::surface_style(role)` (theme in scope) and `Element::surface(role)`
+(deferred via `.themed`, for `view()` with no theme); the low-level
+`SurfaceBundle::apply(theme, base)` overlays a material onto an existing style.
+Seven kit widgets now derive their elevated look from this one table —
+card, menu/popover, select listbox, modal, tooltip, toast row, slider thumb —
+instead of re-typing `.rounded(..).shadow(..).themed(|t,s| s.bg(..).border(..))`
+at each call site. Pure style composition at frame time; no new paint
+primitive, no vello/parley/taffy involvement.
+
+- **DECISION — standalone role enum + resolver, not a `Theme` field.** Mirrors
+  the 0.13 radius-knob decision: kit widgets carry no theme at build time, so
+  the material defers through `.themed`. The bundle is defined in roles
+  (`SurfaceFill` / `SurfaceBorder`), resolved against `&Theme`, so it tracks
+  `derive()` / `duotone()` and every Look automatically. `Surface::bundle()` is
+  pure and `const` (no theme), which makes the radius / shadow / role *ordering*
+  unit-testable without rendering; `SurfaceBundle::apply(theme, base)` does the
+  color resolution. `ShadowToken` gained `PartialOrd, Ord` (additive; variants
+  already declared `Xs < Sm < Md < Lg < Xl` in ascending depth) so the ordering
+  invariant can compare shadow depth via `Option<ShadowToken>: Ord`.
+- **Acceptance invariant — floating ≥ resting.** For every floating role
+  (`Popover`/`Menu`/`Modal`) and every resting role (`Card`/`Raised`):
+  `floating.radius.outer() >= resting.radius.outer()` **and**
+  `floating.shadow >= resting.shadow`. "Every floating thing matches the card"
+  is therefore structural, not a convention. Locked by
+  `ordering_invariant_floating_ge_resting`.
+- **DEVIATION — floating radius bumped to satisfy the invariant.** Menu /
+  popover / select-listbox (was `R_MD` 10) and toast (was `R_SM+2` = 8) rise to
+  `R_LG` (14) because the card's resting radius is 14 and the invariant requires
+  floating ≥ resting. The inner menu/select item radius bumps `R_MD-4` (6) →
+  `R_LG-4` (10) to stay concentric inside the new 14px panel with 4px padding.
+  This is the intended "every floating thing matches the card" change; only
+  `select_open` and `toast_stack` goldens move (regenerated, eyeballed light +
+  dark). Card / Modal / Thumb / Tooltip bundles reproduce the exact prior
+  `(radius, fill, border, shadow)` tuples, so those goldens — and the five Look
+  goldens — are byte-identical by construction.
+- **DEVIATION — `Thumb` and `Tooltip` are exempt from the ordering invariant.**
+  `Thumb` is a pill control handle (`R_FULL`, `Default` border, `Sm` shadow);
+  `Tooltip` is an *inverted* chip (`SurfaceFill::Inverted` = `neutrals.step(12)`,
+  `R_SM`, no border, `Md` shadow). Both are genuine materials worth centralizing
+  in the bundle, but neither belongs to the resting/floating elevation ladder,
+  so the invariant test iterates only `{Card, Raised, Popover, Menu, Modal}`.
+  Tooltip keeps its inverted fill via the dedicated `SurfaceFill::Inverted` role
+  rather than being misclassified as a neutral elevated surface.
+- **`SurfaceRadius` is `#[non_exhaustive]` with one `Uniform(f32)` variant** so
+  0.20's concentric/squircle rule can add a `Concentric` variant (outer + inset
+  child radius) with no API break; `SurfaceRadius::outer()` already names the
+  outer radius. The `highlight: Option<f32>` field is the documented home for a
+  future per-role / per-Look top sheen (white, like the button's 0.14
+  `on_accent`); **all shipped roles set `None`** this phase to keep neutral
+  surfaces identical to today, and the highlight resolves through
+  `oklch(1,0,0).with_alpha(a)` — no raw literal. Verified by
+  `highlight_resolves_to_low_alpha_white`.
+- **API decisions (reviewed).** `Surface` and `SurfaceFill` are also
+  `#[non_exhaustive]`: 0.22's translucent/glass material will add a `SurfaceFill`
+  variant (and likely a `Surface` role), and forward-marking the growable axes
+  now keeps that a non-breaking add rather than a downstream `match` break. The
+  redundant `Style::surface(&Theme, role)` was dropped — it was the only
+  theme-coupled method in the otherwise theme-free `Style` builder vocabulary
+  (theming defers through `.themed`); `Theme::surface_style` and
+  `SurfaceBundle::apply` already cover the theme-in-scope and low-level paths.
+- **Known follow-up (0.20).** The inner menu/select item radius is still a
+  hand-typed `R_LG - 4.0` rather than derived from the bundle, so a future
+  change to the `Menu` role radius would desync it — exactly the drift the
+  concentric-radius rule (next phase, the documented home for this) eliminates.
+- **Scope note.** `palette.rs` (command palette) and `date_picker.rs` also
+  hand-roll floating surfaces but were left out of this phase's conversion set
+  to bound golden churn; converting them to `Surface::Menu`/`Popover` is a clean
+  follow-up.

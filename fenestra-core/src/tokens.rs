@@ -185,8 +185,10 @@ pub enum FamilyRole {
 }
 
 /// Shadow elevation tokens. Resolved to concrete layered shadows by the
-/// theme (dark mode multiplies alphas by 1.6).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// theme (dark mode multiplies alphas by 1.6). Ordered by depth
+/// (`Xs < Sm < Md < Lg < Xl`, in declaration order) so elevation roles can be
+/// compared — e.g. a floating surface's shadow must out-rank a resting one's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ShadowToken {
     /// Single hairline shadow.
     Xs,

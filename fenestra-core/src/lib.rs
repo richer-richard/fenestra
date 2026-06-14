@@ -22,6 +22,7 @@ mod painter;
 mod proxy;
 mod query;
 mod style;
+mod surface;
 mod text;
 mod theme;
 mod tokens;
@@ -43,6 +44,7 @@ pub use id::WidgetId;
 pub use proxy::Proxy;
 pub use query::{Query, QueryError, TextMatch, by};
 pub use style::*;
+pub use surface::{Surface, SurfaceBorder, SurfaceBundle, SurfaceFill, SurfaceRadius};
 pub use text::Fonts;
 pub use theme::{
     BaseField, Contrast, ContrastViolation, DeriveSpec, DuotoneSpec, Mode, Ramp, StatusColors,
