@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.24.0 — 2026-06-14
+
+A composited ring border — the "ring, not border" primitive (Geist): a crisp
+band just outside the box that hugs the corner radius.
+
+### Added
+
+- **`Style::ring(width, color)`** / **`Element::ring(width, color)`**: a
+  `width`-px ring rendered as a zero-blur spread shadow, sitting just outside
+  the element and hugging its corner radius. Unlike `.border()` (an edge
+  stroke), it never covers the element's content or children and recolors with
+  zero layout cost — ideal for selection/emphasis rings and sub-pixel hairlines.
+  Composes with shadow tokens (paints on top of any drop shadow) and stacks
+  (call it more than once). Generalizes the `ChromeElevation` hairline ring to
+  any surface; a `ring_showcase` golden demonstrates border vs ring.
+
+### Decided
+
+- See ARCHITECTURE.md "0.24: composited ring border" — why the outer,
+  corner-hugging, content-safe ring complements the edge `border`, and that it
+  rides the existing shadow-layer machinery (no new paint primitive, opt-in, so
+  every existing golden is byte-identical).
+
 ## 0.23.0 — 2026-06-14
 
 A `Density` knob that packs the control grid tighter or looser from one value —

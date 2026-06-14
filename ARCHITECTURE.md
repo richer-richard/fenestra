@@ -1480,3 +1480,27 @@ existing Scene, identical live and headless. New flagship: `glass_showcase`
   `density_showcase` golden. Threading a chosen density through every kit widget
   builder (so `button(...).density(Compact)` restyles a subtree) is a clean
   follow-up; today an app/widget consumes density via `metrics_at`.
+
+## 0.24: composited ring border
+
+`Style::ring(width, color)` (and `Element::ring`) adds the "ring, not border"
+primitive (Geist): a crisp band just outside the box, hugging the corner radius.
+
+- **It's a shadow layer, not a new paint primitive.** A ring is a `Shadow` with
+  `dx = dy = 0`, `blur = 0`, `spread = width`. The painter already renders a
+  zero-blur spread shadow as a crisp filled rounded rect inflated by `spread`
+  (radius = `uniform_radius + spread`), so the uncovered band reads as a ring
+  around the element. This is exactly the `ChromeElevation` hairline ring (0.14),
+  generalized into a one-call builder. It is pushed onto `Style::shadows`, so it
+  composes with shadow tokens (frame.rs appends explicit shadows *after* the
+  token's layers, so the ring paints on top of any drop shadow) and animates
+  through the existing pairwise shadow lerp.
+- **Ring vs border.** fenestra's `border` is a paint-only edge stroke (it does
+  not participate in taffy layout, so neither reflows). The ring differs by
+  sitting *outside* the box: it never overlaps the element's own edge pixels or
+  its children, hugs the corner radius crisply, and is the natural home for
+  selection/focus emphasis and sub-pixel hairlines. Both are kept — pick the
+  edge stroke or the outer ring per intent.
+- **Opt-in; no golden churn.** No existing widget was rewired, so every prior
+  golden is byte-identical; the new `ring_showcase` golden demonstrates a 1px
+  stroked border vs a 1px ring vs a 2px accent (selection) ring.

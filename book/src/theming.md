@@ -134,6 +134,12 @@ floating roles carry radius and shadow depth at or above the resting card by
 construction, so every floating thing matches. The kit's cards, menus, modals,
 toasts, tooltips, and slider thumbs all derive from this one table.
 
+For an edge that sits *outside* the box, `.ring(width, color)` draws a crisp
+band hugging the corner radius (the "ring, not border" look) — rendered as a
+zero-blur spread shadow, so unlike `.border(..)` (an edge stroke) it never
+covers content and recolors with zero layout cost. Reach for it for selection
+and focus rings and sub-pixel hairlines; it stacks and composes with shadows.
+
 ## Typography
 
 Letter spacing follows Inter's dynamic-metrics tracking curve at the

@@ -1167,9 +1167,27 @@ impl Style {
         self
     }
 
-    /// Uniform border.
+    /// Uniform border (a stroke on the element's edge).
     pub fn border(mut self, width: f32, color: Color) -> Self {
         self.border = Some(Border { width, color });
+        self
+    }
+
+    /// A crisp `width`-px ring *just outside* the box, hugging the corner
+    /// radius — the "ring, not border" look (Geist). Rendered as a zero-blur
+    /// spread shadow, so unlike [`border`](Self::border) (an edge stroke) it
+    /// sits outside the element, never covers its content or children, and
+    /// recolors with zero layout cost — ideal for selection/emphasis rings and
+    /// sub-pixel hairlines. Composes with shadow tokens (the ring paints on top
+    /// of any drop shadow). Stack multiple rings by calling it more than once.
+    pub fn ring(mut self, width: f32, color: Color) -> Self {
+        self.shadows.push(Shadow {
+            dx: 0.0,
+            dy: 0.0,
+            blur: 0.0,
+            spread: width,
+            color,
+        });
         self
     }
 

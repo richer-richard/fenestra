@@ -1074,9 +1074,18 @@ impl<Msg> Element<Msg> {
         self
     }
 
-    /// Uniform border.
+    /// Uniform border (a stroke on the element's edge).
     pub fn border(mut self, width: f32, color: Color) -> Self {
         self.style = self.style.border(width, color);
+        self
+    }
+
+    /// A crisp `width`-px ring just outside the box, hugging the corner radius
+    /// (see [`Style::ring`](crate::Style::ring)) — the "ring, not border" look:
+    /// outside the element, zero layout cost, ideal for selection rings and
+    /// sub-pixel hairlines.
+    pub fn ring(mut self, width: f32, color: Color) -> Self {
+        self.style = self.style.ring(width, color);
         self
     }
 
