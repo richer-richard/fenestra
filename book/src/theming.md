@@ -167,6 +167,14 @@ Control sizes share a height grid so a row of mixed controls lines up:
 `ControlSize::metrics()` resolves the full bundle — height, padding, gap, font,
 icon edge — the kit's buttons, inputs, and selects build from.
 
+One `Density` knob packs that grid tighter or looser:
+`ControlSize::metrics_at(Density::Compact)` shrinks height/padding/gap/icon for
+dense pro-tool UIs, `Spacious` loosens them, and `Comfortable` (the default) is
+the table above — byte-identical to before density existed. Density scales
+*spacing*, not *type*: the label font stays tied to the `ControlSize`, so text
+never shrinks below its legible size. `density_showcase` renders all three side
+by side.
+
 ## Beyond the SaaS look
 
 `Theme::duotone(neutral_hue, neutral_chroma, accent_hue, mode)` builds

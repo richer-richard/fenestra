@@ -1452,3 +1452,31 @@ existing Scene, identical live and headless. New flagship: `glass_showcase`
   and a determinism proof across Metal/lavapipe before shipping. Tracked for a
   future renderer phase; `Material.blur_radius` already carries the intended
   radius.
+
+## 0.23: density mode
+
+`Density::{Compact, Comfortable, Spacious}` (Comfortable default) packs the
+`ControlSize` height grid tighter or looser from one knob, via
+`ControlSize::metrics_at(Density)`. The Linear/pro-tool density toggle.
+
+- **Comfortable == today, byte-identical.** `metrics_at(Comfortable)` returns
+  `metrics()` verbatim, and the kit's widgets still call `metrics()`, so every
+  existing widget golden is unchanged — density is purely opt-in. Pinned by
+  `comfortable_is_byte_identical_to_today` (asserts the literal Sm/Lg values too,
+  so a future table edit trips the test rather than silently moving pixels).
+- **Hand-tuned tables, not a raw multiplier.** Compact/Spacious are explicit
+  per-size tables on clean whole-pixel steps (e.g. Sm 32 → Compact 28 / Spacious
+  36; Lg 40 → 36 / 48), not `height * 0.875` which would yield fractional px and
+  jittery layout. Monotonic by construction (`density_scales_box_monotonically`:
+  Compact < Comfortable < Spacious height for every size; padding/gap/icon
+  non-decreasing).
+- **DECISION — density scales spacing, not type.** The label `font` stays tied
+  to the `ControlSize` across all three densities (`density_preserves_legible_
+  font`), so a compact control's text never shrinks below its legible size — the
+  Linear/Material approach (density = touch target + spacing, not font). This is
+  a deliberate deviation from a literal "scale type too": shrinking text in
+  compact mode would fight fenestra's provable-legibility stance.
+- **Scope.** This ships the `Density` primitive + `metrics_at` + a
+  `density_showcase` golden. Threading a chosen density through every kit widget
+  builder (so `button(...).density(Compact)` restyles a subtree) is a clean
+  follow-up; today an app/widget consumes density via `metrics_at`.

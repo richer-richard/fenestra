@@ -610,3 +610,57 @@ pub fn glass_showcase<Msg>(theme: &Theme) -> Element<Msg> {
             palette,
         ])
 }
+
+/// A density showcase: the same controls at all three [`Density`] levels —
+/// Compact / Comfortable / Spacious — side by side, so the one-knob spacing
+/// change is visible in a single frame. Each control is a labeled box sized
+/// from [`ControlSize::metrics_at`]; the label font is constant across columns
+/// (density scales spacing, not type). Shared by the density golden test.
+pub fn density_showcase<Msg>(theme: &Theme) -> Element<Msg> {
+    use crate::widgets::{ControlSize, Density};
+    use fenestra_core::{R_MD, SP6};
+
+    let control =
+        |theme: &Theme, label: &str, size: ControlSize, density: Density| -> Element<Msg> {
+            let m = size.metrics_at(density);
+            row()
+                .h(m.height)
+                .px(m.pad_x)
+                .gap(m.gap)
+                .items_center()
+                .rounded(R_MD)
+                .bg(theme.element)
+                .border(1.0, theme.border)
+                .children([
+                    div().w(m.icon).h(m.icon).rounded(R_SM).bg(theme.accent),
+                    text(label.to_owned()).size(m.font).color(theme.text),
+                ])
+        };
+
+    let column = |theme: &Theme, name: &str, density: Density| -> Element<Msg> {
+        col().gap(SP2).items_start().children([
+            text(name.to_owned())
+                .size(TextSize::Xs)
+                .weight(Weight::Semibold)
+                .color(theme.text_muted),
+            control(theme, "Button", ControlSize::Sm, density),
+            control(theme, "Button", ControlSize::Md, density),
+            control(theme, "Button", ControlSize::Lg, density),
+        ])
+    };
+
+    col().p(SP6).gap(SP4).bg(theme.bg).children([
+        text("Density")
+            .size(TextSize::Xl)
+            .weight(Weight::Semibold)
+            .color(theme.text),
+        text("The same controls at Compact / Comfortable / Spacious.")
+            .size(TextSize::Sm)
+            .color(theme.text_muted),
+        row().gap(SP6).items_start().children([
+            column(theme, "COMPACT", Density::Compact),
+            column(theme, "COMFORTABLE", Density::Comfortable),
+            column(theme, "SPACIOUS", Density::Spacious),
+        ]),
+    ])
+}

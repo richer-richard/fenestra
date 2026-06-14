@@ -13,7 +13,9 @@ mod specimen;
 mod type_specimen;
 mod widgets;
 
-pub use demo::{ai_chat, editor_panel, glass_showcase, holy_grail, poster, scroll_demo};
+pub use demo::{
+    ai_chat, density_showcase, editor_panel, glass_showcase, holy_grail, poster, scroll_demo,
+};
 pub use font_features::font_feature_specimen;
 pub use gallery::{gallery_controls, gallery_display};
 pub use specimen::specimen;

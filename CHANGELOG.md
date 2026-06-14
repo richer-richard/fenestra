@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.23.0 — 2026-06-14
+
+A `Density` knob that packs the control grid tighter or looser from one value —
+the Linear/pro-tool density toggle.
+
+### Added
+
+- **`Density`** (`Compact` / `Comfortable` / `Spacious`, Comfortable default) +
+  **`ControlSize::metrics_at(Density)`**: scales control height, padding, gap,
+  and icon together. `Comfortable` is byte-identical to the prior
+  `ControlSize::metrics()`, so the kit is unchanged unless you opt in; `Compact`
+  tightens, `Spacious` loosens. The label font stays tied to the `ControlSize`
+  across every density — density scales *spacing*, not *type*, so control text
+  never shrinks below its legible size.
+- **`density_showcase()`** (kit) + a golden: the same controls at all three
+  densities side by side.
+
+### Decided
+
+- See ARCHITECTURE.md "0.23: density mode" — Comfortable == today's metrics
+  (existing widget goldens byte-identical), the clean per-size Compact/Spacious
+  tables (not a raw multiplier), and the spacing-not-type decision (font tied to
+  `ControlSize` for legibility).
+
 ## 0.22.0 — 2026-06-14
 
 A translucent "glass" material — a frosted pane that reads as floating glass
