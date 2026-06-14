@@ -181,6 +181,15 @@ the table above — byte-identical to before density existed. Density scales
 never shrinks below its legible size. `density_showcase` renders all three side
 by side.
 
+## Optical adjustments
+
+Some shapes have to measure "wrong" to *look* right, because the eye weighs the
+area near a boundary. `fenestra_core::optical` carries the corrections:
+`CIRCLE_OVERSHOOT` (~1.1284 — a circle must be ~12.84% larger than a square to
+read as the same size; `overshoot(size)` applies it) and `centroid(vertices)`,
+the visual-mass center used to nudge an asymmetric shape — the play triangle
+shifted right off its bounding-box center so it sits centered in its circle.
+
 ## Beyond the SaaS look
 
 `Theme::duotone(neutral_hue, neutral_chroma, accent_hue, mode)` builds

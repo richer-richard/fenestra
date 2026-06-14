@@ -1504,3 +1504,27 @@ primitive (Geist): a crisp band just outside the box, hugging the corner radius.
 - **Opt-in; no golden churn.** No existing widget was rewired, so every prior
   golden is byte-identical; the new `ring_showcase` golden demonstrates a 1px
   stroked border vs a 1px ring vs a 2px accent (selection) ring.
+
+## 0.25: optical adjustments
+
+`fenestra_core::optical` adds the geometric corrections that make shapes *look*
+right: `CIRCLE_OVERSHOOT` (~1.1284 — a circle must be ~12.84% larger than a
+square to read as the same size), `overshoot(size)`, and `centroid(vertices)`
+(a polygon's visual-mass center, for centering an asymmetric shape on its mass
+rather than its bounding box).
+
+- **Math helpers, not a painter change.** The module is pure geometry; the
+  caller applies the correction (e.g. translate a play-triangle path so its
+  centroid sits at the circle center). So no existing golden moves — a new
+  `optical_play` golden demonstrates the play-button correction: bbox-centered
+  (looking left-heavy, mass toward the flat edge) vs centroid-centered (looking
+  centered).
+- **`CIRCLE_OVERSHOOT` literal.** The empirical bjango figure ~112.84% is
+  numerically near `2/sqrt(pi)` (1.12838), so clippy's `approx_constant` flags
+  it; but the value is the optical ratio, not an approximation of that constant,
+  so it carries an `#[expect(..., reason = ...)]` rather than being replaced by
+  `FRAC_2_SQRT_PI`.
+- **Scope.** Ships the reusable helpers + the canonical play-in-circle fixture.
+  Threading optical overshoot/centering automatically into the icon/path render
+  pass (so every circular icon and asymmetric glyph self-corrects) is a clean
+  follow-up.

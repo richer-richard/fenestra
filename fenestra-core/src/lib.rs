@@ -18,6 +18,7 @@ mod frame_state;
 mod id;
 mod input;
 mod layout;
+pub mod optical;
 mod painter;
 mod proxy;
 mod query;

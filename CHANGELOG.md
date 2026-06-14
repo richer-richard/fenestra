@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.25.0 — 2026-06-14
+
+Optical-adjustment helpers — the small geometric corrections that make shapes
+*look* right even though they measure "wrong".
+
+### Added
+
+- **`optical::CIRCLE_OVERSHOOT`** (~1.1284) + **`optical::overshoot(size)`**: a
+  circle must be ~12.84% larger than a square to read as the same visual size;
+  scale a round icon's diameter against adjacent squares with this.
+- **`optical::centroid(vertices)`**: a polygon's visual-mass center. Center an
+  asymmetric shape (a play triangle) on its centroid, not its bounding box, so
+  it looks centered — the classic play-button nudge. An `optical_play` golden
+  shows bbox-centered (left-heavy) vs centroid-centered (centered) side by side.
+
+### Decided
+
+- See ARCHITECTURE.md "0.25: optical adjustments" — math helpers (constant +
+  centroid) plus a demonstrative golden; the correction is applied by the caller
+  (no painter change), so every existing golden is byte-identical.
+
 ## 0.24.0 — 2026-06-14
 
 A composited ring border — the "ring, not border" primitive (Geist): a crisp
