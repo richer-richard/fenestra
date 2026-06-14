@@ -1092,6 +1092,15 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Continuous-curvature corner smoothing, `0.0..=1.0` (see
+    /// [`Style::corner_smoothing`](crate::Style::corner_smoothing)). `0.0`
+    /// (default) keeps exact circular arcs; higher values blend toward a
+    /// fuller squircle.
+    pub fn corner_smoothing(mut self, s: f32) -> Self {
+        self.style = self.style.corner_smoothing(s);
+        self
+    }
+
     /// A themed shadow elevation token.
     pub fn shadow(mut self, token: ShadowToken) -> Self {
         self.style = self.style.shadow(token);

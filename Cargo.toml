@@ -4,7 +4,7 @@ members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenes
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.19.0"
+version = "0.20.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -17,9 +17,9 @@ categories = ["gui"]
 unsafe_code = "forbid"
 
 [workspace.dependencies]
-fenestra-core = { version = "0.19.0", path = "fenestra-core" }
-fenestra-shell = { version = "0.19.0", path = "fenestra-shell" }
-fenestra-kit = { version = "0.19.0", path = "fenestra-kit" }
+fenestra-core = { version = "0.20.0", path = "fenestra-core" }
+fenestra-shell = { version = "0.20.0", path = "fenestra-shell" }
+fenestra-kit = { version = "0.20.0", path = "fenestra-kit" }
 
 winit = "0.30.13"
 wgpu = "29.0.3"

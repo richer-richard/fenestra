@@ -43,9 +43,10 @@ pub enum Surface {
     Tooltip,
 }
 
-/// The corner-radius shape of a surface bundle. `Uniform` is the only variant
-/// today; the enum is `#[non_exhaustive]` so a future concentric rule (outer +
-/// inset child radius) can be added without an API break.
+/// The corner-radius shape of a surface bundle: one `Uniform` radius on every
+/// corner. A nested rounded child derives its concentric radius from this via
+/// [`SurfaceRadius::inner`] (passing the padding between them). The enum is
+/// `#[non_exhaustive]` to leave room for future shapes (e.g. per-corner radii).
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[non_exhaustive]
 pub enum SurfaceRadius {
@@ -54,12 +55,23 @@ pub enum SurfaceRadius {
 }
 
 impl SurfaceRadius {
-    /// The outer corner radius in logical px (the only radius for `Uniform`;
-    /// the outer radius once a concentric variant lands).
+    /// The outer corner radius in logical px.
     pub const fn outer(self) -> f32 {
         match self {
             SurfaceRadius::Uniform(r) => r,
         }
+    }
+
+    /// The concentric inner radius for a child inset by `inset` logical px on
+    /// every side: `max(0, outer - inset)`. Nested rounded rectangles must
+    /// share a center, so the child's radius is the parent's outer radius
+    /// minus the padding between them — otherwise the inner corner visibly
+    /// bulges away from the outer one. Use this for any rounded child of a
+    /// rounded surface (menu items inside a menu panel, an inset thumbnail in
+    /// a card) instead of hand-typing a second radius that can silently desync
+    /// when the surface radius changes.
+    pub fn inner(self, inset: f32) -> f32 {
+        (self.outer() - inset).max(0.0)
     }
 }
 
@@ -225,7 +237,7 @@ impl Theme {
 mod tests {
     use super::*;
     use crate::style::{Border, CornerRadius, Edges, Paint};
-    use crate::tokens::{R_FULL, R_LG, R_XL, ShadowToken};
+    use crate::tokens::{R_FULL, R_LG, R_MD, R_XL, SP1, ShadowToken};
 
     #[test]
     fn card_bundle_is_resting_raised() {
@@ -329,6 +341,24 @@ mod tests {
             Surface::Card.bundle().radius,
             SurfaceRadius::Uniform(_)
         ));
+    }
+
+    #[test]
+    fn concentric_inner_is_outer_minus_inset() {
+        // The concentric accessor: a child inset by `inset` derives its radius
+        // as `max(0, outer - inset)`.
+        assert_eq!(SurfaceRadius::Uniform(14.0).inner(4.0), 10.0);
+        // Clamp floor: a child padded more than the outer radius is square.
+        assert_eq!(SurfaceRadius::Uniform(2.0).inner(8.0), 0.0);
+    }
+
+    #[test]
+    fn menu_item_radius_is_concentric_with_panel() {
+        // Acceptance: a menu item inset by SP1 derives the panel-concentric
+        // radius, which equals the old hand-typed `R_LG - 4.0` == R_MD.
+        let r = Surface::Menu.bundle().radius;
+        assert_eq!(r.inner(SP1), r.outer() - SP1);
+        assert_eq!(r.inner(SP1), R_MD);
     }
 
     #[test]

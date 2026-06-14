@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.20.0 — 2026-06-14
+
+Concentric corner radii and opt-in continuous-curvature (squircle) corners.
+Both default to a true no-op, so every existing golden is byte-identical — the
+only new pixels are one demonstration golden.
+
+### Added
+
+- **`SurfaceRadius::inner(inset)`** (`max(0, outer - inset)`) — the concentric
+  rule for nesting a rounded child inside a rounded surface: the child's radius
+  is the parent's outer radius minus the padding between them, so corners share
+  a center and the inner corner never bulges. Menu and select items derive their
+  radius from the panel via this accessor (one `SP1` token for both pad and
+  radius).
+- **`Style::corner_smoothing`** / **`Element::corner_smoothing(f)`** — Figma-style
+  continuous-curvature corner smoothing, `0.0..=1.0` (clamped). `0.0` (default)
+  draws exact circular arcs; higher values blend toward a fuller superellipse
+  (Apple-style squircle) that hugs each straight edge longer and turns into the
+  corner with no curvature kink. Fill, border, and clip share one path.
+
+### Changed
+
+- Menu and select item radii now derive from
+  `Surface::Menu.bundle().radius.inner(SP1)` instead of a hand-typed `R_LG - 4.0`,
+  so they track the panel radius automatically. The value is unchanged (`10` =
+  `R_MD`), so all goldens are byte-identical.
+
+### Scope
+
+- `corner_smoothing` reshapes fill, border, and clip only; shadows, the focus
+  ring, and image clips stay circular this phase (no shipped widget opts in).
+  See ARCHITECTURE.md "0.20: concentric radii + continuous-curvature (squircle)
+  corners" for the recorded scoping decision and the superellipse construction.
+
 ## 0.19.0 — 2026-06-14
 
 Surface materials: one typed primitive per elevation role, so every elevated

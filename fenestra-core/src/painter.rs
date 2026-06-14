@@ -3,7 +3,7 @@
 
 use kurbo::{
     Affine, BezPath, ParamCurve, ParamCurveArclen, Point, Rect, RoundedRect, RoundedRectRadii,
-    Stroke, Vec2,
+    Shape, Stroke, Vec2,
 };
 use peniko::{Color, ColorStop, ColorStops, Fill, Gradient};
 use vello::Scene;
@@ -33,6 +33,173 @@ pub(crate) fn rounded_rect(rect: Rect, corners: CornerRadius) -> RoundedRect {
             clamp(corners.bl),
         ),
     )
+}
+
+/// The Lamé exponent ceiling at full smoothing (`1.0`). `5.0` is Apple-icon
+/// territory: round enough to read as a true squircle without bulging toward a
+/// near-square. A perceptual calibration constant, not a spec token.
+const N_MAX: f64 = 5.0;
+
+/// Straight-line samples per quarter-corner of a squircle. ~24 is sub-pixel at
+/// the 6–30px radii the kit uses and matches vello's own arc flattening.
+const SQUIRCLE_SEGMENTS: usize = 24;
+
+/// The box silhouette: the exact kurbo rounded rect at `smoothing <= 0` (the
+/// default — keeps goldens byte-identical) or a continuous-curvature squircle
+/// when `smoothing > 0`. Fill, border, and clip all build from this so they
+/// stay aligned.
+pub(crate) enum BoxPath {
+    /// Exact circular-arc rounded rect (smoothing 0; the default). Identical
+    /// to the pre-smoothing path, so goldens are byte-identical.
+    Arc(RoundedRect),
+    /// Superellipse-blended squircle (smoothing > 0).
+    Squircle(BezPath),
+}
+
+impl Shape for BoxPath {
+    type PathElementsIter<'i> = Box<dyn Iterator<Item = kurbo::PathEl> + 'i>;
+
+    fn path_elements(&self, tol: f64) -> Self::PathElementsIter<'_> {
+        match self {
+            BoxPath::Arc(r) => Box::new(r.path_elements(tol)),
+            BoxPath::Squircle(p) => Box::new(p.path_elements(tol)),
+        }
+    }
+
+    fn area(&self) -> f64 {
+        match self {
+            BoxPath::Arc(r) => r.area(),
+            BoxPath::Squircle(p) => p.area(),
+        }
+    }
+
+    fn perimeter(&self, accuracy: f64) -> f64 {
+        match self {
+            BoxPath::Arc(r) => r.perimeter(accuracy),
+            BoxPath::Squircle(p) => p.perimeter(accuracy),
+        }
+    }
+
+    fn winding(&self, pt: Point) -> i32 {
+        match self {
+            BoxPath::Arc(r) => r.winding(pt),
+            BoxPath::Squircle(p) => p.winding(pt),
+        }
+    }
+
+    fn bounding_box(&self) -> Rect {
+        match self {
+            BoxPath::Arc(r) => r.bounding_box(),
+            BoxPath::Squircle(p) => p.bounding_box(),
+        }
+    }
+}
+
+/// The box silhouette for a rect, per-corner radii, and smoothing. At
+/// `smoothing <= 0` (the default) this is the exact kurbo rounded rect — the
+/// unchanged path, so goldens stay byte-identical; at `> 0` it is a
+/// superellipse-blended squircle shared by fill, border, and clip.
+pub(crate) fn corner_path(rect: Rect, corners: CornerRadius, smoothing: f32) -> BoxPath {
+    if smoothing <= 0.0 {
+        BoxPath::Arc(rounded_rect(rect, corners))
+    } else {
+        BoxPath::Squircle(build_squircle(rect, corners, smoothing))
+    }
+}
+
+/// Maps `0.0..=1.0` smoothing to a Lamé (superellipse) exponent in
+/// `2.0..=N_MAX`. `n == 2.0` at smoothing `0.0` is an exact circle; the curve
+/// fills toward the geometric corner as `n` grows.
+fn squircle_exponent(smoothing: f32) -> f64 {
+    let s = f64::from(smoothing.clamp(0.0, 1.0));
+    2.0 + s * (N_MAX - 2.0)
+}
+
+/// One sample on a superellipse quarter that runs from the join point
+/// `center + r·u` (`theta == 0`) to `center + r·v` (`theta == pi/2`):
+/// `center + r·cos(theta)^(2/n)·u + r·sin(theta)^(2/n)·v`. At `n == 2` this is
+/// the exact circular quadrant; the endpoints (and thus the straight-edge join
+/// points) are independent of `n`, so smoothing only reshapes corners.
+fn superellipse_point(center: Point, u: Vec2, v: Vec2, r: f64, n: f64, theta: f64) -> Point {
+    let cx = theta.cos().max(0.0).powf(2.0 / n);
+    let sy = theta.sin().max(0.0).powf(2.0 / n);
+    center + u * (r * cx) + v * (r * sy)
+}
+
+/// Builds a continuous-curvature squircle `BezPath` for `rect`, clamping each
+/// corner radius to half the short side exactly like [`rounded_rect`], then
+/// flattening each quarter into [`SQUIRCLE_SEGMENTS`] line segments. The walk
+/// is clockwise: top edge → TR corner → right edge → BR → bottom → BL → left →
+/// TL, then `close_path`.
+fn build_squircle(rect: Rect, corners: CornerRadius, smoothing: f32) -> BezPath {
+    let n = squircle_exponent(smoothing);
+    let max = (0.5 * rect.width().min(rect.height())).max(0.0);
+    let clamp = |r: f32| f64::from(r).clamp(0.0, max);
+    let (tl, tr, br, bl) = (
+        clamp(corners.tl),
+        clamp(corners.tr),
+        clamp(corners.br),
+        clamp(corners.bl),
+    );
+    let (x0, y0, x1, y1) = (rect.x0, rect.y0, rect.x1, rect.y1);
+
+    // SEGMENTS+1 samples from theta=0 (the `center + r·u` join) to theta=pi/2
+    // (the `center + r·v` join), inclusive.
+    let corner = |center: Point, u: Vec2, v: Vec2, r: f64| -> Vec<Point> {
+        (0..=SQUIRCLE_SEGMENTS)
+            .map(|i| {
+                #[expect(clippy::cast_precision_loss, reason = "segment counts are tiny")]
+                let theta = (i as f64 / SQUIRCLE_SEGMENTS as f64) * std::f64::consts::FRAC_PI_2;
+                superellipse_point(center, u, v, r, n, theta)
+            })
+            .collect()
+    };
+
+    let tr_pts = corner(
+        Point::new(x1 - tr, y0 + tr),
+        Vec2::new(0.0, -1.0),
+        Vec2::new(1.0, 0.0),
+        tr,
+    );
+    let br_pts = corner(
+        Point::new(x1 - br, y1 - br),
+        Vec2::new(1.0, 0.0),
+        Vec2::new(0.0, 1.0),
+        br,
+    );
+    let bl_pts = corner(
+        Point::new(x0 + bl, y1 - bl),
+        Vec2::new(0.0, 1.0),
+        Vec2::new(-1.0, 0.0),
+        bl,
+    );
+    let tl_pts = corner(
+        Point::new(x0 + tl, y0 + tl),
+        Vec2::new(-1.0, 0.0),
+        Vec2::new(0.0, -1.0),
+        tl,
+    );
+
+    let mut path = BezPath::new();
+    path.move_to(tr_pts[0]);
+    for p in &tr_pts[1..] {
+        path.line_to(*p);
+    }
+    path.line_to(br_pts[0]);
+    for p in &br_pts[1..] {
+        path.line_to(*p);
+    }
+    path.line_to(bl_pts[0]);
+    for p in &bl_pts[1..] {
+        path.line_to(*p);
+    }
+    path.line_to(tl_pts[0]);
+    for p in &tl_pts[1..] {
+        path.line_to(*p);
+    }
+    path.line_to(tr_pts[0]);
+    path.close_path();
+    path
 }
 
 /// Average corner radius, used where vello takes a single radius (shadows).
@@ -175,7 +342,7 @@ pub(crate) fn push_box(
         shadow_layer(scene, rect, style.corner_radius, shadow);
     }
 
-    let path = rounded_rect(rect, style.corner_radius);
+    let path = corner_path(rect, style.corner_radius, style.corner_smoothing);
     if let Some(paint) = &style.fill {
         let fill_rect = snap_hairline_rect(rect, scale);
         scene.fill(
@@ -183,7 +350,7 @@ pub(crate) fn push_box(
             Affine::IDENTITY,
             &brush_for(paint, fill_rect),
             None,
-            &rounded_rect(fill_rect, style.corner_radius),
+            &corner_path(fill_rect, style.corner_radius, style.corner_smoothing),
         );
     }
 
@@ -218,7 +385,7 @@ pub(crate) fn push_box(
             Affine::IDENTITY,
             border.color,
             None,
-            &rounded_rect(inset_rect, corners),
+            &corner_path(inset_rect, corners, style.corner_smoothing),
         );
     }
 
@@ -380,5 +547,83 @@ fn last_point(path: &BezPath) -> Point {
         Some(kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p)) => *p,
         Some(kurbo::PathEl::QuadTo(_, p) | kurbo::PathEl::CurveTo(_, _, p)) => *p,
         _ => Point::ORIGIN,
+    }
+}
+
+#[cfg(test)]
+mod squircle_tests {
+    use super::*;
+
+    #[test]
+    fn squircle_exponent_zero_is_circle() {
+        // smoothing 0 maps to the Lamé exponent n=2 (a true circle); the
+        // exponent rises monotonically toward N_MAX as smoothing rises.
+        assert_eq!(squircle_exponent(0.0), 2.0);
+        assert_eq!(squircle_exponent(1.0), N_MAX);
+        let mut prev = squircle_exponent(0.0);
+        for s in [0.1_f32, 0.25, 0.5, 0.75, 1.0] {
+            let n = squircle_exponent(s);
+            assert!(
+                n > prev,
+                "exponent must increase with smoothing: {prev} -> {n}"
+            );
+            prev = n;
+        }
+    }
+
+    #[test]
+    fn superellipse_reduces_to_circle_at_n2() {
+        // The "reduces to the circular arc at 0" criterion: every sample of the
+        // quarter at n=2 lies on the circle of radius r about the center.
+        let c = Point::new(10.0, 10.0);
+        let (u, v) = (Vec2::new(0.0, -1.0), Vec2::new(1.0, 0.0));
+        let r = 8.0;
+        for i in 0..=16 {
+            let theta = (f64::from(i) / 16.0) * std::f64::consts::FRAC_PI_2;
+            let p = superellipse_point(c, u, v, r, 2.0, theta);
+            let circle = c + u * (r * theta.cos()) + v * (r * theta.sin());
+            assert!(
+                (p - circle).hypot() < 1e-9,
+                "n=2 must trace the circle at theta={theta}"
+            );
+        }
+    }
+
+    #[test]
+    fn corner_path_zero_smoothing_is_exact_arc() {
+        // KEY invariant: the default path is byte-identical to today's exact
+        // kurbo rounded rect, so every existing golden cannot move.
+        let rect = Rect::new(0.0, 0.0, 100.0, 60.0);
+        let corners = CornerRadius {
+            tl: 4.0,
+            tr: 8.0,
+            br: 12.0,
+            bl: 16.0,
+        };
+        match corner_path(rect, corners, 0.0) {
+            BoxPath::Arc(r) => assert_eq!(r, rounded_rect(rect, corners)),
+            BoxPath::Squircle(_) => panic!("zero smoothing must take the exact arc path"),
+        }
+    }
+
+    #[test]
+    fn squircle_corner_is_fuller_than_circle() {
+        // The "fuller" criterion: the corner-bisector point (theta = pi/4) is
+        // exactly r from the center at smoothing 0, and strictly past r once
+        // smoothing rises.
+        let c = Point::ORIGIN;
+        let (u, v) = (Vec2::new(1.0, 0.0), Vec2::new(0.0, 1.0));
+        let r = 10.0;
+        let theta = std::f64::consts::FRAC_PI_4;
+        let circle = superellipse_point(c, u, v, r, squircle_exponent(0.0), theta);
+        assert!(
+            ((circle - c).hypot() - r).abs() < 1e-9,
+            "circle bisector sits exactly r from center"
+        );
+        let squircle = superellipse_point(c, u, v, r, squircle_exponent(0.6), theta);
+        assert!(
+            (squircle - c).hypot() > r + 1e-6,
+            "squircle bisector must push past r toward the geometric corner"
+        );
     }
 }

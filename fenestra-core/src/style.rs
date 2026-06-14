@@ -605,6 +605,17 @@ pub struct Style {
     pub border: Option<Border>,
     /// Per-corner radii.
     pub corner_radius: CornerRadius,
+    /// Continuous-curvature corner smoothing, `0.0..=1.0` (Figma's "corner
+    /// smoothing"). `0.0` (the default) draws exact circular arcs, so every
+    /// element renders byte-identically to before this knob existed. As it
+    /// rises toward `1.0` the corners blend toward a fuller superellipse (an
+    /// Apple-style squircle): the curve hugs each straight edge longer and
+    /// turns more gradually, removing the curvature discontinuity ("kink")
+    /// where the edge meets a circular arc. Opt in per element; the painter
+    /// clamps to `0.0..=1.0`. Fill, border, and clip share one path so they
+    /// stay aligned. Structural, not animated: it is never lerped, so a target
+    /// state's smoothing simply wins.
+    pub corner_smoothing: f32,
     /// A shadow elevation token, expanded against the theme at resolution.
     pub shadow_token: Option<crate::tokens::ShadowToken>,
     /// Concrete drop shadow layers, painted bottom-up. Filled from
@@ -665,6 +676,7 @@ impl Default for Style {
             fill: None,
             border: None,
             corner_radius: CornerRadius::default(),
+            corner_smoothing: 0.0,
             shadow_token: None,
             shadows: Vec::new(),
             highlight_top: None,
@@ -1173,6 +1185,14 @@ impl Style {
         self
     }
 
+    /// Continuous-curvature corner smoothing, `0.0..=1.0` (see
+    /// [`Style::corner_smoothing`]). `0.0` keeps exact circular arcs; higher
+    /// values blend toward a fuller squircle. Clamped to `0.0..=1.0`.
+    pub fn corner_smoothing(mut self, s: f32) -> Self {
+        self.corner_smoothing = s.clamp(0.0, 1.0);
+        self
+    }
+
     /// A shadow elevation token, resolved against the theme at render time.
     pub fn shadow(mut self, token: crate::tokens::ShadowToken) -> Self {
         self.shadow_token = Some(token);
@@ -1392,6 +1412,22 @@ impl Style {
         self.min_height = self.min_height.resolved(ch_px);
         self.max_height = self.max_height.resolved(ch_px);
         self.flex_basis = self.flex_basis.resolved(ch_px);
+    }
+}
+
+#[cfg(test)]
+mod corner_smoothing_tests {
+    use super::*;
+
+    #[test]
+    fn corner_smoothing_defaults_zero_and_clamps() {
+        assert_eq!(Style::default().corner_smoothing, 0.0);
+        assert_eq!(Style::default().corner_smoothing(0.6).corner_smoothing, 0.6);
+        assert_eq!(Style::default().corner_smoothing(5.0).corner_smoothing, 1.0);
+        assert_eq!(
+            Style::default().corner_smoothing(-1.0).corner_smoothing,
+            0.0
+        );
     }
 }
 

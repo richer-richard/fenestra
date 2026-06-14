@@ -1287,3 +1287,51 @@ primitive, no vello/parley/taffy involvement.
   hand-roll floating surfaces but were left out of this phase's conversion set
   to bound golden churn; converting them to `Surface::Menu`/`Popover` is a clean
   follow-up.
+
+## 0.20: concentric radii + continuous-curvature (squircle) corners
+
+Two independent, low-risk additions, both defaulting to a true no-op so every
+prior golden stays byte-identical.
+
+- **Concentric radii.** `SurfaceRadius` grows an `inner(inset) -> max(0, outer -
+  inset)` accessor (`outer` stays `const`; `inner` is not — `f32::max` is not
+  const-stable). The menu and select item radii now derive from
+  `Surface::Menu.bundle().radius.inner(SP1)` instead of the hand-typed
+  `R_LG - 4.0` flagged as a 0.19 follow-up, and both panels pad by the same `SP1`
+  — one token for both the pad and the radius, so the concentric pair has a
+  single source of truth. The derived value is `14 - 4 = 10` (`R_MD`), identical
+  to the old literal, so zero pixels move; the win is that the item radius can no
+  longer desync from the panel radius.
+- **Squircle corners.** `Style::corner_smoothing: f32` (default `0.0`, clamped
+  `0.0..=1.0`; builder on `Style` and `Element`). At `0.0` the painter takes the
+  *exact existing path* (`kurbo::RoundedRect` via a new crate-private `BoxPath`
+  enum), so the default is byte-identical — locked by the
+  `corner_path_zero_smoothing_is_exact_arc` test. At `> 0` the painter builds a
+  superellipse-blended `BezPath` shared by fill, border, and clip so the three
+  stay aligned. The construction is a clean Lamé parametrization,
+  `point(θ) = C + r·cos(θ)^(2/n)·u + r·sin(θ)^(2/n)·v` with
+  `n = 2 + s·(N_MAX-2)`: `n == 2` is provably the exact circle, endpoints are
+  `n`-independent (so smoothing reshapes only corners, never the silhouette
+  extent), and the corner-bisector pushes out by `2^(1/2 - 1/n) > 1` for `n > 2`
+  ("fuller"). `SQUIRCLE_SEGMENTS = 24` flattening is sub-pixel at kit radii.
+
+- **Deviation recorded (2026-06-14) — corner-smoothing scope.**
+  `corner_smoothing` reshapes the **fill, border, and clip** paths only.
+  **Shadows, the focus ring, and image clips remain circular** this phase:
+  `draw_blurred_rounded_rect` takes a single scalar radius, and those paths carry
+  no smoothing parameter. This is invisible because **no shipped widget sets
+  `corner_smoothing > 0` in 0.20** — the capability is demonstrated only in the
+  new `squircle_corners` golden. Threading smoothing into shadows/focus-ring/
+  images is deferred until a widget opts in. The squircle is a clean superellipse
+  parametrization, **not** a byte-match of Figma's algorithm; `N_MAX = 5.0` is a
+  painter-private perceptual constant calibrated by eye on the new golden, not
+  derived from the community `~22.37%`/`60%` figures.
+- **API decisions (reviewed).** `corner_smoothing` is a structural opt-in, not
+  animated: `lerp_style` clones from the target, so a target state's smoothing
+  simply wins (it is never tweened, and no widget animates it). `N_MAX` and
+  `SQUIRCLE_SEGMENTS` are painter-private constants, not `tokens.rs` entries —
+  perceptual calibration, not spec tokens. Review caught a stored-`inset`
+  `Concentric` variant whose field nothing read (a second source of truth for
+  the inset — the very desync this feature kills); it was dropped pre-release in
+  favor of the single `inner(inset)` accessor on `Uniform`. `SurfaceRadius`
+  stays `#[non_exhaustive]` for future shapes.
