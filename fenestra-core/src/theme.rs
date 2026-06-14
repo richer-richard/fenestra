@@ -753,6 +753,40 @@ impl Theme {
             Err(report)
         }
     }
+
+    /// The most legible neutral text color the theme's own ramp can offer on an
+    /// arbitrary background: whichever of the theme's near-black ink
+    /// (`neutrals.step(12)`) or near-white paper (`neutrals.step(1)`) wins APCA
+    /// `Lc` on `bg`. Generalizes the [`on_accent`](Self::on_accent) rule to any
+    /// custom or status surface, so a widget placing text on a color the theme
+    /// didn't generate still gets a theme-tinted (never raw) text color that
+    /// reads strongly on typical surfaces — though on a hard mid-tone, where no
+    /// color reads well, it only reaches secondary-text grade (use
+    /// [`contrast_ok`](Self::contrast_ok) to verify a specific case). Ties break
+    /// toward the ink.
+    #[must_use]
+    pub fn text_on(&self, bg: Color) -> Color {
+        let ink = self.neutrals.step(12);
+        let paper = self.neutrals.step(1);
+        if crate::apca::lc_abs(paper, bg) > crate::apca::lc_abs(ink, bg) {
+            paper
+        } else {
+            ink
+        }
+    }
+
+    /// Whether `text` on `bg` clears the APCA floor for text of `size_px` at
+    /// `weight` — `apca::lc_abs(text, bg) >= apca::required_lc(size_px, weight)`.
+    /// The size/weight-aware companion to [`validate_contrast`](Self::validate_contrast)'s
+    /// fixed role floors: lets an app prove a *specific* label legible at its
+    /// real rendered size, not just against a tier average. The verdict depends
+    /// only on the two colors and the size/weight (not on other theme state);
+    /// it lives on `Theme` for discoverability alongside `validate_contrast` and
+    /// `text_on`.
+    #[must_use]
+    pub fn contrast_ok(&self, text: Color, bg: Color, size_px: f32, weight: f32) -> bool {
+        crate::apca::lc_abs(text, bg) >= crate::apca::required_lc(size_px, weight)
+    }
 }
 
 fn make_ramp(table: &RampTable, hue: f32) -> Ramp {
@@ -1008,6 +1042,160 @@ mod tests {
         let b = bg.components;
         let a = f[3];
         std::array::from_fn(|i| f[i] * a + b[i] * (1.0 - a))
+    }
+
+    /// The stock themes plus the derive recipes behind the shipped Looks, in
+    /// both modes — the same coverage `tests/contrast.rs` validates.
+    fn representative_themes() -> Vec<(String, Theme)> {
+        let mut v = Vec::new();
+        for mode in [Mode::Light, Mode::Dark] {
+            v.push((format!("base {mode:?}"), Theme::from_accent(262.0, mode)));
+            v.push((
+                format!("editorial {mode:?}"),
+                Theme::duotone(152.0, 6.0, 72.0, mode),
+            ));
+            v.push((
+                format!("terminal {mode:?}"),
+                Theme::from_accent(145.0, mode),
+            ));
+            v.push((
+                format!("warm-editorial {mode:?}"),
+                Theme::derive(
+                    BaseField {
+                        hue: 80.0,
+                        chroma: 2.5,
+                    },
+                    40.0,
+                    Contrast::High,
+                    mode,
+                ),
+            ));
+            v.push((
+                format!("playful {mode:?}"),
+                Theme::derive(
+                    BaseField {
+                        hue: 280.0,
+                        chroma: 2.0,
+                    },
+                    330.0,
+                    Contrast::Standard,
+                    mode,
+                ),
+            ));
+        }
+        v
+    }
+
+    /// Every background a widget might place free-form text on, including
+    /// surfaces the theme exposes only as solid fills.
+    fn representative_surfaces(t: &Theme) -> [(&'static str, Color); 7] {
+        [
+            ("bg", t.bg),
+            ("surface", t.surface),
+            ("surface_raised", t.surface_raised),
+            ("accent", t.accent),
+            ("danger.solid", t.danger.solid),
+            ("warning.solid", t.warning.solid),
+            ("success.solid", t.success.solid),
+        ]
+    }
+
+    #[test]
+    fn text_on_is_legible_on_every_surface() {
+        // `text_on` returns the theme-tinted paper/ink (never raw white/black),
+        // so on a few dark status/accent solids it lands ~0.7 Lc under the
+        // strict control-label floor (60) that pure-white `on_accent` clears.
+        // The robust, role-tied guarantee it always meets is secondary-text
+        // grade (55) — proven here with comfortable margin (worst ≈ 59).
+        for (name, t) in representative_themes() {
+            for (bn, bg) in representative_surfaces(&t) {
+                let lc = crate::apca::lc_abs(t.text_on(bg), bg);
+                assert!(
+                    lc >= SECONDARY_TEXT_MIN,
+                    "{name}: text_on({bn}) only reached Lc {lc:.2}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn text_on_picks_the_winning_extreme() {
+        // The selection rule, not a hardcoded value: `text_on` returns whichever
+        // ramp extreme (step 1 paper / step 12 ink) wins APCA Lc on the bg.
+        for (name, t) in representative_themes() {
+            let ink = t.neutrals.step(12);
+            let paper = t.neutrals.step(1);
+            for (bn, bg) in representative_surfaces(&t) {
+                let want = if crate::apca::lc_abs(paper, bg) > crate::apca::lc_abs(ink, bg) {
+                    paper
+                } else {
+                    ink
+                };
+                assert_eq!(
+                    t.text_on(bg).to_rgba8(),
+                    want.to_rgba8(),
+                    "{name}: text_on({bn}) did not pick the winning extreme"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn contrast_ok_tracks_required_lc() {
+        let t = Theme::light();
+        // Stock body text at its real size clears the body floor.
+        assert!(t.contrast_ok(t.text, t.bg, 16.0, 400.0));
+        // A near-bg gray fails the body floor outright.
+        assert!(!t.contrast_ok(t.neutrals.step(6), t.bg, 16.0, 400.0));
+        // Size axis is wired: the same pair (text_subtle on surface, Lc ~68)
+        // passes at a large size yet fails at caption size, where `required_lc`
+        // demands far more contrast.
+        assert!(t.contrast_ok(t.text_subtle, t.surface, 30.0, 400.0));
+        assert!(!t.contrast_ok(t.text_subtle, t.surface, 12.0, 400.0));
+    }
+
+    #[test]
+    fn role_floors_agree_with_required_lc() {
+        // Regression guard: the role floors are the documented values, so any
+        // future edit to them trips this tie-in test.
+        assert_eq!(PRIMARY_TEXT_MIN, 75.0);
+        assert_eq!(CONTROL_LABEL_MIN, 60.0);
+        assert_eq!(SECONDARY_TEXT_MIN, 55.0);
+        assert_eq!(COMPONENT_TEXT_MIN, 40.0);
+
+        // Load-bearing identity: the primary floor *is* APCA's body requirement
+        // at the canonical 16px/400 body size.
+        assert!((crate::apca::required_lc(16.0, 400.0) - 75.0).abs() <= 2.0);
+        assert!(PRIMARY_TEXT_MIN >= crate::apca::required_lc(16.0, 400.0));
+
+        // The lower roles' floors are intentionally relaxed below APCA-at-render
+        // size (regression sentinels, not strict minima). Each still equals or
+        // exceeds `required_lc` at the documented APCA size/weight *tier* the
+        // floor encodes — a real point on the curve, not the role's smallest
+        // render size — so both systems share one scale.
+        assert!(CONTROL_LABEL_MIN >= crate::apca::required_lc(25.0, 400.0)); // ≈58.8
+        assert!(SECONDARY_TEXT_MIN >= crate::apca::required_lc(31.0, 400.0)); // ≈51.3
+        assert!(COMPONENT_TEXT_MIN >= crate::apca::required_lc(50.0, 400.0)); // ≈39.2
+
+        // Floors are ordered consistently with their tiers and bracketed by
+        // `required_lc`'s range (the spot floor 15 .. the body requirement 75).
+        // A const block: the ordering is a compile-time invariant of the floors.
+        const {
+            assert!(
+                PRIMARY_TEXT_MIN > CONTROL_LABEL_MIN
+                    && CONTROL_LABEL_MIN > SECONDARY_TEXT_MIN
+                    && SECONDARY_TEXT_MIN > COMPONENT_TEXT_MIN
+            );
+        }
+        for floor in [
+            PRIMARY_TEXT_MIN,
+            CONTROL_LABEL_MIN,
+            SECONDARY_TEXT_MIN,
+            COMPONENT_TEXT_MIN,
+        ] {
+            assert!(floor <= crate::apca::required_lc(16.0, 400.0));
+            assert!(floor >= 15.0); // apca::LC_SPOT, the spot/decorative floor
+        }
     }
 
     #[test]

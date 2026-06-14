@@ -92,6 +92,29 @@ shipped Look are asserted to pass in headless tests, and your own themes
 can be too. (APCA scores text legibility, so borders and other non-text
 contrast aren't checked.)
 
+The role floors are fixed per tier, but two helpers go finer. APCA is the
+draft WCAG-3 contrast method, and `apca::required_lc(size_px, weight)` exposes
+its readability criterion as a function: small or thin text needs *more* Lc,
+large or heavy text *less*. Feed it to `theme.contrast_ok(text, bg, size_px,
+weight)` to prove a *specific* label legible at its real rendered size — not
+just against a tier average. And `theme.text_on(bg)` returns the more-legible
+ramp extreme — a theme-tinted neutral that reads strongly on any custom or
+status surface (the `on_accent` rule generalized to colors the theme never
+generated; on a hard mid-tone, where no color reads well, it lands at
+secondary-text grade):
+
+```rust,ignore
+let theme = Theme::light();
+// A 13px caption needs more contrast than 16px body text:
+assert!(theme.contrast_ok(theme.text, theme.surface, 13.0, 400.0));
+// Legible text for an arbitrary brand surface, picked from the ramp ends:
+let label = theme.text_on(brand_color);
+```
+
+The role floors (75/60/55/40) are unchanged regression sentinels;
+`required_lc` now anchors them to the same APCA scale (`required_lc(16, 400)`
+*is* the primary-text floor, 75).
+
 ## Elevation
 
 Shadows are layered (a tight contact shadow under a soft ambient one) and

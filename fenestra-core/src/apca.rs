@@ -66,6 +66,75 @@ pub fn meets(text: Color, bg: Color, target_lc: f64) -> bool {
     lc_abs(text, bg) >= target_lc
 }
 
+/// APCA readability anchors as `(effective px @ weight 400, required Lc)`,
+/// strictly decreasing in `Lc` and strictly increasing in px. The weight-400
+/// baseline of [`required_lc`]; heavier weights map to a larger effective px.
+const APCA_REQ: [(f64, f64); 8] = [
+    (12.0, 100.0),
+    (14.0, 90.0),
+    (16.0, 75.0),
+    (18.0, 70.0),
+    (24.0, 60.0),
+    (36.0, 45.0),
+    (72.0, 30.0),
+    (300.0, 15.0),
+];
+
+/// APCA's maximum `Lc` magnitude (black on white tops out near here); the upper
+/// output clamp of [`required_lc`].
+const LC_MAX: f64 = 108.0;
+/// The lower output clamp of [`required_lc`]: the spot/decorative floor for very
+/// large or heavy text.
+const LC_SPOT: f64 = 15.0;
+/// The weight that [`APCA_REQ`] is tabulated at; the reference of the
+/// effective-size weight model.
+const WEIGHT_REF: f64 = 400.0;
+/// Exponent of the effective-size weight model: `eff = px·(weight/400)^0.5`, so
+/// going from 400 to 800 weight scales the effective size by `√2`.
+const WEIGHT_EXP: f64 = 0.5;
+
+/// The minimum APCA `Lc` magnitude that text of `size_px` logical pixels at
+/// font `weight` (OpenType 100..900) needs to be read fluently — APCA's
+/// readability criterion as a function instead of a fixed floor. Smaller and
+/// thinner text needs more contrast; larger and heavier text needs less.
+///
+/// Calibrated to the APCA "in a nutshell" / Readability Criterion (Bronze)
+/// anchors: ~Lc 90 for 14px/400, ~75 for 16px/400, ~60 for
+/// larger or heavier body text, ~45 for headlines, down to a ~Lc 15
+/// spot/decorative floor. Monotonic in both axes; faithful at the anchors,
+/// not the full per-weight matrix. APCA is the draft WCAG-3 contrast method
+/// (Myndex SAPC-APCA, <https://github.com/Myndex/SAPC-APCA>), consistent with
+/// the `apca-w3` reference [`lc`] uses.
+///
+/// Pair with [`lc_abs`] to check a concrete text/bg pair (see
+/// [`Theme::contrast_ok`](crate::Theme::contrast_ok)). `size_px` is clamped to
+/// `>= 1.0` and `weight` to `1.0..=1000.0`, so out-of-range inputs are safe.
+#[must_use]
+pub fn required_lc(size_px: f32, weight: f32) -> f64 {
+    let px = f64::from(size_px).max(1.0);
+    let w = f64::from(weight).clamp(1.0, 1000.0);
+    // Heavier weight ⇒ larger effective px ⇒ lower required Lc.
+    let eff = px * (w / WEIGHT_REF).powf(WEIGHT_EXP);
+    // Clamp into the tabulated domain so the interpolation always brackets.
+    let eff = eff.clamp(APCA_REQ[0].0, APCA_REQ[APCA_REQ.len() - 1].0);
+    interp_decreasing(&APCA_REQ, eff).clamp(LC_SPOT, LC_MAX)
+}
+
+/// Piecewise-linear interpolation of `x` over a table sorted ascending by its
+/// first column. `x` must already lie within `[table[0].0, table[last].0]`
+/// (the caller clamps it), so the bracketing segment always exists.
+fn interp_decreasing(table: &[(f64, f64)], x: f64) -> f64 {
+    for win in table.windows(2) {
+        let (x0, y0) = win[0];
+        let (x1, y1) = win[1];
+        if x <= x1 {
+            let t = (x - x0) / (x1 - x0);
+            return y0 + t * (y1 - y0);
+        }
+    }
+    table[table.len() - 1].1
+}
+
 /// The APCA contrast of two pre-computed luminances. Split out so the math is
 /// testable independently of color conversion.
 fn contrast(mut txt_y: f64, mut bg_y: f64) -> f64 {
@@ -161,5 +230,31 @@ mod tests {
         assert!(lc_abs(rgb("#ffffff"), rgb("#000000")) > 100.0);
         assert!(meets(rgb("#ffffff"), rgb("#000000"), 90.0));
         assert!(!meets(rgb("#888888"), rgb("#777777"), 30.0));
+    }
+
+    #[test]
+    fn required_lc_is_monotonic_in_size_and_weight() {
+        // Smaller text needs more contrast.
+        assert!(required_lc(12.0, 400.0) > required_lc(16.0, 400.0));
+        assert!(required_lc(16.0, 400.0) > required_lc(24.0, 400.0));
+        assert!(required_lc(24.0, 400.0) > required_lc(36.0, 400.0));
+        // Lighter text needs more contrast (heavier ⇒ larger effective px).
+        assert!(required_lc(16.0, 300.0) > required_lc(16.0, 400.0));
+        assert!(required_lc(16.0, 400.0) > required_lc(16.0, 500.0));
+        assert!(required_lc(16.0, 500.0) > required_lc(16.0, 600.0));
+    }
+
+    #[test]
+    fn required_lc_matches_apca_anchors() {
+        // 16px/400 is APCA's body minimum — the load-bearing anchor.
+        assert!((required_lc(16.0, 400.0) - 75.0).abs() <= 5.0);
+        // Small body text demands near-maximal contrast.
+        assert!((90.0..=108.0).contains(&required_lc(12.0, 400.0)));
+        // Large + bold text relaxes into the headline band.
+        assert!((45.0..=60.0).contains(&required_lc(24.0, 700.0)));
+        // Degenerate inputs clamp to a finite value in range, never panic.
+        for lc in [required_lc(1.0, 900.0), required_lc(1000.0, 100.0)] {
+            assert!(lc.is_finite() && (15.0..=108.0).contains(&lc), "lc = {lc}");
+        }
     }
 }

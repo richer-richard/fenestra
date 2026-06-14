@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.21.0 — 2026-06-14
+
+Size/weight-aware APCA contrast and a `text_on(surface)` legibility helper.
+Pure additive logic in `fenestra-core` — the fixed role floors, every theme
+snapshot, and all goldens are unchanged.
+
+### Added
+
+- **`apca::required_lc(size_px, weight)`** — APCA's readability criterion as a
+  function instead of a fixed floor: the minimum Lc magnitude that text of a
+  given logical size and OpenType weight needs to read fluently. Monotonically
+  decreasing in both axes (heavier weight maps to a larger effective px via
+  `eff = px·(weight/400)^0.5`), calibrated to the APCA "in a nutshell" anchors
+  (14px/400 → ~90, 16px/400 → 75, 24px/400 → 60, 36px → ~45) and clamped to a
+  `[15, 108]` range. Inputs are clamped (`size_px ≥ 1`, `weight ∈ 1..=1000`),
+  so out-of-range values are safe.
+- **`Theme::contrast_ok(text, bg, size_px, weight)`** — the size/weight-aware
+  companion to `validate_contrast`'s fixed role floors: proves a *specific*
+  label legible at its real rendered size by checking `lc_abs(text, bg) >=
+  required_lc(size_px, weight)`.
+- **`Theme::text_on(bg)`** — the strongest legible neutral text color for any
+  background, generalizing the `on_accent` rule to custom and status surfaces:
+  returns whichever ramp extreme (`neutrals.step(1)` paper / `step(12)` ink)
+  wins APCA Lc on `bg`, always theme-tinted (never raw white/black). Ties break
+  toward the ink.
+
+### Scope
+
+- The role floors (75/60/55/40) are unchanged regression sentinels;
+  `required_lc` now anchors them to the same APCA scale, with the load-bearing
+  identity `PRIMARY_TEXT_MIN == required_lc(16px, 400)` asserted literally. See
+  ARCHITECTURE.md "Size/weight-aware APCA + `text_on` (0.21)" for the tie-in and
+  the two recorded framing deviations.
+
 ## 0.20.0 — 2026-06-14
 
 Concentric corner radii and opt-in continuous-curvature (squircle) corners.

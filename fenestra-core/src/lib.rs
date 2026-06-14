@@ -27,7 +27,7 @@ mod text;
 mod theme;
 mod tokens;
 
-pub use apca::{lc, lc_abs, meets};
+pub use apca::{lc, lc_abs, meets, required_lc};
 pub use app::{App, MAIN_WINDOW, WindowDesc};
 pub use children::{FromIter, FromTuple, IntoChildren};
 pub use chrome::{ChromeElevation, ChromeText};

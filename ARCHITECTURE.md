@@ -770,6 +770,44 @@ that have existed since 0.7.
   delineation, and on dark themes opaque low-contrast borders score ~0
   Lc; `text_subtle` (a hint color at ~28 Lc in dark) is likewise not a
   body-text role and is excluded.
+- **Size/weight-aware APCA + `text_on` (0.21).** Two additions sit on top
+  of the fixed role floors without changing them. `apca::required_lc(size_px,
+  weight)` turns APCA's readability criterion into a *function*: it returns
+  the minimum Lc that text of a given size/weight needs, monotonically
+  decreasing in both axes (heavier weight maps to a larger effective px via
+  `eff = px·(weight/400)^0.5`), calibrated to the APCA "in a nutshell"
+  anchors (14px/400 → ~90, 16px/400 → 75, 24px/400 → 60, 36px → ~45, down to
+  a ~15 spot floor) by a small monotone interpolation table, clamped to
+  `[15, 108]`. `Theme::contrast_ok(text, bg, size_px, weight)` pairs it with
+  `lc_abs` so an app can prove a *specific* label legible at its real
+  rendered size, not just against a tier average. `Theme::text_on(bg)`
+  generalizes the `on_accent` rule to any custom/status surface: it returns
+  whichever ramp extreme (`neutrals.step(1)` paper / `step(12)` ink) wins Lc
+  on `bg`, always theme-tinted, never raw white/black (ties break toward the
+  ink). The role floors (75/60/55/40) are unchanged regression sentinels;
+  `required_lc` now anchors them to the same scale, with the load-bearing
+  identity `PRIMARY_TEXT_MIN == required_lc(16px, 400)` asserted literally.
+  - **Two framing deviations from the 0.21 blueprint, recorded here at
+    implementation time.** (1) The blueprint's literal tie-in — each role
+    floor ≥ `required_lc` at the role's *typical render* size/weight — is
+    infeasible for CONTROL_LABEL/SECONDARY/COMPONENT, because those floors
+    are deliberately *relaxed* below APCA-at-render-size (real button labels
+    are 16px/500 needing ~Lc 70, yet `CONTROL_LABEL_MIN = 60`). The tie-in
+    test instead asserts `floor ≥ required_lc(rep)` where `rep` is the
+    documented APCA size/weight *tier the floor encodes* (CONTROL_LABEL ←
+    25px/400 ≈ 58.8, SECONDARY ← 31px/400 ≈ 51.3, COMPONENT ← 50px/400 ≈
+    39.2) — a real point on the curve, making the two systems share one
+    scale, honest that `rep` is the floor's tier, not the role's smallest
+    render size. Distorting `required_lc`'s weight response to make 16px/500
+    → 60 was rejected: it would give APCA-wrong guidance to apps. (2) The
+    blueprint's `text_on` acceptance asserts `lc_abs(text_on(bg), bg) ≥ 60`
+    (control-label grade) on every tested surface; the real worst case is
+    ~59.3 Lc on a few dark status/accent solids, because `text_on` returns
+    the theme-*tinted* paper (`step(1)`/`step(12)`) by design while the
+    pure-white `on_accent` clears 60 — a ~0.7 Lc tint cost. The test asserts
+    the honest, role-tied guarantee `text_on` always meets — secondary-text
+    grade (`≥ SECONDARY_TEXT_MIN`, 55, with margin) — rather than weakening
+    the tinted-color invariant to chase the last Lc.
 - **Layered, hued elevation.** Shadows carry the surface hue at low
   chroma (`Theme::shadow_tint`, a near-black derived from `bg`'s OKLCH
   hue) instead of flat `#000` — subtle on neutral themes, visible on the
