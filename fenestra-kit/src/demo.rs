@@ -492,3 +492,121 @@ pub fn ai_chat<Msg: 'static>(_theme: &Theme) -> Element<Msg> {
         .themed(|t: &Theme, s| s.bg(t.bg))
         .children([column])
 }
+
+/// A frosted-glass command palette floating over a vivid accent-gradient
+/// backdrop: the flagship for the [`Surface::Glass`](fenestra_core::Surface::Glass)
+/// translucent [`Material`](fenestra_core::Material). The colorful gradient and
+/// the in-flow backdrop card it overlaps are clearly modulated *through* the
+/// translucent panel (the status chips sit above it), which itself reads as a
+/// distinct frosted surface (vibrancy tint + hairline edge + 1px top sheen +
+/// deep shadow) with crisp, legible body text. Shared by the glass golden test.
+pub fn glass_showcase<Msg>(theme: &Theme) -> Element<Msg> {
+    use fenestra_core::{SP6, Surface};
+
+    // Concentric with the glass panel: the row radius is the panel's outer
+    // radius minus its SP1 padding, so rows nest without bulging (0.20 rule).
+    let row_radius = Surface::Glass.bundle().radius.inner(SP1);
+
+    // A solid status pill with a contrast-checked label — colorful content the
+    // eye can track *through* the glass.
+    let chip = |label: &str, fill: fenestra_core::Color| {
+        row()
+            .items_center()
+            .px(SP3)
+            .h(28.0)
+            .rounded_full()
+            .bg(fill)
+            .child(
+                text(label.to_owned())
+                    .size(TextSize::Xs)
+                    .weight(Weight::Semibold)
+                    .color(theme.text_on(fill)),
+            )
+    };
+
+    // A command row inside the palette: label on the left, a muted shortcut
+    // hint on the right, in theme ink that test-proven clears APCA on the glass.
+    let command = |label: &str, hint: &str| {
+        row()
+            .items_center()
+            .justify_between()
+            .px(SP3)
+            .h(34.0)
+            .rounded(row_radius)
+            .children([
+                text(label.to_owned()).size(TextSize::Sm).color(theme.text),
+                text(hint.to_owned())
+                    .size(TextSize::Xs)
+                    .color(theme.text_muted),
+            ])
+    };
+
+    // The frosted palette: absolutely positioned and horizontally centered over
+    // the backdrop (760-wide window, 460-wide panel → 150px inset), out of flow
+    // but not via the Overlay system, so the golden stays self-contained.
+    let palette = col()
+        .absolute()
+        .top(176.0)
+        .left(150.0)
+        .w(460.0)
+        .p(SP1)
+        .gap(SP1)
+        .surface(Surface::Glass)
+        .children([
+            // A faux search field: muted prompt in a subtly-filled pill.
+            row()
+                .items_center()
+                .px(SP3)
+                .h(40.0)
+                .rounded(row_radius)
+                .bg(theme.neutrals.step(3).with_alpha(0.55))
+                .border(1.0, theme.border_subtle)
+                .child(
+                    text("Search commands…")
+                        .size(TextSize::Sm)
+                        .color(theme.text_muted),
+                ),
+            command("New file", "⌘N"),
+            command("Open recent", "⌘O"),
+            command("Toggle theme", "⌘⇧L"),
+            command("Command palette", "⌘K"),
+        ]);
+
+    let card = col()
+        .w(360.0)
+        .p(SP4)
+        .gap(SP1)
+        .surface(Surface::Card)
+        .children([
+            text("Backdrop card")
+                .size(TextSize::Base)
+                .weight(Weight::Semibold)
+                .color(theme.text),
+            text("In flow behind the glass — its edges show through the pane.")
+                .size(TextSize::Sm)
+                .color(theme.text_muted),
+        ]);
+
+    col()
+        .w_full()
+        .h_full()
+        .p(SP6)
+        .gap(SP4)
+        .bg(theme.accent_gradient(135.0))
+        .children([
+            text("Command palette")
+                .size(TextSize::Xl3)
+                .weight(Weight::Semibold)
+                .color(theme.on_accent),
+            text("A frosted pane floating over live, colorful content.")
+                .size(TextSize::Base)
+                .color(theme.on_accent.with_alpha(0.85)),
+            row().gap(SP2).children([
+                chip("Danger", theme.danger.solid),
+                chip("Warning", theme.warning.solid),
+                chip("Success", theme.success.solid),
+            ]),
+            card,
+            palette,
+        ])
+}

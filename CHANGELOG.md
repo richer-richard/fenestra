@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.22.0 — 2026-06-14
+
+A translucent "glass" material — a frosted pane that reads as floating glass
+over the content behind it (Apple materials / Linear & Raycast command
+palettes), wired into the Surface system.
+
+### Added
+
+- **`Material`** (`fill_alpha` / `blur_radius` / `saturation`) and the
+  **`Surface::Glass`** role: a translucent, vibrancy-tinted fill resolved
+  against the theme via `Material::tint` (raise OKLCH chroma to re-saturate,
+  then apply alpha — never a raw color). `Material::popover()` is the
+  command-palette recipe. Carried by `SurfaceBundle` (the `material` field);
+  opaque roles set `material: None` and render byte-identically to before.
+- **`glass_showcase()`** (kit) + a light/dark golden: a frosted command palette
+  over a vivid accent-gradient backdrop, with the backdrop card visibly
+  modulated through the pane. Text on the glass is proven legible at its role
+  floors (primary `text` ≥ 75, secondary `text_muted` ≥ 55) over the gradient
+  endpoints, in both modes.
+
+### Scope
+
+- `blur_radius` is **stored but not yet rendered**: vello 0.9 has no
+  backdrop-filter, so the shipped look is a translucent vibrancy fill (no live
+  backdrop blur). A true multi-pass backdrop blur is recorded as a renderer
+  milestone. See ARCHITECTURE.md "0.22" for the feasibility assessment and the
+  deferred-blur decision.
+
 ## 0.21.0 — 2026-06-14
 
 Size/weight-aware APCA contrast and a `text_on(surface)` legibility helper.

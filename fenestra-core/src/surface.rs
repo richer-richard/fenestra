@@ -4,9 +4,9 @@
 //! a corner radius, a fill role, a border role, a shadow token, and an optional
 //! top highlight into a single value that resolves against a [`Theme`] into a
 //! [`Style`] overlay. The kit's elevated surfaces — cards, popovers, menus,
-//! modals, the slider thumb, tooltips — all derive their look from this one
-//! table, so "every floating thing matches" is a structural property of the
-//! bundle, not a convention re-typed at each call site.
+//! modals, glass panes, the slider thumb, tooltips — all derive their look from
+//! this one table, so "every floating thing matches" is a structural property
+//! of the bundle, not a convention re-typed at each call site.
 
 use crate::style::{Border, CornerRadius, Paint, Style};
 use crate::theme::Theme;
@@ -15,11 +15,11 @@ use crate::tokens::{R_FULL, R_LG, R_SM, R_XL, ShadowToken};
 /// One of the kit's elevation *materials*: a semantic role that bundles a
 /// corner radius, a fill role, a border role, a shadow token, and an optional
 /// top highlight into one typed primitive, resolved against a [`Theme`] into a
-/// [`Style`] overlay. Floating roles (`Popover`/`Menu`/`Modal`) carry radii
-/// `>=` and shadow depth `>=` the resting roles (`Card`/`Raised`), so "every
-/// floating thing matches" is structural, not a convention re-typed at each
-/// call site. `Thumb` (a control handle) and `Tooltip` (an inverted chip) are
-/// deliberately exempt from that ordering.
+/// [`Style`] overlay. Floating roles (`Popover`/`Menu`/`Modal`/`Glass`) carry
+/// radii `>=` and shadow depth `>=` the resting roles (`Card`/`Raised`), so
+/// "every floating thing matches" is structural, not a convention re-typed at
+/// each call site. `Thumb` (a control handle) and `Tooltip` (an inverted chip)
+/// are deliberately exempt from that ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum Surface {
@@ -41,6 +41,11 @@ pub enum Surface {
     /// An inverted high-contrast chip (tooltip): the neutral ramp's darkest
     /// step, a tight radius, no border. Exempt from the elevation ordering.
     Tooltip,
+    /// A frosted-glass floating panel (command palette / glass popover): an
+    /// elevated fill rendered as a translucent vibrancy [`Material`] so content
+    /// behind shows through, with a deep shadow, a hairline edge, and a 1px top
+    /// highlight. Floating (ranks with [`Popover`](Surface::Popover)).
+    Glass,
 }
 
 /// The corner-radius shape of a surface bundle: one `Uniform` radius on every
@@ -112,11 +117,72 @@ pub enum SurfaceBorder {
     Default,
 }
 
+/// A translucent "frosted glass" material (Apple "materials" / Linear &
+/// Raycast command palettes): a pane that reads as floating glass over the
+/// content behind it. Describes the three perceptual levers of glass — how much
+/// shows through (`fill_alpha`), how strongly the content behind would be
+/// blurred (`blur_radius`), and how much the wash-out is re-saturated
+/// (`saturation`, "vibrancy"). Resolved against a [`Theme`] (never a raw color)
+/// by [`Material::tint`], and carried by a [`SurfaceBundle`] via the
+/// [`Surface::Glass`] role.
+///
+/// Renderer note (v0.22): vello 0.9 exposes no backdrop filter, so `blur_radius`
+/// is RESERVED — recorded as the intended gaussian for a future true-backdrop-
+/// blur renderer pass, but not yet rendered. The shipped look is a translucent,
+/// vibrancy-tinted fill that reads as glass-over-content without a live blur.
+/// See ARCHITECTURE.md ("0.22 / deferred true backdrop blur").
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Material {
+    /// Fill opacity `0.0..=1.0`: how much of the content behind shows through.
+    /// Lower is glassier; higher protects legibility of text painted on the
+    /// pane (especially important while the backdrop blur is unrendered).
+    pub fill_alpha: f32,
+    /// Backdrop blur radius in logical px the content behind WOULD be blurred
+    /// by. RESERVED (not yet rendered in v0.22); see the type-level note.
+    pub blur_radius: f32,
+    /// Vibrancy: OKLCH chroma multiplier on the tint (`>= 1.0` re-saturates what
+    /// a real backdrop blur washes out). `1.0` leaves the tint's chroma alone.
+    pub saturation: f32,
+}
+
+impl Material {
+    /// A material from explicit levers. `fill_alpha` is clamped to `0.0..=1.0`
+    /// and `saturation` floored at `0.0` at resolution time (in [`tint`](Self::tint)),
+    /// so this constructor is `const` and stores the raw levers verbatim.
+    pub const fn new(fill_alpha: f32, blur_radius: f32, saturation: f32) -> Self {
+        Self {
+            fill_alpha,
+            blur_radius,
+            saturation,
+        }
+    }
+
+    /// The popover / command-palette recipe: a frosted floating pane
+    /// (`fill_alpha` 0.82, `blur_radius` 18, `saturation` 1.5). The defaults
+    /// behind [`Surface::Glass`].
+    pub const fn popover() -> Self {
+        Self::new(0.82, 18.0, 1.5)
+    }
+
+    /// Resolves the translucent, vibrancy-tinted fill color for `base` (a solid
+    /// surface-role color from the theme): keeps `base`'s OKLCH lightness and
+    /// hue, multiplies its chroma by `saturation` (gamut-mapped via
+    /// [`oklch`](crate::oklch), never clipped), then applies `fill_alpha`. Pure;
+    /// derives entirely from the passed theme color (no raw literal).
+    #[must_use]
+    pub fn tint(self, base: crate::Color) -> crate::Color {
+        let [l, c, h] = crate::oklch_of(base);
+        let saturated = crate::theme::oklch(l, c * self.saturation.max(0.0), h);
+        saturated.with_alpha(self.fill_alpha.clamp(0.0, 1.0))
+    }
+}
+
 /// The role-resolved description of a [`Surface`]: radius, fill/border *roles*,
-/// shadow token, and optional top-highlight alpha. [`Surface::bundle`] returns
-/// it (pure, no theme — so radius/shadow/role ordering is unit-testable);
-/// [`SurfaceBundle::apply`] turns it into a concrete [`Style`]. Public so apps
-/// and Looks can compose custom materials from the fill/border roles.
+/// shadow token, optional top-highlight alpha, and an optional translucent
+/// [`Material`]. [`Surface::bundle`] returns it (pure, no theme — so
+/// radius/shadow/role ordering is unit-testable); [`SurfaceBundle::apply`] turns
+/// it into a concrete [`Style`]. Public so apps and Looks can compose custom
+/// materials from the fill/border roles.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SurfaceBundle {
     /// Outer corner radius.
@@ -129,6 +195,10 @@ pub struct SurfaceBundle {
     pub shadow: Option<ShadowToken>,
     /// 1px top-highlight alpha (white sheen), or `None` for no highlight.
     pub highlight: Option<f32>,
+    /// When set, [`SurfaceBundle::apply`] renders `fill` as this translucent
+    /// frosted [`Material`] (its [`tint`](Material::tint) of the resolved fill
+    /// color) instead of a solid. `None` for every opaque role.
+    pub material: Option<Material>,
 }
 
 impl Surface {
@@ -143,6 +213,7 @@ impl Surface {
                 border: SurfaceBorder::Subtle,
                 shadow: Some(ShadowToken::Sm),
                 highlight: None,
+                material: None,
             },
             Surface::Raised => SurfaceBundle {
                 radius: SurfaceRadius::Uniform(R_LG),
@@ -150,6 +221,7 @@ impl Surface {
                 border: SurfaceBorder::Subtle,
                 shadow: None,
                 highlight: None,
+                material: None,
             },
             // Floating roles: elevated fill, deep shadow, radius >= the card's.
             Surface::Popover | Surface::Menu => SurfaceBundle {
@@ -158,6 +230,7 @@ impl Surface {
                 border: SurfaceBorder::Subtle,
                 shadow: Some(ShadowToken::Lg),
                 highlight: None,
+                material: None,
             },
             Surface::Modal => SurfaceBundle {
                 radius: SurfaceRadius::Uniform(R_XL),
@@ -165,6 +238,18 @@ impl Surface {
                 border: SurfaceBorder::Subtle,
                 shadow: Some(ShadowToken::Xl),
                 highlight: None,
+                material: None,
+            },
+            // A frosted floating pane: the elevated fill it is a translucent
+            // vibrancy tint OF, plus a deep shadow, a hairline edge, and a 1px
+            // top sheen. The first shipped role to set a highlight or material.
+            Surface::Glass => SurfaceBundle {
+                radius: SurfaceRadius::Uniform(R_LG),
+                fill: SurfaceFill::Elevated(2),
+                border: SurfaceBorder::Subtle,
+                shadow: Some(ShadowToken::Lg),
+                highlight: Some(0.16),
+                material: Some(Material::popover()),
             },
             // Exempt materials: a pill control handle and an inverted chip.
             Surface::Thumb => SurfaceBundle {
@@ -173,6 +258,7 @@ impl Surface {
                 border: SurfaceBorder::Default,
                 shadow: Some(ShadowToken::Sm),
                 highlight: None,
+                material: None,
             },
             Surface::Tooltip => SurfaceBundle {
                 radius: SurfaceRadius::Uniform(R_SM),
@@ -180,30 +266,45 @@ impl Surface {
                 border: SurfaceBorder::None,
                 shadow: Some(ShadowToken::Md),
                 highlight: None,
+                material: None,
             },
         }
     }
 
-    /// Whether this role floats above the page (`Popover`/`Menu`/`Modal`).
-    /// `Card` and `Raised` rest in flow; `Thumb` and `Tooltip` are exempt
-    /// control/chip materials (both report `false`).
+    /// Whether this role floats above the page
+    /// (`Popover`/`Menu`/`Modal`/`Glass`). `Card` and `Raised` rest in flow;
+    /// `Thumb` and `Tooltip` are exempt control/chip materials (both report
+    /// `false`).
     pub const fn is_floating(self) -> bool {
-        matches!(self, Surface::Popover | Surface::Menu | Surface::Modal)
+        matches!(
+            self,
+            Surface::Popover | Surface::Menu | Surface::Modal | Surface::Glass
+        )
     }
 }
 
 impl SurfaceBundle {
     /// Overlays this bundle onto `base`, resolving fill/border against `theme`:
-    /// sets corner radius, solid fill, border, shadow token, and top highlight,
-    /// leaving every other field of `base` (layout, text) untouched. The
-    /// highlight, when set, is a low-alpha pure white from `oklch(1, 0, 0)` — no
-    /// raw literal. The shadow token expands to layers later, during frame
-    /// resolution, exactly as a hand-set `.shadow(..)` would.
+    /// sets corner radius, fill, border, shadow token, and top highlight,
+    /// leaving every other field of `base` (layout, text) untouched. The fill is
+    /// a solid role color, or — when [`material`](SurfaceBundle::material) is set
+    /// — that role color run through [`Material::tint`] into a translucent
+    /// frosted paint. The highlight, when set, is a low-alpha pure white from
+    /// `oklch(1, 0, 0)` — no raw literal. The shadow token expands to layers
+    /// later, during frame resolution, exactly as a hand-set `.shadow(..)` would.
     #[must_use]
     pub fn apply(self, theme: &Theme, base: Style) -> Style {
         let mut style = base;
         style.corner_radius = CornerRadius::all(self.radius.outer());
-        style.fill = Some(Paint::Solid(self.fill.color(theme)));
+        // A material renders the resolved fill role as its translucent
+        // vibrancy tint; without one, the solid role color is used verbatim
+        // (byte-identical to every pre-0.22 role).
+        let fill_color = self.fill.color(theme);
+        let resolved = match self.material {
+            Some(m) => m.tint(fill_color),
+            None => fill_color,
+        };
+        style.fill = Some(Paint::Solid(resolved));
         style.border = match self.border {
             SurfaceBorder::None => None,
             SurfaceBorder::Subtle => Some(Border {
@@ -268,7 +369,12 @@ mod tests {
         // The acceptance invariant: every floating role is at least as round
         // and at least as deep as every resting role. Thumb and Tooltip are
         // excluded — they are exempt control/chip materials, not on the ladder.
-        for f in [Surface::Popover, Surface::Menu, Surface::Modal] {
+        for f in [
+            Surface::Popover,
+            Surface::Menu,
+            Surface::Modal,
+            Surface::Glass,
+        ] {
             for r in [Surface::Card, Surface::Raised] {
                 assert!(
                     f.bundle().radius.outer() >= r.bundle().radius.outer(),
@@ -309,7 +415,8 @@ mod tests {
 
     #[test]
     fn highlight_resolves_to_low_alpha_white() {
-        // Exercises the highlight path even though no shipped role sets it.
+        // Exercises the highlight path directly (the shipped `Surface::Glass`
+        // role also sets one; this pins the resolution in isolation).
         let t = Theme::light();
         let bundle = SurfaceBundle {
             highlight: Some(0.14),
@@ -378,5 +485,198 @@ mod tests {
         let s = Surface::Card.bundle().apply(&t, Style::default().p(8.0));
         assert_eq!(s.padding, Edges::all(8.0));
         assert!(s.fill.is_some());
+    }
+
+    // ---- 0.22 material / translucency (glass) ----
+
+    /// Wraparound-safe hue distance in degrees.
+    fn hue_delta(a: f32, b: f32) -> f32 {
+        let d = (a - b).abs() % 360.0;
+        d.min(360.0 - d)
+    }
+
+    /// Straight source-over of a translucent `fg` onto an opaque `bg`, returned
+    /// as an opaque color — the no-blur worst case a glass pane composites to.
+    fn composite_over_opaque(fg: crate::Color, bg: crate::Color) -> crate::Color {
+        let f = fg.components;
+        let b = bg.components;
+        let a = f[3];
+        crate::Color::new([
+            f[0] * a + b[0] * (1.0 - a),
+            f[1] * a + b[1] * (1.0 - a),
+            f[2] * a + b[2] * (1.0 - a),
+            1.0,
+        ])
+    }
+
+    #[test]
+    fn material_tint_is_translucent_theme_derived_and_in_gamut() {
+        for t in [Theme::light(), Theme::dark()] {
+            let base = t.elevated_surface(2);
+            let tint = Material::popover().tint(base);
+            // alpha == fill_alpha, in 0..=1.
+            assert!(
+                (tint.components[3] - 0.82).abs() < 1e-6,
+                "alpha == fill_alpha: {}",
+                tint.components[3]
+            );
+            let [bl, bc, _] = crate::oklch_of(base);
+            let [tl, tc, _] = crate::oklch_of(tint);
+            // Keeps the theme token's lightness.
+            assert!((tl - bl).abs() < 1e-3, "L kept: {tl} vs {bl}");
+            // Chroma is never reduced (vibrancy >= 1; honest about smallness on
+            // near-neutral surfaces).
+            assert!(tc >= bc - 1e-4, "chroma not reduced: {tc} vs {bc}");
+            // Gamut-safe.
+            for &ch in &tint.components[..3] {
+                assert!((0.0..=1.0).contains(&ch), "channel in gamut: {ch}");
+            }
+            // Hue is preserved by construction (the levers never touch `h`).
+            // The recovered hue of `Elevated(2)` is numerically meaningless at
+            // its near-zero chroma (a sub-1e-3 clamp swings atan2 by tens of
+            // degrees), so verify hue preservation on a chroma-rich color — the
+            // accent — where it is well-defined.
+            let accent_h = crate::oklch_of(t.accent)[2];
+            let tinted_accent_h = crate::oklch_of(Material::popover().tint(t.accent))[2];
+            assert!(
+                hue_delta(tinted_accent_h, accent_h) < 1.0,
+                "hue kept on a chroma-rich color: {tinted_accent_h} vs {accent_h}"
+            );
+        }
+    }
+
+    #[test]
+    fn material_tint_is_deterministic() {
+        let t = Theme::dark();
+        let base = t.elevated_surface(2);
+        let m = Material::popover();
+        let m2 = m; // Material is Copy; a copy resolves identically.
+        let a = m.tint(base).to_rgba8();
+        let b = m.tint(base).to_rgba8();
+        let c = m2.tint(base).to_rgba8();
+        assert_eq!([a.r, a.g, a.b, a.a], [b.r, b.g, b.b, b.a]);
+        assert_eq!([a.r, a.g, a.b, a.a], [c.r, c.g, c.b, c.a]);
+    }
+
+    #[test]
+    fn material_alpha_clamps() {
+        let t = Theme::light();
+        let base = t.elevated_surface(2);
+        assert!(
+            (Material::new(1.5, 0.0, 1.0).tint(base).components[3] - 1.0).abs() < 1e-6,
+            "fill_alpha > 1 clamps to 1"
+        );
+        assert!(
+            Material::new(-0.2, 0.0, 1.0).tint(base).components[3].abs() < 1e-6,
+            "fill_alpha < 0 clamps to 0"
+        );
+    }
+
+    #[test]
+    fn glass_role_bundle_is_frosted_floating() {
+        let b = Surface::Glass.bundle();
+        assert_eq!(b.fill, SurfaceFill::Elevated(2));
+        assert_eq!(b.shadow, Some(ShadowToken::Lg));
+        assert_eq!(b.border, SurfaceBorder::Subtle);
+        assert_eq!(b.highlight, Some(0.16));
+        assert_eq!(b.material, Some(Material::popover()));
+        assert_eq!(b.radius, SurfaceRadius::Uniform(R_LG));
+    }
+
+    #[test]
+    fn glass_apply_fill_is_translucent_and_elevated() {
+        for t in [Theme::light(), Theme::dark()] {
+            let s = Surface::Glass.bundle().apply(&t, Style::default());
+            let Some(Paint::Solid(c)) = s.fill else {
+                panic!("glass fill should resolve to a solid paint");
+            };
+            assert!(c.components[3] < 1.0, "translucent: {}", c.components[3]);
+            // It is the elevated surface tinted: same OKLCH lightness (stable;
+            // unlike hue at this near-zero chroma), chroma never reduced.
+            let [bl, bc, _] = crate::oklch_of(t.elevated_surface(2));
+            let [cl, cc, _] = crate::oklch_of(c);
+            assert!(
+                (cl - bl).abs() < 1e-3,
+                "lightness of Elevated(2) kept: {cl} vs {bl}"
+            );
+            assert!(cc >= bc - 1e-4, "chroma not reduced: {cc} vs {bc}");
+            let hl = s.highlight_top.expect("glass sets a top highlight");
+            let [r, g, b, a] = hl.components;
+            assert!(
+                r > 0.9 && (r - g).abs() < 1e-3 && (g - b).abs() < 1e-3,
+                "near-white sheen: {r} {g} {b}"
+            );
+            assert!((0.0..0.3).contains(&a), "low-alpha sheen: {a}");
+        }
+    }
+
+    #[test]
+    fn glass_is_floating_satisfies_ordering() {
+        assert!(Surface::Glass.is_floating());
+        for r in [Surface::Card, Surface::Raised] {
+            assert!(
+                Surface::Glass.bundle().radius.outer() >= r.bundle().radius.outer(),
+                "Glass radius >= {r:?}"
+            );
+            assert!(
+                Surface::Glass.bundle().shadow >= r.bundle().shadow,
+                "Glass shadow >= {r:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn opaque_roles_unchanged() {
+        for t in [Theme::light(), Theme::dark()] {
+            for role in [
+                Surface::Card,
+                Surface::Raised,
+                Surface::Popover,
+                Surface::Menu,
+                Surface::Modal,
+                Surface::Thumb,
+                Surface::Tooltip,
+            ] {
+                assert!(role.bundle().material.is_none(), "{role:?} has no material");
+                let s = role.bundle().apply(&t, Style::default());
+                assert_eq!(
+                    s.fill,
+                    Some(Paint::Solid(role.bundle().fill.color(&t))),
+                    "{role:?} fill is the unmodified solid role color"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn glass_text_stays_legible() {
+        // Guard the SHIPPED glass-showcase text against its role floors over the
+        // real backdrop. The command label is `text` (primary, floor 75) and the
+        // shortcut hint is `text_muted` (secondary, floor 55) — the same floors
+        // `validate_contrast` enforces. The pane is a translucent tint (no live
+        // blur) composited over `accent_gradient(135)` (accents 7..10), so check
+        // both gradient endpoints — the worst cases — in both modes. (Secondary
+        // text sits near its 55 floor by design; this proves it never drops
+        // under it, where the old test only checked the easier `text`@16px.)
+        const PRIMARY: f64 = 75.0;
+        const SECONDARY: f64 = 55.0;
+        for t in [Theme::light(), Theme::dark()] {
+            let tint = Material::popover().tint(t.elevated_surface(2));
+            for bg in [t.accents.step(7), t.accents.step(10)] {
+                let comp = composite_over_opaque(tint, bg);
+                let label = crate::lc_abs(t.text, comp);
+                let hint = crate::lc_abs(t.text_muted, comp);
+                assert!(
+                    label >= PRIMARY,
+                    "glass label (text) Lc {label:.1} < {PRIMARY} over {:?}",
+                    bg.to_rgba8()
+                );
+                assert!(
+                    hint >= SECONDARY,
+                    "glass hint (text_muted) Lc {hint:.1} < {SECONDARY} over {:?}",
+                    bg.to_rgba8()
+                );
+            }
+        }
     }
 }

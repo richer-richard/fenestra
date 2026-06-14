@@ -1373,3 +1373,82 @@ prior golden stays byte-identical.
   the inset — the very desync this feature kills); it was dropped pre-release in
   favor of the single `inner(inset)` accessor on `Uniform`. `SurfaceRadius`
   stays `#[non_exhaustive]` for future shapes.
+
+## 0.22: material / translucency (glass)
+
+A typed translucent-vibrancy `Material` and a `Surface::Glass` role: a frosted
+floating pane (command palette / glass popover) whose tint lets the content
+behind show through. `Material` carries the three perceptual levers of glass —
+`fill_alpha` (how much shows through), `blur_radius` (reserved; see below), and
+`saturation` (OKLCH chroma "vibrancy"). `Material::tint(base)` keeps the theme
+role color's OKLCH lightness and hue, multiplies chroma by `saturation`
+(gamut-mapped via `oklch`, never clipped), and applies `fill_alpha`. The new
+`Surface::Glass` bundle is the `Elevated(2)` floating recipe (`R_LG`, `Subtle`
+border, `Lg` shadow) plus `highlight: Some(0.16)` (a 1px top sheen — the first
+shipped role to set one) and `material: Some(Material::popover())` (`fill_alpha`
+0.82, `saturation` 1.5). `SurfaceBundle::apply` runs the fill role through
+`Material::tint` when a material is set; with `material: None` it is byte-
+identical to every pre-0.22 role. Pure style composition at frame time — the
+glass is a single semi-transparent `Paint::Solid` composited by vello in the one
+existing Scene, identical live and headless. New flagship: `glass_showcase`
+(a frosted palette over an accent-gradient backdrop), locked by the
+`glass_showcase_{light,dark}` goldens.
+
+- **DECISION — `Material` rides on `SurfaceBundle`, not a `SurfaceFill::Glass`
+  variant** (course-correcting the 0.19 forward-guess at "API decisions" which
+  anticipated a `SurfaceFill` glass variant). `SurfaceFill` derives `Eq + Hash`,
+  which `Material`'s `f32` levers cannot satisfy; `SurfaceBundle` is only
+  `PartialEq`, so it holds `Option<Material>` cleanly, and the new role is the
+  unit variant `Surface::Glass` (keeping `Surface: Eq + Hash`). The 0.19
+  acceptance allowed "a typed `Material` **or** a glass `SurfaceFill`/`Surface`
+  role"; this satisfies it without weakening `SurfaceFill`'s derives. No
+  redundant payload-less `SurfaceFill::Glass` was added.
+- **Acceptance invariant — Glass joins the floating ladder.** `Surface::Glass`
+  is `is_floating()` and satisfies `floating.radius >= resting.radius` and
+  `floating.shadow >= resting.shadow` against `Card`/`Raised` (`R_LG` ties
+  `Card`; `Lg` shadow exceeds `Card`'s `Sm`). Locked by
+  `ordering_invariant_floating_ge_resting` (extended to include `Glass`) and
+  `glass_is_floating_satisfies_ordering`.
+- **DEVIATION — no live backdrop blur in 0.22; `blur_radius` is reserved.**
+  vello 0.9's Scene API exposes no backdrop filter:
+  `draw_blurred_rounded_rect` blurs a *solid brush over an analytic rounded-rect
+  gaussian* (it is the shadow primitive — it cannot sample or blur the scene
+  behind it), and `push_layer`'s `BlendMode` is peniko color mix/compose only —
+  no spatial filter, no offscreen/readback primitive. fenestra's renderer also
+  paints the whole tree into **one** Scene in painter's order
+  (`Frame::paint` → `Headless::render`'s single `render_to_texture`), with no
+  notion of "render the backdrop below node X, capture, blur, re-inject." A true
+  backdrop blur would need a render-graph split (core is windowless; the GPU pass
+  lives in shell) plus a mid-frame readback + CPU gaussian (deterministic) or a
+  custom wgpu blur pass (whose float output is **not** guaranteed bit-stable
+  across Metal — the golden reference — and lavapipe). So the shipped glass is a
+  translucent vibrancy tint + hairline edge + 1px top sheen + `Lg` shadow; the
+  golden proves translucency + vibrancy + edge, **not** a blurred backdrop.
+  `Material.blur_radius` is a documented, unrendered field carrying the intended
+  gaussian for the deferred pass.
+- **Calibration (eyeballed light + dark on the golden).** `fill_alpha` 0.82
+  (band 0.75–0.88) — backdrop clearly visible but muted, body text crisp; leaned
+  **more opaque** than a true-blur material because, without a blur, sharp
+  content behind text would hurt legibility. The hard gate is the windowless
+  `glass_text_stays_legible` test (`contrast_ok(text, tint-over-brightest-
+  backdrop, 16, 400)` ≥ APCA Lc 75 over `accent` and `surface`). `saturation`
+  1.5 — a *colored* frosted layer, though on the near-neutral `Elevated(2)`
+  surface (chroma ~0.006) the shift is subtle; the field is forward-complete for
+  the true-blur pass and locked by chroma-≥-base, not a strong visual.
+  `highlight` 0.16 (band 0.12–0.20) — a crisp lifted-glass top edge, stronger
+  than the button's 0.14.
+- **Test-design note — hue preservation verified on a chroma-rich color.**
+  `Material::tint` preserves hue *by construction* (the levers never touch `h`),
+  but the recovered hue of `Elevated(2)` is numerically meaningless at its
+  near-zero chroma (a sub-1e-3 gamut-clamp perturbation swings `atan2` hue by
+  tens of degrees). So `material_tint_is_translucent_theme_derived_and_in_gamut`
+  asserts L-kept / chroma-not-reduced / gamut-safe / alpha on the real surface,
+  and verifies hue preservation on the accent (where hue is well-defined). This
+  departs from the blueprint's literal "hue within 1e-2 on the base" because that
+  assertion is not physically robust at near-neutral chroma.
+- **Deferred renderer milestone — true backdrop blur.** Multi-pass offscreen
+  capture + gaussian + composite. Blocked on vello 0.9 having no backdrop filter
+  and on fenestra's single-Scene painter; needs a core→shell render-graph split
+  and a determinism proof across Metal/lavapipe before shipping. Tracked for a
+  future renderer phase; `Material.blur_radius` already carries the intended
+  radius.
