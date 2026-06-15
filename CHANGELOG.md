@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.27.0 — unreleased
+## 0.27.0 — 2026-06-15
 
 Beautiful by default — the design system advertises its range up front: a
 curated non-blue Look, and one-knob radius and elevation that the whole kit
