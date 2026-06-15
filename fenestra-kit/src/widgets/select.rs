@@ -15,8 +15,8 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Key, Overlay, R_MD, SP1, SP2, SP3, Semantics, Surface, Theme, Transition, col,
-    row, spacer, text,
+    Cursor, Element, Key, Overlay, SP1, SP2, SP3, Semantics, Surface, Theme, Transition, col, row,
+    spacer, text,
 };
 
 use super::ControlSize;
@@ -108,7 +108,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
                     // Concentric with the listbox panel (Surface::Menu): the
                     // option radius is the panel outer radius minus its SP1
                     // padding, so options nest cleanly inside the panel.
-                    .rounded(Surface::Menu.bundle().radius.inner(SP1))
+                    .themed(|t: &Theme, s| s.rounded((t.radius.lg - SP1).max(0.0)))
                     .shrink0()
                     .cursor(Cursor::Pointer)
                     .children([text(opt.clone()).size(sel.size.text_size()).themed(
@@ -140,7 +140,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             .w(sel.width)
             .h(sel.size.height())
             .px(SP3)
-            .rounded(R_MD)
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shrink0()
             .focusable(true)
             .cursor(Cursor::Pointer)

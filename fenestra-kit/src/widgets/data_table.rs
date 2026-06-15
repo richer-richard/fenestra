@@ -3,8 +3,7 @@
 //! table only *emits* (Elm-pure; sort your rows in `update`).
 
 use fenestra_core::{
-    Cursor, Element, R_MD, SP3, Semantics, TextSize, Theme, Track, Transition, Weight, col, row,
-    text,
+    Cursor, Element, SP3, Semantics, TextSize, Theme, Track, Transition, Weight, col, row, text,
 };
 
 /// A data table under construction; converts into an [`Element`].
@@ -132,7 +131,7 @@ impl<Msg: Clone + 'static> From<DataTable<Msg>> for Element<Msg> {
 
         col()
             .w_full()
-            .rounded(R_MD)
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .overflow_hidden()
             .themed(|th: &Theme, s| s.border(1.0, th.border_subtle))
             .child(header)

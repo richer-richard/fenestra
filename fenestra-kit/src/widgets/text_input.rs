@@ -15,7 +15,7 @@
 //!     .into();
 //! ```
 
-use fenestra_core::{Element, R_MD, SP3, Theme, Transition, raw_input};
+use fenestra_core::{Element, SP3, Theme, Transition, raw_input};
 
 use super::ControlSize;
 
@@ -97,7 +97,7 @@ impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
             .w(t.width)
             .h(t.size.height())
             .px(SP3)
-            .rounded(R_MD)
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shrink0()
             .size(t.size.text_size())
             .transition(Transition::colors())

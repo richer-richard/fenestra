@@ -2,7 +2,7 @@
 //! selection (Elm-pure).
 
 use fenestra_core::{
-    Cursor, Element, Key, R_MD, SP1, SP2, Semantics, TextSize, Theme, Transition, col, row, text,
+    Cursor, Element, Key, SP1, SP2, Semantics, TextSize, Theme, Transition, col, row, text,
 };
 
 /// One node of a [`tree_view`]. Build nested structures with
@@ -103,7 +103,7 @@ fn render_node<Msg: Clone + 'static>(
         .h(28.0)
         .pl(SP2 + depth * 16.0)
         .pr(SP2)
-        .rounded(R_MD - 4.0)
+        .themed(|t: &Theme, s| s.rounded((t.radius.md - 4.0).max(0.0)))
         .shrink0()
         .cursor(Cursor::Pointer)
         .focusable(true)

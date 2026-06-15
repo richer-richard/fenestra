@@ -16,7 +16,8 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Overlay, SP1, SP2, Semantics, Surface, TextSize, Transition, col, row, text,
+    Cursor, Element, Overlay, SP1, SP2, Semantics, Surface, TextSize, Theme, Transition, col, row,
+    text,
 };
 
 /// The styled panel of menu items (no overlay attached): rows that emit
@@ -39,7 +40,7 @@ pub fn menu<Msg: Clone + 'static>(
                 // Concentric with the menu panel: the item radius is the
                 // panel's outer radius minus its SP1 padding, so the rounded
                 // item nests inside the rounded panel without bulging.
-                .rounded(Surface::Menu.bundle().radius.inner(SP1))
+                .themed(|t: &Theme, s| s.rounded((t.radius.lg - SP1).max(0.0)))
                 .shrink0()
                 .cursor(Cursor::Pointer)
                 .on_click(msg)

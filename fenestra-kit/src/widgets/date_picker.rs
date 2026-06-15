@@ -3,7 +3,7 @@
 //! is inline (no chrono): proleptic Gregorian, ISO weekday columns.
 
 use fenestra_core::{
-    Cursor, Element, R_MD, SP1, SP2, Semantics, TextSize, Theme, Transition, Weight, col, row, text,
+    Cursor, Element, SP1, SP2, Semantics, TextSize, Theme, Transition, Weight, col, row, text,
 };
 
 /// A calendar date as plain numbers: year, month 1..=12, day 1..=31.
@@ -129,7 +129,7 @@ impl<Msg: Clone + 'static> From<DatePicker<Msg>> for Element<Msg> {
                         .justify_center()
                         .w(26.0)
                         .h(26.0)
-                        .rounded(R_MD - 4.0)
+                        .themed(|t: &Theme, s| s.rounded((t.radius.md - 4.0).max(0.0)))
                         .cursor(Cursor::Pointer)
                         .focusable(true)
                         .on_click(f(target))
@@ -174,7 +174,7 @@ impl<Msg: Clone + 'static> From<DatePicker<Msg>> for Element<Msg> {
                     .h(30.0)
                     .items_center()
                     .justify_center()
-                    .rounded(R_MD - 2.0)
+                    .themed(|t: &Theme, s| s.rounded((t.radius.md - 2.0).max(0.0)))
                     .shrink0()
                     .cursor(Cursor::Pointer)
                     .focusable(true)
@@ -198,7 +198,7 @@ impl<Msg: Clone + 'static> From<DatePicker<Msg>> for Element<Msg> {
         let mut root = col()
             .p(SP2)
             .gap(SP1)
-            .rounded(R_MD)
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .themed(|t: &Theme, s| s.bg(t.elevated_surface(1)).border(1.0, t.border_subtle))
             .child(header)
             .child(dow_row)

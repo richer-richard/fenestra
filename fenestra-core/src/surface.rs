@@ -10,7 +10,7 @@
 
 use crate::style::{Border, CornerRadius, Paint, Style};
 use crate::theme::Theme;
-use crate::tokens::{R_FULL, R_LG, R_SM, R_XL, ShadowToken};
+use crate::tokens::{Elevation, R_FULL, R_LG, R_SM, R_XL, RadiusScale, ShadowToken};
 
 /// One of the kit's elevation *materials*: a semantic role that bundles a
 /// corner radius, a fill role, a border role, a shadow token, and an optional
@@ -271,6 +271,22 @@ impl Surface {
         }
     }
 
+    /// The corner radius for this role resolved against a theme's radius
+    /// scale, so a [`RadiusScale::sharp`] theme un-rounds every surface at
+    /// once. Pills (`Thumb`) stay fully round. With the default scale this
+    /// returns exactly the role's stock radius (`R_LG` / `R_XL` / `R_SM`).
+    #[must_use]
+    pub fn radius_px(self, radius: &RadiusScale) -> f32 {
+        match self {
+            Surface::Modal => radius.xl,
+            Surface::Thumb => R_FULL,
+            Surface::Tooltip => radius.sm,
+            Surface::Card | Surface::Raised | Surface::Popover | Surface::Menu | Surface::Glass => {
+                radius.lg
+            }
+        }
+    }
+
     /// Whether this role floats above the page
     /// (`Popover`/`Menu`/`Modal`/`Glass`). `Card` and `Raised` rest in flow;
     /// `Thumb` and `Tooltip` are exempt control/chip materials (both report
@@ -330,7 +346,16 @@ impl Theme {
     /// point; [`Element::surface`](crate::Element::surface) is the deferred one
     /// for `view()`.
     pub fn surface_style(&self, role: Surface) -> Style {
-        role.bundle().apply(self, Style::default())
+        let mut style = role
+            .bundle()
+            .apply(self, Style::default())
+            .rounded(role.radius_px(&self.radius));
+        // Flat elevation: resting cards lean on their border + tone-step rather
+        // than a shadow; floating roles always keep theirs.
+        if self.elevation == Elevation::Flat && matches!(role, Surface::Card | Surface::Raised) {
+            style.shadow_token = None;
+        }
+        style
     }
 }
 

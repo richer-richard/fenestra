@@ -2,7 +2,7 @@
 //! owns the query and the open flag (Elm-pure).
 
 use fenestra_core::{
-    Element, Key, Overlay, R_MD, SP1, SP2, Semantics, ShadowToken, TextSize, Theme, col, text,
+    Element, Key, Overlay, SP1, SP2, Semantics, ShadowToken, TextSize, Theme, col, text,
 };
 
 use crate::{menu, text_input};
@@ -89,7 +89,7 @@ impl<Msg: Clone + 'static> From<CommandPalette<Msg>> for Element<Msg> {
             .p(SP2)
             .gap(SP1)
             .w(440.0)
-            .rounded(R_MD)
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shadow(ShadowToken::Lg)
             .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
             .semantics(Semantics::Dialog)

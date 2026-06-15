@@ -1,6 +1,6 @@
 //! Looks: complete design languages for fenestra — theme, typefaces,
 //! and character bundled into one value and applied in one call. The
-//! same app, five voices:
+//! same app, six voices:
 //!
 //! - [`product`] — the stock voice: Inter, neutral surfaces, blue
 //!   accent. What the kit ships as.
@@ -8,6 +8,8 @@
 //!   deep duotone field (the poster's language, packaged).
 //! - [`terminal`] — instrument panel: JetBrains Mono everywhere,
 //!   phosphor-green accent, built for dense tools.
+//! - [`console`] — observability console: a cool-slate field under one
+//!   electric-lime accent, sans body with mono numerals; sharp and minimal.
 //! - [`warm_editorial`] — warm paper and ink: a cream-and-terracotta field
 //!   ([`Theme::derive`]) with Playfair serif prose under sans chrome.
 //! - [`playful`] — a soft pastel canvas with a saturated accent, for
@@ -22,7 +24,7 @@
 //!
 //! Typefaces are vendored under their OFL licenses (see `assets/`).
 
-use fenestra_core::{BaseField, Contrast, FamilyRole, Fonts, Mode, Theme};
+use fenestra_core::{BaseField, Contrast, Elevation, FamilyRole, Fonts, Mode, RadiusScale, Theme};
 
 /// A packaged design language: a resolved theme plus the typefaces
 /// that give it its voice.
@@ -145,12 +147,39 @@ pub fn playful(mode: Mode) -> Look {
     }
 }
 
+/// Observability console: a cool-slate neutral field under a single
+/// electric-lime accent, sans body with mono numerals — the sharp/minimal
+/// "instrument console" voice (Linear/Vercel-class), distinct from
+/// [`terminal`]'s all-mono phosphor. The palette is *derived* (a cool field at
+/// hue 250, low chroma, and a lime accent at hue 130, crisp contrast), so it
+/// stays coherent across modes and clears the APCA floors. Reach for a tight
+/// radius (`RadiusScale::sharp()`) for un-rounded, hairline-separated chrome.
+/// Ships with the base sans + mono; no extra faces.
+pub fn console(mode: Mode) -> Look {
+    Look {
+        name: "console",
+        theme: Theme::derive(
+            BaseField {
+                hue: 250.0,
+                chroma: 1.5,
+            },
+            130.0,
+            Contrast::High,
+            mode,
+        )
+        .with_radius(RadiusScale::sharp())
+        .with_elevation(Elevation::Flat),
+        faces: Vec::new(),
+    }
+}
+
 /// Every shipped look, for galleries and pickers.
 pub fn all(mode: Mode) -> Vec<Look> {
     vec![
         product(mode),
         editorial(mode),
         terminal(mode),
+        console(mode),
         warm_editorial(mode),
         playful(mode),
     ]

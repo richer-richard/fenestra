@@ -2,10 +2,10 @@
 //! identity is pinned, not aspirational.
 
 use fenestra_core::{
-    Element, FamilyRole, Mode, R_MD, SP2, SP3, SP4, Semantics, ShadowToken, TextSize, Theme,
+    Element, Elevation, FamilyRole, Mode, SP2, SP3, SP4, Semantics, ShadowToken, TextSize, Theme,
     Weight, col, div, rich_text, row, span, text,
 };
-use fenestra_looks::{Look, all, editorial, playful, product, terminal, warm_editorial};
+use fenestra_looks::{Look, all, console, editorial, playful, product, terminal, warm_editorial};
 use fenestra_shell::render_element_with;
 use fenestra_shell::testing::assert_png_snapshot;
 
@@ -33,9 +33,17 @@ fn sample(_theme: &Theme) -> Element<()> {
         col()
             .p(SP3)
             .gap(SP2)
-            .rounded(R_MD)
             .shadow(ShadowToken::Md)
-            .themed(|t: &Theme, s| s.bg(t.elevated_surface(1)).border(1.0, t.border_subtle))
+            .themed(|t: &Theme, s| {
+                let mut s = s
+                    .rounded(t.radius.md)
+                    .bg(t.elevated_surface(1))
+                    .border(1.0, t.border_subtle);
+                if t.elevation == Elevation::Flat {
+                    s.shadow_token = None;
+                }
+                s
+            })
             .children((
                 text("Every claim in this issue was rendered, queried, and diffed before print.")
                     .size(TextSize::Sm),
@@ -43,8 +51,7 @@ fn sample(_theme: &Theme) -> Element<()> {
                     div()
                         .px(SP3)
                         .py(6.0)
-                        .rounded(R_MD)
-                        .themed(|t: &Theme, s| s.bg(t.accent))
+                        .themed(|t: &Theme, s| s.rounded(t.radius.md).bg(t.accent))
                         .semantics(Semantics::Button)
                         .label("Read")
                         .children([text("Read")
@@ -91,6 +98,11 @@ fn terminal_look_golden() {
 }
 
 #[test]
+fn console_look_golden() {
+    assert_png_snapshot(snapshot_dir(), "look_console", &shoot(&console(Mode::Dark)));
+}
+
+#[test]
 fn warm_editorial_look_golden() {
     assert_png_snapshot(
         snapshot_dir(),
@@ -117,6 +129,7 @@ fn all_returns_every_look() {
             "product",
             "editorial",
             "terminal",
+            "console",
             "warm-editorial",
             "playful"
         ]

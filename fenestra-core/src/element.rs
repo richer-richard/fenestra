@@ -1123,7 +1123,20 @@ impl<Msg> Element<Msg> {
     /// it once as the element's material; chain a `.themed` after it to tweak a
     /// single property.
     pub fn surface(self, role: crate::surface::Surface) -> Self {
-        self.themed(move |t, s| role.bundle().apply(t, s))
+        self.themed(move |t, s| {
+            let mut s = role.bundle().apply(t, s).rounded(role.radius_px(&t.radius));
+            // Flat elevation drops the shadow on resting cards (border + tone
+            // carry separation); floating roles always keep theirs.
+            if t.elevation == crate::Elevation::Flat
+                && matches!(
+                    role,
+                    crate::surface::Surface::Card | crate::surface::Surface::Raised
+                )
+            {
+                s.shadow_token = None;
+            }
+            s
+        })
     }
 
     /// Subtree opacity.

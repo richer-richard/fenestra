@@ -2,7 +2,7 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, R_MD, SP1, SP2, SP3, SP4, SP6,
+    Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, SP1, SP2, SP3, SP4, SP6,
     Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition, Weight, col, div, path,
     row, text,
 };
@@ -247,7 +247,7 @@ pub fn callout<Msg>(status: Status, message: impl Into<String>) -> Element<Msg> 
         .items_start()
         .gap(SP2)
         .p(SP4)
-        .rounded(R_MD)
+        .themed(|t: &Theme, s| s.rounded(t.radius.md))
         .themed(move |t: &Theme, s| {
             let c = status.colors(t);
             s.bg(c.bg).border(1.0, c.border)

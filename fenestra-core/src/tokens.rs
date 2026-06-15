@@ -76,6 +76,28 @@ impl RadiusScale {
             xl: b * 2.0,
         }
     }
+
+    /// A tight family for sharp / minimal "tech" chrome — corners read crisp and
+    /// near-square: `sm 1 / md 2 / lg 3 / xl 4`. Set it on a theme with
+    /// [`Theme::with_radius`](crate::Theme::with_radius) to un-round the whole
+    /// kit at once; pills and avatars ([`R_FULL`]) stay round regardless. For a
+    /// fully-square look, use `RadiusScale::from_base(0.0)`.
+    #[must_use]
+    pub fn sharp() -> Self {
+        Self {
+            sm: 1.0,
+            md: 2.0,
+            lg: 3.0,
+            xl: 4.0,
+        }
+    }
+
+    /// A rounder, friendlier family (base `16`): `sm 9.6 / md 16 / lg 22.4 / xl 32`
+    /// — for soft, consumer/whiteboard-class tools.
+    #[must_use]
+    pub fn soft() -> Self {
+        Self::from_base(16.0)
+    }
 }
 
 impl Default for RadiusScale {
@@ -83,6 +105,22 @@ impl Default for RadiusScale {
     fn default() -> Self {
         Self::from_base(R_MD)
     }
+}
+
+/// How resting, same-plane surfaces (cards) convey separation. Floating
+/// surfaces — menus, popovers, modals, tooltips — always cast a shadow; this
+/// only governs cards that rest in the page. Set on a theme with
+/// [`Theme::with_elevation`](crate::Theme::with_elevation).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Elevation {
+    /// Resting cards cast a subtle tinted shadow — the stock look.
+    #[default]
+    Shadowed,
+    /// Resting cards lean on a border + surface tone-step instead of a shadow
+    /// — sharper, and the honest choice in dark mode where shadows barely
+    /// register. Shadows stay reserved for surfaces that truly float. Pairs
+    /// naturally with [`RadiusScale::sharp`].
+    Flat,
 }
 
 /// The typographic scale. Sizes are logical px.

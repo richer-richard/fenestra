@@ -6,7 +6,7 @@ use color::{AlphaColor, Oklch, Srgb};
 use peniko::Color;
 
 use crate::style::Shadow;
-use crate::tokens::ShadowToken;
+use crate::tokens::{Elevation, RadiusScale, ShadowToken};
 
 /// Light or dark color mode. Both are always generated from the same hue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -183,6 +183,21 @@ pub struct Theme {
     pub accent_text: Color,
     /// Text painted on top of `accent`.
     pub on_accent: Color,
+
+    /// The corner-radius family the kit reads (controls, cards, menus, modals,
+    /// tooltips). Defaults to [`RadiusScale::default`] — which reproduces
+    /// `R_SM`..`R_XL` exactly, so the stock look is unchanged — and is the one
+    /// knob that re-rounds the whole kit: [`RadiusScale::sharp`] for un-rounded
+    /// tech chrome, [`RadiusScale::soft`] for a friendlier feel, set via
+    /// [`Theme::with_radius`]. Pills/avatars stay round regardless.
+    pub radius: RadiusScale,
+
+    /// How resting, same-plane cards convey separation — [`Elevation::Shadowed`]
+    /// (stock: a subtle shadow) or [`Elevation::Flat`] (border + surface
+    /// tone-step, no shadow). Floating surfaces always cast a shadow. Defaults
+    /// to `Shadowed` (no change to the stock look); set via
+    /// [`Theme::with_elevation`].
+    pub elevation: Elevation,
 }
 
 /// `(L, C)` per ramp step 1..=12.
@@ -354,7 +369,28 @@ impl Theme {
             accent_alpha: alpha_ramp(&accents, neutrals.step(1)),
             neutrals,
             accents,
+            radius: RadiusScale::default(),
+            elevation: Elevation::default(),
         }
+    }
+
+    /// Returns this theme with a different corner-radius family — the single
+    /// knob that un-rounds (or rounds) the whole kit, since widgets and
+    /// [`Surface`](crate::Surface) materials resolve their radii from it. Pairs
+    /// with [`RadiusScale::sharp`] / [`RadiusScale::soft`].
+    #[must_use]
+    pub fn with_radius(mut self, radius: RadiusScale) -> Self {
+        self.radius = radius;
+        self
+    }
+
+    /// Returns this theme with a different [`Elevation`] for resting cards —
+    /// [`Elevation::Flat`] trades the card shadow for a border + tone-step
+    /// (sharper, dark-mode-honest), reserving shadows for surfaces that float.
+    #[must_use]
+    pub fn with_elevation(mut self, elevation: Elevation) -> Self {
+        self.elevation = elevation;
+        self
     }
 
     /// A duotone theme: the neutral field takes its own hue with a chroma

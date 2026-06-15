@@ -16,9 +16,7 @@
 //! ]);
 //! ```
 
-use fenestra_core::{
-    Color, Cursor, Element, R_MD, Semantics, Theme, Transition, Weight, row, text,
-};
+use fenestra_core::{Color, Cursor, Element, Semantics, Theme, Transition, Weight, row, text};
 
 use super::ControlSize;
 
@@ -168,7 +166,7 @@ impl<Msg> From<Button<Msg>> for Element<Msg> {
             .h(b.size.height())
             .px(b.size.padding_x())
             .gap(b.size.gap())
-            .rounded(R_MD)
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shrink0()
             .children([label])
             .transition(Transition::colors())
@@ -274,7 +272,7 @@ impl<Msg> From<IconButton<Msg>> for Element<Msg> {
             .justify_center()
             .w(side)
             .h(side)
-            .rounded(R_MD)
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shrink0()
             .children([icon])
             .transition(Transition::colors())
