@@ -1,14 +1,19 @@
 # Looks
 
 A *Look* is a complete design language — theme and typefaces bundled
-into one value, applied in one call. The same app, five voices, from
-the `fenestra-looks` crate:
+into one value, applied in one call. The same app, six voices, from
+the `fenestra-looks` crate — enumerate them with `fenestra_looks::all(mode)`
+for a picker or gallery:
 
 - **product** — the stock voice: Inter, neutral surfaces, blue accent.
 - **editorial** — print energy: Playfair Display headlines over a deep
   duotone field (the poster's language, packaged).
 - **terminal** — instrument panel: JetBrains Mono everywhere, phosphor
   accent, built for dense tools.
+- **console** — observability console: a cool-slate field under one
+  electric-lime accent, sans body with mono numerals, and sharp + flat
+  chrome (`RadiusScale::sharp()` + `Elevation::Flat`) — the minimalist
+  "tech" voice, distinct from terminal's all-mono phosphor.
 - **warm-editorial** — warm paper and ink: a cream-and-terracotta field
   *derived* (`Theme::derive`) with Playfair serif prose under sans chrome.
 - **playful** — a soft pastel canvas with a saturated magenta accent, for

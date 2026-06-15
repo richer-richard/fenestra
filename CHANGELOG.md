@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.27.0 — unreleased
+
+Beautiful by default — the design system advertises its range up front: a
+curated non-blue Look, and one-knob radius and elevation that the whole kit
+reads.
+
+### Added
+
+- **`Theme::radius` (`RadiusScale`) + `Theme::with_radius`**: a corner-radius
+  family the entire kit resolves from — buttons, inputs, selects, data tables,
+  cards, menus, modals, tooltips, and concentric menu items. `RadiusScale::sharp()`
+  (1–4px, crisp tech chrome) and `RadiusScale::soft()` join `from_base`; the
+  default reproduces `R_SM`…`R_XL` exactly, so the stock look is unchanged.
+- **`Theme::elevation` (`Elevation::{Shadowed, Flat}`) + `Theme::with_elevation`**:
+  `Flat` separates resting `Card`/`Raised` surfaces with a border + surface
+  tone-step instead of a shadow (dark-mode-honest, sharper); floating roles keep
+  their shadow. Default `Shadowed`.
+- **`console` Look** in `fenestra-looks` (and `all()`): a cool-slate + electric-
+  lime, sans-body, sharp + flat "observability console" voice — APCA-passing,
+  golden-locked.
+- **Per-side borders**: `border_top/right/bottom/left(width, color)` on `Style`
+  and `Element` (an `EdgeBorders` field) — straight hairline edges for ruled
+  layouts, with no manual divider children. Default none, so goldens are
+  unchanged.
+
+### Changed
+
+- **`effects::mesh` is ordered-dithered** (4×4 Bayer, ±0.5 LSB) before 8-bit
+  output, so smooth gradient ramps don't band without a grain overlay.
+- **Editorial type guidance**: `FamilyRole::Display`/`Serif` and the editorial
+  Looks now document that Didone display faces (Playfair) are headline-only and
+  body prose wants a *text* serif at ≥20px (or the sans).
+
+### Decided
+
+- See ARCHITECTURE.md "0.27: beautiful by default" — radius/elevation as theme
+  knobs the kit reads (defaults preserve every golden); per-side borders as
+  painter strokes (no layout change); mesh dither always-on. Deferred with
+  rationale: variable-font `opsz` (needs variation-axis plumbing through the
+  font stack), true multi-line drop-caps (need text-exclusion layout — raised
+  initials already work via `rich_text` spans), and vendoring a text-optical
+  serif asset.
+
 ## 0.26.0 — 2026-06-14
 
 Generated effect fields — the "bespoke" end of the design system as

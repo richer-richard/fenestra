@@ -216,9 +216,17 @@ pub enum FamilyRole {
     /// SF Mono / Cascadia Code / JetBrains Mono / monospace fallback list.
     Mono,
     /// A display face registered via `Fonts::register` (falls back to Sans
-    /// until one is registered). Editorial headlines.
+    /// until one is registered). Editorial headlines. High-contrast "display"
+    /// cuts — Playfair and other Didones — are drawn for large sizes; their
+    /// thin strokes shimmer or drop out below ~24px, so keep this role to
+    /// headings and decks and set body text in [`Sans`](Self::Sans) or a
+    /// *text* [`Serif`](Self::Serif).
     Display,
-    /// A serif face registered via `Fonts::register` (falls back to Sans).
+    /// A serif face registered via `Fonts::register` (falls back to Sans). For
+    /// reading prose register a *text*-optical serif here and keep runs at
+    /// ≥20px with generous leading; a Didone *display* face (e.g. Playfair)
+    /// works as a large pull-quote but bands below ~18–20px, so it belongs
+    /// under [`Display`](Self::Display), not as small body text.
     Serif,
 }
 

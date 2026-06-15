@@ -69,8 +69,11 @@ pub fn product(mode: Mode) -> Look {
     }
 }
 
-/// Print energy: Playfair Display headlines (Display + Serif roles)
-/// over the deep-green duotone field the poster proved.
+/// Print energy: Playfair Display headlines (Display + Serif roles) over the
+/// deep-green duotone field the poster proved. Playfair is a *display* cut —
+/// reach for it on headlines, decks, and large pull-quotes (≥~24px) and keep
+/// body text on the sans, so its thin Didone strokes never shimmer at reading
+/// sizes.
 pub fn editorial(mode: Mode) -> Look {
     Look {
         name: "editorial",
@@ -106,8 +109,9 @@ pub fn terminal(mode: Mode) -> Look {
 /// under sans chrome. The palette is *derived* — a warm neutral field (hue 80,
 /// a touch off gray) and a terracotta accent (hue 40) at crisp contrast — not
 /// hand-placed, so light and dark stay coherent. Apps set prose runs to
-/// [`FamilyRole::Serif`] and keep controls on the sans default; elevation reads
-/// as borders more than shadows on paper.
+/// [`FamilyRole::Serif`] and keep controls on the sans default; serif prose
+/// reads best at ≥20px with open leading, while smaller labels stay sans.
+/// Elevation reads as borders more than shadows on paper.
 pub fn warm_editorial(mode: Mode) -> Look {
     Look {
         name: "warm-editorial",

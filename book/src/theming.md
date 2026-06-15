@@ -43,9 +43,15 @@ exactly — and every contrast level still clears the APCA floors, so derivation
 never ships an illegible theme. Recipes carry it too:
 `{"mode":"light","derive":{"base_hue":80,"base_chroma":2.5,"accent_hue":40,"contrast":"high"}}`.
 
-A matching corner-radius family comes from one knob:
+A matching corner-radius family comes from one knob. `Theme::radius` is a
+`RadiusScale` the whole kit reads — buttons, inputs, selects, cards, menus,
+modals, tooltips, even concentric menu items resolve their corners from it — so
+`theme.with_radius(scale)` re-rounds (or un-rounds) everything at once.
 `RadiusScale::from_base(8.0)` yields `{sm, md, lg, xl}` at fenestra's ratios
-(0.6 / 1.0 / 1.4 / 2.0 ×); the default base (10) reproduces `R_SM`…`R_XL`.
+(0.6 / 1.0 / 1.4 / 2.0 ×); the default base (10) reproduces `R_SM`…`R_XL`
+exactly (the stock look is unchanged), `RadiusScale::sharp()` (1–4px) gives
+crisp near-square tech chrome, and `RadiusScale::soft()` a rounder, friendlier
+feel. Pills and avatars (`R_FULL`) stay round regardless.
 
 ## The 12-step scale
 
@@ -139,6 +145,18 @@ band hugging the corner radius (the "ring, not border" look) — rendered as a
 zero-blur spread shadow, so unlike `.border(..)` (an edge stroke) it never
 covers content and recolors with zero layout cost. Reach for it for selection
 and focus rings and sub-pixel hairlines; it stacks and composes with shadows.
+
+How a resting card separates is a knob too: `Theme::elevation` is `Shadowed`
+(the stock subtle card shadow) or `Flat` — `theme.with_elevation(Elevation::Flat)`
+drops the shadow on resting `Card`/`Raised` surfaces in favor of their border
+and surface tone-step. That's sharper, and the honest choice in dark mode where
+shadows barely register; floating roles (menus, popovers, modals, tooltips)
+always keep their shadow. The `console` Look ships `Flat`.
+
+Borders resolve per edge, too: alongside the uniform `.border(w, color)`,
+`.border_top/right/bottom/left(w, color)` draw straight hairline edges — a
+header's bottom rule, a left accent rail, a ruled table row — with no manual
+1px divider child.
 
 ## Typography
 

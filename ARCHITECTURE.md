@@ -1554,3 +1554,51 @@ and `grain` (seeded film noise).
   transparent twin (no new primitive needed) and is documented as such. A live
   backdrop/refraction shader remains out of scope for the current renderer (see
   0.22).
+
+## 0.27: beautiful by default (radius + elevation knobs, console look)
+
+The 0.15–0.26 work proved fenestra *can* render web-grade sharp/minimal and
+editorial UIs; a side-by-side study against best-effort HTML/CSS showed the
+"template-ish" feel came only from the stock *defaults* (blue accent, uniform
+medium radius, shadowed flat cards), not from any missing capability. 0.27 makes
+the range discoverable and switchable from one knob each, rather than something
+a user has to re-derive at every call site.
+
+- **Radius is a theme knob the kit reads.** `Theme::radius: RadiusScale` (with
+  `with_radius`); widgets and `Surface` materials resolve their corners from it
+  (`Surface::radius_px`, and the controls' `.rounded` moved into `themed`
+  closures reading `t.radius`). The default `RadiusScale::default()` is
+  `from_base(R_MD)`, which equals `R_SM`…`R_XL` to the bit — so **every existing
+  golden is unchanged** and `sharp()`/`soft()` are pure opt-in. Pills/avatars
+  stay `R_FULL` (a square avatar is wrong, not sharp).
+- **Elevation is a theme knob.** `Theme::elevation: Elevation` (`Shadowed` |
+  `Flat`). `Flat` clears the shadow on resting `Card`/`Raised` at the two surface
+  resolution sites (`Element::surface`, `Theme::surface_style`); floating roles
+  keep theirs. Default `Shadowed` → no golden change. Rationale: a shadow on a
+  same-plane card is a template tell, and in dark mode shadows barely register —
+  border + tone-step is the honest separator.
+- **`console` Look** packages the study's winning sharp/minimal direction
+  (cool-slate `derive` + lime accent + `sharp()` + `Flat`), enumerable via
+  `all()`. The stock `product` blue default is deliberately kept (back-compat);
+  the curated Looks are how a non-blue identity is one call away.
+- **Per-side borders** (`EdgeBorders`, `border_top/right/bottom/left`) paint as
+  straight snapped edge strokes *after* the uniform border. Borders are a
+  centered stroke that does not affect layout, so this needed no taffy change;
+  square corners only (the uniform `.border` remains for rounded full edges).
+- **Mesh dither.** `effects::mesh` applies a 4×4 Bayer ordered dither (±0.5 LSB)
+  before 8-bit quantization — deterministic, within snapshot tolerance, so the
+  field is clean standalone without leaning on a `grain` overlay.
+
+- **Deferred, with rationale (recorded so it isn't rediscovered):**
+  - *Variable-font `opsz`.* The font stack (`Fonts` → text style → parley) has no
+    variation-axis plumbing; exposing optical sizing means threading
+    `VariationSetting`s through registration and shaping. Worth doing, but a
+    feature in its own right, not a 0.27 add. Display faces remain static masters.
+  - *True multi-line drop-cap.* Needs text-exclusion / float layout (wrap body
+    around a tall initial), which parley does not expose. A **raised initial**
+    (oversized first `span`) already works today via `rich_text`, and is the
+    documented pattern; the floating version waits on exclusion support.
+  - *Bundled text-optical serif.* Playfair is display-only; pairing a text serif
+    (Fraunces/Tiempos-class) is most valuable alongside `opsz`, and is an asset +
+    OFL-vendoring decision. 0.27 ships the *guidance* (use a text serif or the
+    sans for body) rather than a new font binary.
