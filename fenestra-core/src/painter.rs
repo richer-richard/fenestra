@@ -9,7 +9,7 @@ use peniko::{Color, ColorStop, ColorStops, Fill, Gradient};
 use vello::Scene;
 
 use crate::element::PathData;
-use crate::style::{CornerRadius, Paint, Shadow, Style};
+use crate::style::{Border, CornerRadius, Paint, Shadow, Style};
 use crate::tokens::FOCUS_RING;
 
 /// CSS box-shadow semantics: the gaussian standard deviation is half the
@@ -387,6 +387,34 @@ pub(crate) fn push_box(
             None,
             &corner_path(inset_rect, corners, style.corner_smoothing),
         );
+    }
+
+    // Per-side borders: straight hairline strokes on each present edge (square
+    // corners — use the uniform `border` for a rounded full edge). Painted after
+    // the uniform border so an explicit edge sits atop it.
+    let sb = style.side_borders;
+    if sb.top.or(sb.right).or(sb.bottom).or(sb.left).is_some() {
+        let r = Rect::new(
+            snap(rect.x0, scale),
+            snap(rect.y0, scale),
+            snap(rect.x1, scale),
+            snap(rect.y1, scale),
+        );
+        let mut stroke_edge = |edge: Option<Border>, p0: Point, p1: Point| {
+            if let Some(edge) = edge
+                && edge.width > 0.0
+            {
+                let w = (f64::from(edge.width) * scale).round().max(1.0) / scale;
+                let mut line = BezPath::new();
+                line.move_to(p0);
+                line.line_to(p1);
+                scene.stroke(&Stroke::new(w), Affine::IDENTITY, edge.color, None, &line);
+            }
+        };
+        stroke_edge(sb.top, Point::new(r.x0, r.y0), Point::new(r.x1, r.y0));
+        stroke_edge(sb.bottom, Point::new(r.x0, r.y1), Point::new(r.x1, r.y1));
+        stroke_edge(sb.left, Point::new(r.x0, r.y0), Point::new(r.x0, r.y1));
+        stroke_edge(sb.right, Point::new(r.x1, r.y0), Point::new(r.x1, r.y1));
     }
 
     if let Some(highlight) = style.highlight_top

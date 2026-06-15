@@ -1080,6 +1080,35 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// A border stroke on just the top edge — a straight hairline (square
+    /// corners) for ruled layouts, no manual divider child needed. See
+    /// [`Style::border_top`](crate::Style::border_top).
+    pub fn border_top(mut self, width: f32, color: Color) -> Self {
+        self.style = self.style.border_top(width, color);
+        self
+    }
+
+    /// A border stroke on just the right edge. See
+    /// [`Style::border_right`](crate::Style::border_right).
+    pub fn border_right(mut self, width: f32, color: Color) -> Self {
+        self.style = self.style.border_right(width, color);
+        self
+    }
+
+    /// A border stroke on just the bottom edge — a header/row rule. See
+    /// [`Style::border_bottom`](crate::Style::border_bottom).
+    pub fn border_bottom(mut self, width: f32, color: Color) -> Self {
+        self.style = self.style.border_bottom(width, color);
+        self
+    }
+
+    /// A border stroke on just the left edge — an accent rail. See
+    /// [`Style::border_left`](crate::Style::border_left).
+    pub fn border_left(mut self, width: f32, color: Color) -> Self {
+        self.style = self.style.border_left(width, color);
+        self
+    }
+
     /// A crisp `width`-px ring just outside the box, hugging the corner radius
     /// (see [`Style::ring`](crate::Style::ring)) — the "ring, not border" look:
     /// outside the element, zero layout cost, ideal for selection rings and

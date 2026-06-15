@@ -334,13 +334,32 @@ pub fn radial_gradient(
     })
 }
 
-/// A uniform border: width and color (v1; per-side borders are out of scope).
+/// A border stroke: a width and color. Apply it to every edge with
+/// [`Style::border`], or to a single edge with [`Style::border_top`] and
+/// friends (carried per-edge by [`EdgeBorders`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Border {
     /// Stroke width in logical pixels.
     pub width: f32,
     /// Stroke color.
     pub color: Color,
+}
+
+/// Per-edge border strokes (top/right/bottom/left), each optional and
+/// independent of the uniform [`Border`]. Drawn as straight hairlines with
+/// square corners — for a rounded full edge use [`Style::border`]. Lets
+/// hairline-divided layouts (a header's bottom rule, a left accent rail, a
+/// table's ruled rows) skip manual 1px divider children.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct EdgeBorders {
+    /// Top edge stroke.
+    pub top: Option<Border>,
+    /// Right edge stroke.
+    pub right: Option<Border>,
+    /// Bottom edge stroke.
+    pub bottom: Option<Border>,
+    /// Left edge stroke.
+    pub left: Option<Border>,
 }
 
 /// Per-corner radii in logical pixels.
@@ -603,6 +622,8 @@ pub struct Style {
     pub fill: Option<Paint>,
     /// Uniform border.
     pub border: Option<Border>,
+    /// Per-edge border strokes, independent of the uniform [`border`](Self::border).
+    pub side_borders: EdgeBorders,
     /// Per-corner radii.
     pub corner_radius: CornerRadius,
     /// Continuous-curvature corner smoothing, `0.0..=1.0` (Figma's "corner
@@ -675,6 +696,7 @@ impl Default for Style {
             overflow_y: Overflow::Visible,
             fill: None,
             border: None,
+            side_borders: EdgeBorders::default(),
             corner_radius: CornerRadius::default(),
             corner_smoothing: 0.0,
             shadow_token: None,
@@ -1170,6 +1192,30 @@ impl Style {
     /// Uniform border (a stroke on the element's edge).
     pub fn border(mut self, width: f32, color: Color) -> Self {
         self.border = Some(Border { width, color });
+        self
+    }
+
+    /// A border stroke on just the top edge (straight hairline, square corners).
+    pub fn border_top(mut self, width: f32, color: Color) -> Self {
+        self.side_borders.top = Some(Border { width, color });
+        self
+    }
+
+    /// A border stroke on just the right edge.
+    pub fn border_right(mut self, width: f32, color: Color) -> Self {
+        self.side_borders.right = Some(Border { width, color });
+        self
+    }
+
+    /// A border stroke on just the bottom edge.
+    pub fn border_bottom(mut self, width: f32, color: Color) -> Self {
+        self.side_borders.bottom = Some(Border { width, color });
+        self
+    }
+
+    /// A border stroke on just the left edge.
+    pub fn border_left(mut self, width: f32, color: Color) -> Self {
+        self.side_borders.left = Some(Border { width, color });
         self
     }
 

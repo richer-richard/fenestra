@@ -43,10 +43,24 @@ fn unit(i: usize, n: usize) -> f32 {
     (i as f32 + 0.5) / n as f32
 }
 
+/// 4×4 Bayer ordered-dither matrix (values 0..16), row-major.
+const BAYER4: [u8; 16] = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+
+/// The ±0.5-LSB ordered-dither offset (in `0.0..=1.0` channel units) for pixel
+/// `(px, py)`: centers the Bayer cell so a smooth ramp straddles the 8-bit
+/// rounding boundary instead of banding into flat steps. Deterministic, so a
+/// dithered field still golden-locks.
+fn dither_bias(px: usize, py: usize) -> f32 {
+    let cell = f32::from(BAYER4[(py % 4) * 4 + (px % 4)]);
+    ((cell + 0.5) / 16.0 - 0.5) / 255.0
+}
+
 /// A `width`×`height` RGBA8 mesh-gradient field: every pixel is an
 /// inverse-distance-weighted blend of `points`, blended in OKLab (the
 /// perceptual Cartesian space — no hue-wraparound, no gray dead-zone through
-/// the middle), then gamut-mapped to sRGB. The Stripe "liquid light" look as a
+/// the middle), then gamut-mapped to sRGB and ordered-dithered (±0.5 LSB, a 4×4
+/// Bayer pattern) so smooth ramps don't band on 8-bit output — no grain overlay
+/// is required to hide quantization. The Stripe "liquid light" look as a
 /// static, deterministic, token-colored texture. Opaque; an empty `points`
 /// yields a transparent field. Hand the buffer to
 /// [`image_rgba8`](crate::image_rgba8).
@@ -82,9 +96,10 @@ pub fn mesh(width: u32, height: u32, points: &[MeshPoint]) -> Vec<u8> {
             let color = crate::theme::oklch(l, (a * a + b * b).sqrt(), b.atan2(a).to_degrees());
             let [r, g, bl, _] = color.components;
             let i = (py * w + px) * 4;
-            out[i] = channel(r);
-            out[i + 1] = channel(g);
-            out[i + 2] = channel(bl);
+            let bias = dither_bias(px, py);
+            out[i] = channel(r + bias);
+            out[i + 1] = channel(g + bias);
+            out[i + 2] = channel(bl + bias);
             out[i + 3] = 255;
         }
     }
