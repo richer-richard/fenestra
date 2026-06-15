@@ -12,7 +12,7 @@ the guided tour.
 
 | Light | Dark |
 | --- | --- |
-| ![dashboard, light theme](gallery/dashboard_light.png) | ![dashboard, dark theme](gallery/dashboard_dark.png) |
+| ![dashboard, light theme](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/dashboard_light.png) | ![dashboard, dark theme](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/dashboard_dark.png) |
 
 No browser. No webview. No HTML or CSS parser. fenestra draws everything
 itself with [vello] on wgpu, lays out with [taffy] (flexbox + grid), shapes
@@ -118,8 +118,8 @@ Lucide icon subset — every state, both themes:
 
 | | |
 | --- | --- |
-| ![controls, light](gallery/controls_light.png) | ![controls, dark](gallery/controls_dark.png) |
-| ![display widgets, light](gallery/display_light.png) | ![display widgets, dark](gallery/display_dark.png) |
+| ![controls, light](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/controls_light.png) | ![controls, dark](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/controls_dark.png) |
+| ![display widgets, light](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/display_light.png) | ![display widgets, dark](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/display_dark.png) |
 
 Regenerate this corpus any time with `cargo run --example gallery` — it
 renders headlessly.
@@ -141,13 +141,17 @@ frame-cost numbers (a full screen rebuilds, lays out, and paints in ~0.3 ms;
 
 ## Design range
 
-The same framework, the same tokens — a different design language. Custom
-display faces register under font roles (`Fonts::register`), free-form
-sizes and tracking come from the style builders, and `Theme::duotone`
-builds atmospheric fields instead of neutral grays. This poster is a
-fenestra element tree, rendered headlessly, golden-tested:
+The same framework, the same tokens — a different design language. The
+`fenestra-looks` crate bundles six ready voices (product, editorial, terminal,
+console, warm-editorial, playful — enumerate them with `all()`), and one knob
+re-skins the whole kit: `Theme::with_radius(RadiusScale::sharp())` for
+un-rounded tech chrome, `Theme::with_elevation(Elevation::Flat)` for
+border-not-shadow surfaces. Custom display faces register under font roles
+(`Fonts::register`), free-form sizes and tracking come from the style builders,
+and `Theme::duotone` builds atmospheric fields instead of neutral grays. This
+poster is a fenestra element tree, rendered headlessly, golden-tested:
 
-<p align="center"><img src="gallery/poster.png" width="520" alt="an editorial study-guide cover rendered by fenestra" /></p>
+<p align="center"><img src="https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/poster.png" width="520" alt="an editorial study-guide cover rendered by fenestra" /></p>
 
 ## Composition, commands, accessibility
 
