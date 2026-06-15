@@ -3,8 +3,13 @@
 
 use std::path::PathBuf;
 
-use fenestra_core::{App, Element, Key, KeyInput, SP4, Theme, col, text};
-use fenestra_kit::{button, gallery_controls, gallery_display, modal, select, text_input};
+use fenestra_core::{
+    App, BaseField, Contrast, Element, Elevation, Key, KeyInput, Mode, RadiusScale, SP4, Theme,
+    col, text,
+};
+use fenestra_kit::{
+    button, console_showcase, gallery_controls, gallery_display, modal, select, text_input,
+};
 use fenestra_shell::{SyntheticEvent, render_app, render_element, testing::assert_png_snapshot};
 
 fn snapshot_dir() -> PathBuf {
@@ -37,6 +42,35 @@ fn gallery_display_dark() {
     let theme = Theme::dark();
     let image = render_element(gallery_display(&theme), &theme, (760, 1190));
     assert_png_snapshot(snapshot_dir(), "gallery_display_dark", &image);
+}
+
+/// The slate + lime, sharp + flat "console" look (the design-range showcase).
+fn console_theme(mode: Mode) -> Theme {
+    Theme::derive(
+        BaseField {
+            hue: 250.0,
+            chroma: 1.5,
+        },
+        130.0,
+        Contrast::High,
+        mode,
+    )
+    .with_radius(RadiusScale::sharp())
+    .with_elevation(Elevation::Flat)
+}
+
+#[test]
+fn console_showcase_dark() {
+    let theme = console_theme(Mode::Dark);
+    let image = render_element(console_showcase(&theme), &theme, (1200, 760));
+    assert_png_snapshot(snapshot_dir(), "console_showcase_dark", &image);
+}
+
+#[test]
+fn console_showcase_light() {
+    let theme = console_theme(Mode::Light);
+    let image = render_element(console_showcase(&theme), &theme, (1200, 760));
+    assert_png_snapshot(snapshot_dir(), "console_showcase_light", &image);
 }
 
 // ----------------------------------------------------------------- select

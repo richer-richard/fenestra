@@ -2,7 +2,7 @@
 //! visual regression corpus, the headless `gallery` example, and README art.
 
 use fenestra_core::{
-    Element, SP2, SP3, SP4, SP6, TextSize, Theme, Weight, col, divider, row, text,
+    Element, FamilyRole, SP2, SP3, SP4, SP6, TextSize, Theme, Weight, col, div, divider, row, text,
 };
 
 use crate::{
@@ -170,4 +170,262 @@ pub fn gallery_display(theme: &Theme) -> Element<()> {
 
 fn svec<const N: usize>(items: [&str; N]) -> Vec<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
+}
+
+/// A sharp / minimal "observability console" — the design-range counterpart to
+/// the soft default dashboard: 0px corners, hairline rules instead of cards, a
+/// single accent used like punctuation, and mono tabular numerals. Pair it with
+/// a slate + lime theme at `RadiusScale::sharp()` + `Elevation::Flat` (the
+/// `console` look from `fenestra-looks`); every color routes through theme
+/// tokens, so it recolors with the theme.
+pub fn console_showcase(theme: &Theme) -> Element<()> {
+    let hair_h = |theme: &Theme| div::<()>().h(1.0).w_full().bg(theme.border_subtle);
+    let vline = |theme: &Theme| div::<()>().w(1.0).h_full().bg(theme.border_subtle);
+
+    // Top bar: wordmark (sans) left, mono meta right; separated by tone, not box.
+    let meta = |label: &str, val: &str| -> Element<()> {
+        row().items_center().gap(6.0).children([
+            text(label.to_owned())
+                .family(FamilyRole::Mono)
+                .size_px(11.5)
+                .tracking(0.04)
+                .color(theme.text_subtle),
+            text(val.to_owned())
+                .family(FamilyRole::Mono)
+                .size_px(11.5)
+                .tracking(0.04)
+                .color(theme.text_muted),
+        ])
+    };
+    let top = row()
+        .h(56.0)
+        .items_center()
+        .justify_between()
+        .px(24.0)
+        .bg(theme.surface)
+        .children([
+            row().items_center().gap(10.0).children([
+                div().w(7.0).h(7.0).bg(theme.accent),
+                text("fenestra").weight(Weight::Semibold).size(TextSize::Sm),
+                text("· console")
+                    .size(TextSize::Sm)
+                    .color(theme.text_subtle),
+            ]),
+            row().items_center().gap(22.0).children([
+                meta("region", "us-east-1"),
+                meta("build", "0bffe11"),
+                row().items_center().gap(6.0).children([
+                    div().w(6.0).h(6.0).rounded_full().bg(theme.accent),
+                    text("live")
+                        .family(FamilyRole::Mono)
+                        .size_px(11.5)
+                        .color(theme.text_muted),
+                ]),
+            ]),
+        ]);
+
+    // Nav: text-only, active = 2px left accent bar (no pill).
+    let eyebrow = |s: &str| -> Element<()> {
+        col().pl(24.0).pt(18.0).pb(9.0).child(
+            text(s.to_owned())
+                .family(FamilyRole::Mono)
+                .size_px(10.5)
+                .tracking(0.16)
+                .color(theme.text_subtle),
+        )
+    };
+    let nav_item = |label: &str, active: bool| -> Element<()> {
+        row().h(34.0).items_center().children([
+            div().w(2.0).h(18.0).bg(if active {
+                theme.accent
+            } else {
+                theme.accent.with_alpha(0.0)
+            }),
+            col()
+                .pl(22.0)
+                .child(text(label.to_owned()).size(TextSize::Sm).color(if active {
+                    theme.text
+                } else {
+                    theme.text_muted
+                })),
+        ])
+    };
+    let nav = col().w(240.0).h_full().pb(22.0).children([
+        eyebrow("OBSERVE"),
+        nav_item("Signals", true),
+        nav_item("Traces", false),
+        nav_item("Logs", false),
+        eyebrow("OPERATE"),
+        nav_item("Schedules", false),
+        nav_item("Policies", false),
+    ]);
+
+    // Stat strip: one bordered rectangle, divided by vertical hairlines.
+    let stat = |label: &str, num: &str, unit: &str, delta: &str, up_good: bool| -> Element<()> {
+        col().grow().px(20.0).py(18.0).gap(10.0).children([
+            text(label.to_owned())
+                .family(FamilyRole::Mono)
+                .size_px(11.0)
+                .tracking(0.08)
+                .color(theme.text_subtle),
+            row().items_baseline().children([
+                text(num.to_owned())
+                    .family(FamilyRole::Mono)
+                    .size_px(30.0)
+                    .tracking(-0.01)
+                    .color(theme.text),
+                text(unit.to_owned())
+                    .family(FamilyRole::Mono)
+                    .size_px(14.0)
+                    .color(theme.text_subtle),
+            ]),
+            text(delta.to_owned())
+                .family(FamilyRole::Mono)
+                .size_px(11.5)
+                .color(if up_good {
+                    theme.success.solid
+                } else {
+                    theme.danger.solid
+                }),
+        ])
+    };
+    let stats = row().border(1.0, theme.border_subtle).children([
+        stat("REQUESTS", "48,210", "", "+12.5%", true),
+        vline(theme),
+        stat("ERROR RATE", "0.24", "%", "+0.03%", false),
+        vline(theme),
+        stat("P99 LATENCY", "128", "ms", "-6.0%", true),
+        vline(theme),
+        stat("SATURATION", "61", "%", "-2.0%", true),
+    ]);
+
+    // Services table.
+    let th = |s: &str, w: f32, right: bool| -> Element<()> {
+        let t = text(s.to_owned())
+            .family(FamilyRole::Mono)
+            .size_px(10.5)
+            .tracking(0.1)
+            .color(theme.text_subtle);
+        if right {
+            row().w(w).justify_end().child(t)
+        } else {
+            row().w(w).child(t)
+        }
+    };
+    let pill = |label: &str, ok: bool| -> Element<()> {
+        let c = if ok {
+            theme.success.solid
+        } else {
+            theme.warning.solid
+        };
+        row()
+            .px(8.0)
+            .h(22.0)
+            .items_center()
+            .rounded(2.0)
+            .border(1.0, c.with_alpha(0.45))
+            .child(
+                text(label.to_owned())
+                    .family(FamilyRole::Mono)
+                    .size_px(11.0)
+                    .color(c),
+            )
+    };
+    let cell_txt = |s: &str, w: f32, mono: bool, strong: bool| -> Element<()> {
+        let mut t = text(s.to_owned()).size_px(13.5).color(if strong {
+            theme.text
+        } else {
+            theme.text_muted
+        });
+        if mono {
+            t = t.family(FamilyRole::Mono).size_px(13.0);
+        }
+        row().w(w).child(t)
+    };
+    let numcell = |s: &str, w: f32| -> Element<()> {
+        row().w(w).justify_end().child(
+            text(s.to_owned())
+                .family(FamilyRole::Mono)
+                .size_px(13.0)
+                .color(theme.text),
+        )
+    };
+    let trow =
+        |svc: &str, region: &str, label: &str, ok: bool, up: &str, p99: &str| -> Element<()> {
+            col().children([
+                row().h(46.0).items_center().children([
+                    cell_txt(svc, 220.0, true, true),
+                    cell_txt(region, 170.0, false, false),
+                    row().w(160.0).child(pill(label, ok)),
+                    numcell(up, 150.0),
+                    numcell(p99, 90.0),
+                ]),
+                div().h(1.0).w_full().bg(theme.border_subtle),
+            ])
+        };
+    let table = col().pt(14.0).children([
+        col().children([
+            row().h(30.0).items_center().children([
+                th("SERVICE", 220.0, false),
+                th("REGION", 170.0, false),
+                th("STATUS", 160.0, false),
+                th("UPTIME", 150.0, true),
+                th("P99", 90.0, true),
+            ]),
+            div().h(1.0).w_full().bg(theme.border),
+        ]),
+        trow(
+            "api-server",
+            "us-east-1",
+            "healthy",
+            true,
+            "99.99%",
+            "112ms",
+        ),
+        trow(
+            "worker-pool",
+            "us-east-1",
+            "degraded",
+            false,
+            "97.20%",
+            "340ms",
+        ),
+        trow("edge-cache", "eu-west-2", "healthy", true, "99.95%", "38ms"),
+        trow("scheduler", "us-east-1", "healthy", true, "99.98%", "84ms"),
+    ]);
+
+    let section_head = row().pt(36.0).items_baseline().justify_between().children([
+        text("SERVICES")
+            .family(FamilyRole::Mono)
+            .size_px(12.0)
+            .tracking(0.1)
+            .weight(Weight::Semibold)
+            .color(theme.text_muted),
+        text("view all →")
+            .family(FamilyRole::Mono)
+            .size_px(12.0)
+            .color(theme.accent),
+    ]);
+
+    let main = col().grow().pt(34.0).px(40.0).children([
+        col().gap(6.0).children([
+            text("Signals")
+                .size_px(28.0)
+                .weight(Weight::Semibold)
+                .tracking(-0.02)
+                .color(theme.text),
+            text("Service health across the fleet — last 24 hours.")
+                .size(TextSize::Sm)
+                .color(theme.text_muted),
+        ]),
+        col().pt(30.0).child(stats),
+        section_head,
+        table,
+    ]);
+
+    col().w_full().h_full().bg(theme.bg).children([
+        top,
+        hair_h(theme),
+        row().grow().children([nav, vline(theme), main]),
+    ])
 }

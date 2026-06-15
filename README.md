@@ -146,12 +146,15 @@ The same framework, the same tokens — a different design language. The
 console, warm-editorial, playful — enumerate them with `all()`), and one knob
 re-skins the whole kit: `Theme::with_radius(RadiusScale::sharp())` for
 un-rounded tech chrome, `Theme::with_elevation(Elevation::Flat)` for
-border-not-shadow surfaces. Custom display faces register under font roles
-(`Fonts::register`), free-form sizes and tracking come from the style builders,
-and `Theme::duotone` builds atmospheric fields instead of neutral grays. This
-poster is a fenestra element tree, rendered headlessly, golden-tested:
+border-not-shadow surfaces, and `Theme::duotone` for atmospheric fields instead
+of neutral grays (custom display faces register under font roles via
+`Fonts::register`). The opposite end of the range from the soft default
+dashboard above — a sharp, hairline-ruled **console**: slate with a single lime
+accent and mono numerals, rendered headlessly and golden-tested.
 
-<p align="center"><img src="https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/poster.png" width="520" alt="an editorial study-guide cover rendered by fenestra" /></p>
+| Light | Dark |
+| --- | --- |
+| ![sharp console, light theme](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/console_light.png) | ![sharp console, dark theme](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/console_dark.png) |
 
 ## Composition, commands, accessibility
 

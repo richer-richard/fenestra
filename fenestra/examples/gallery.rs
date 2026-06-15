@@ -5,7 +5,7 @@
 //! `cargo run --example gallery`
 
 use fenestra::shell::render_element;
-use fenestra::{Mode, Theme};
+use fenestra::{BaseField, Contrast, Elevation, Mode, RadiusScale, Theme};
 
 fn main() {
     let out = std::path::Path::new("gallery");
@@ -23,6 +23,27 @@ fn main() {
             .save(out.join(format!("display_{suffix}.png")))
             .expect("write display");
 
-        println!("wrote gallery/controls_{suffix}.png and gallery/display_{suffix}.png");
+        // The sharp/minimal "console" look — design range beyond the soft default.
+        let console_theme = Theme::derive(
+            BaseField {
+                hue: 250.0,
+                chroma: 1.5,
+            },
+            130.0,
+            Contrast::High,
+            mode,
+        )
+        .with_radius(RadiusScale::sharp())
+        .with_elevation(Elevation::Flat);
+        let console = render_element(
+            fenestra::kit::console_showcase(&console_theme),
+            &console_theme,
+            (1200, 760),
+        );
+        console
+            .save(out.join(format!("console_{suffix}.png")))
+            .expect("write console");
+
+        println!("wrote gallery/{{controls,display,console}}_{suffix}.png");
     }
 }
