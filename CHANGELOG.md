@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.27.1 — 2026-06-16
+
+### Added
+
+- **`console_showcase`** (`fenestra-kit`): the sharp/minimal "observability
+  console" scene as a reusable, golden-tested showcase — slate + a single lime
+  accent, hairline rules instead of cards, mono tabular numerals. Rendered to
+  `gallery/console_{light,dark}.png` by the `gallery` example.
+
+### Changed
+
+- **README**: the Design-range section drops the "Year 8 / Evolution"
+  study-guide poster and features the sharp console (light + dark) as the
+  opposite end of the range from the soft default dashboard. (README image URLs
+  were made absolute in 0.27.0 so they render on crates.io.)
+
 ## 0.27.0 — 2026-06-15
 
 Beautiful by default — the design system advertises its range up front: a
