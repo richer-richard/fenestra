@@ -14,7 +14,7 @@ use parley::{
 use peniko::{Color, Fill};
 use vello::Scene;
 
-use crate::style::{FontFeatures, TextAlign, TextStyle, TextWrap};
+use crate::style::{FontFeatures, OpticalSizing, TextAlign, TextStyle, TextWrap};
 use crate::theme::Theme;
 use crate::tokens::{FamilyRole, tracking_em};
 
@@ -161,6 +161,11 @@ pub(crate) struct ResolvedText {
     pub features: FontFeatures,
     /// Line-breaking refinement (greedy / balance / pretty).
     pub wrap: TextWrap,
+    /// Optical sizing: drives a variable font's `opsz` axis (no-op on static
+    /// faces). The base value applies at [`px`](Self::px); rich spans that
+    /// override the size re-track `opsz` to their own size under
+    /// [`OpticalSizing::Auto`].
+    pub optical: OpticalSizing,
 }
 
 /// Resolves the text style group against the theme and size tokens.
@@ -187,7 +192,16 @@ pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
         color: ts.color.unwrap_or(theme.text),
         features: ts.features,
         wrap: ts.wrap,
+        optical: ts.optical,
     }
+}
+
+/// The CSS `font-variation-settings` source applying an explicit `opsz`
+/// (optical size) axis value, e.g. `"opsz" 16`. parley parses this grammar
+/// (`<string> <number>`); the float prints in its shortest form, so an
+/// integral value emits without a trailing `.0`.
+fn opsz_source(opsz: f32) -> String {
+    format!("\"opsz\" {opsz}")
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -205,6 +219,10 @@ struct LayoutKey {
     /// Line-breaking refinement; different modes search to different wrap
     /// widths, so the result must not be cached across modes.
     wrap: TextWrap,
+    /// Resolved `opsz` axis value bits (variable-font optical sizing);
+    /// `u32::MAX` = no axis set. `f32::to_bits` of a finite non-negative
+    /// value is always `< u32::MAX`, so it never collides with the sentinel.
+    opsz: u32,
     /// Quantized max advance (quarter-px buckets); `u32::MAX` = unbounded.
     width_bucket: u32,
 }
@@ -222,6 +240,10 @@ impl LayoutKey {
             max_lines: style.max_lines,
             features: style.features,
             wrap: style.wrap,
+            opsz: match style.optical.opsz_at(style.px) {
+                Some(v) => v.to_bits(),
+                None => u32::MAX,
+            },
             #[expect(clippy::cast_sign_loss, reason = "advances are non-negative")]
             width_bucket: match max_advance {
                 Some(w) => (w.max(0.0) * 4.0).round() as u32,
@@ -392,6 +414,14 @@ impl Fonts {
                 std::borrow::Cow::Owned(s),
             )));
         }
+        // Optical sizing: drive the `opsz` axis (variable faces only; a no-op
+        // for the embedded static fonts). Applied after weight, whose `wght`
+        // axis fontique already sets via the matched font's synthesis.
+        if let Some(opsz) = style.optical.opsz_at(style.px) {
+            builder.push_default(StyleProperty::FontVariations(
+                parley::FontVariations::Source(std::borrow::Cow::Owned(opsz_source(opsz))),
+            ));
+        }
         let mut layout = builder.build(text);
         layout.break_all_lines(max_advance);
         apply_align(&mut layout, style.align);
@@ -503,6 +533,13 @@ impl Fonts {
                 std::borrow::Cow::Owned(s),
             )));
         }
+        // Base optical size at the paragraph's size; spans that override the
+        // size re-track `opsz` below (Auto only).
+        if let Some(opsz) = style.optical.opsz_at(style.px) {
+            builder.push_default(StyleProperty::FontVariations(
+                parley::FontVariations::Source(std::borrow::Cow::Owned(opsz_source(opsz))),
+            ));
+        }
         builder.push_default(StyleProperty::Brush(base_brush));
         let mut start = 0usize;
         for (i, span) in spans.iter().enumerate() {
@@ -516,6 +553,19 @@ impl Fonts {
             }
             if let Some(px) = span.size_px {
                 builder.push(StyleProperty::FontSize(px), range.clone());
+                // Under Auto, re-track this span's `opsz` to its own size so a
+                // large display span and small body span in one paragraph each
+                // get their right optical master.
+                if matches!(style.optical, OpticalSizing::Auto)
+                    && let Some(opsz) = style.optical.opsz_at(px)
+                {
+                    builder.push(
+                        StyleProperty::FontVariations(parley::FontVariations::Source(
+                            std::borrow::Cow::Owned(opsz_source(opsz)),
+                        )),
+                        range.clone(),
+                    );
+                }
             }
             if let Some(color) = span.color {
                 builder.push(
@@ -965,6 +1015,42 @@ mod tests {
         let off = rt_feat(|x| x.fractions = false);
         let on = rt_feat(|x| x.fractions = true);
         assert!(keys_differ(&off, &on));
+    }
+
+    #[test]
+    fn layout_key_differs_on_opsz() {
+        // Optical sizing is a shaping input, so it must be in the cache key
+        // (the 0.16 features-cache lesson): a different opsz value, or Default
+        // vs a set value, must never collide. The key hashes the *resolved*
+        // opsz, so Auto-at-16px and Fixed(16) coincide (same render, correct
+        // hit) while everything else is distinct.
+        use crate::style::OpticalSizing::{Auto, Default, Fixed};
+        let rt_opt = |o: crate::style::OpticalSizing| {
+            let mut s = rt(TextSize::Base); // 16px
+            s.optical = o;
+            s
+        };
+        let def = rt_opt(Default);
+        let auto = rt_opt(Auto); // opsz = 16
+        let fixed_big = rt_opt(Fixed(96.0));
+        let fixed_small = rt_opt(Fixed(12.0));
+        assert!(keys_differ(&def, &auto), "none vs 16");
+        assert!(keys_differ(&def, &fixed_big), "none vs 96");
+        assert!(keys_differ(&auto, &fixed_big), "16 vs 96");
+        assert!(keys_differ(&fixed_small, &fixed_big), "12 vs 96");
+        // Auto@16 and Fixed(16) resolve to the same opsz at the same px: a
+        // correct cache hit, not a collision bug.
+        assert!(
+            !keys_differ(&auto, &rt_opt(Fixed(16.0))),
+            "auto@16 == fixed(16)"
+        );
+    }
+
+    #[test]
+    fn opsz_source_formats_clean() {
+        assert_eq!(opsz_source(16.0), "\"opsz\" 16");
+        assert_eq!(opsz_source(48.0), "\"opsz\" 48");
+        assert_eq!(opsz_source(9.5), "\"opsz\" 9.5");
     }
 
     #[test]

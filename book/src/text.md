@@ -49,6 +49,25 @@ carries `tnum`/`pnum`/`frac`; a registered serif such as Playfair adds
 `onum`/`lnum`/`smcp`. The kit's `font_feature_specimen()` shows each one side by
 side against the font's default.
 
+## Optical sizing
+
+A *variable* font with an `opsz` axis carries several optical masters in one
+file: sturdier, lower-contrast cuts for small text and finer, higher-contrast
+cuts for large display sizes. `OpticalSizing` drives that axis:
+
+- `.optical_auto()` — the everyday choice (CSS `font-optical-sizing: auto`):
+  `opsz` tracks the rendered size, so one face reads right from a 14px caption
+  to a 64px headline.
+- `.optical(OpticalSizing::Fixed(n))` — pin one optical master at any size
+  (specimens, deliberate contrast).
+- The default (`OpticalSizing::Default`) sets no variation, so static faces —
+  the embedded Inter, JetBrains Mono — and all existing output are untouched.
+
+The `fenestra-looks` crate bundles **Fraunces**, a variable text serif with an
+`opsz` axis (the warm-editorial look's prose face); register your own variable
+faces with `Fonts::register`. The `opsz` value is the only thing that changes
+between the two specimens in the `optical_sizing` golden — same face, same size.
+
 ## Single-line input
 
 `text_input(&self.value).placeholder("Search…").on_input(Msg::Set).id("q")`

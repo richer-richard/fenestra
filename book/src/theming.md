@@ -196,8 +196,13 @@ One `Density` knob packs that grid tighter or looser:
 dense pro-tool UIs, `Spacious` loosens them, and `Comfortable` (the default) is
 the table above — byte-identical to before density existed. Density scales
 *spacing*, not *type*: the label font stays tied to the `ControlSize`, so text
-never shrinks below its legible size. `density_showcase` renders all three side
-by side.
+never shrinks below its legible size.
+
+The ControlSize-driven widgets take it directly —
+`button("Save").density(Density::Compact)`, and likewise `icon_button`,
+`text_input`, and `select` — so a form restyles by passing one value per
+control (fenestra has no style inheritance, so density is explicit per widget,
+not ambient). `density_showcase` renders all three side by side.
 
 ## Optical adjustments
 
@@ -207,6 +212,13 @@ area near a boundary. `fenestra_core::optical` carries the corrections:
 read as the same size; `overshoot(size)` applies it) and `centroid(vertices)`,
 the visual-mass center used to nudge an asymmetric shape — the play triangle
 shifted right off its bounding-box center so it sits centered in its circle.
+
+`path()` icons take these as builders: `.optical_overshoot()` scales a round or
+pointed glyph up so it matches square-edged neighbors, and `.optical_center()`
+seats an asymmetric glyph on its centroid (the play-button nudge). Both are
+opt-in per icon — fenestra has no style inheritance and auto-detecting which
+icons need correcting would silently shift every existing one — so an
+uncorrected path renders byte-identically.
 
 ## Beyond the SaaS look
 

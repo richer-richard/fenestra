@@ -15,7 +15,11 @@ for a picker or gallery:
   chrome (`RadiusScale::sharp()` + `Elevation::Flat`) — the minimalist
   "tech" voice, distinct from terminal's all-mono phosphor.
 - **warm-editorial** — warm paper and ink: a cream-and-terracotta field
-  *derived* (`Theme::derive`) with Playfair serif prose under sans chrome.
+  *derived* (`Theme::derive`) with **Fraunces** text-serif prose (a variable
+  face with an `opsz` optical-sizing axis) under sans chrome, and **Playfair
+  Display** kept for large display headlines — a proper display + text serif
+  pairing. Set prose runs to `FamilyRole::Serif` and pair with
+  `OpticalSizing::Auto` so the serif's weight tracks the size.
 - **playful** — a soft pastel canvas with a saturated magenta accent, for
   whiteboard-class, friendly tools. (Ships with the base sans; a hand-drawn
   display face is a planned addition.)

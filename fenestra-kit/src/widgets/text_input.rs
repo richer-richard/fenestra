@@ -17,13 +17,14 @@
 
 use fenestra_core::{Element, SP3, Theme, Transition, raw_input};
 
-use super::ControlSize;
+use super::{ControlSize, Density};
 
 /// A text input under construction; converts into an [`Element`].
 pub struct TextInput<Msg> {
     value: String,
     placeholder: String,
     size: ControlSize,
+    density: Density,
     width: f32,
     invalid: bool,
     disabled: bool,
@@ -37,6 +38,7 @@ pub fn text_input<Msg>(value: impl Into<String>) -> TextInput<Msg> {
         value: value.into(),
         placeholder: String::new(),
         size: ControlSize::default(),
+        density: Density::default(),
         width: 220.0,
         invalid: false,
         disabled: false,
@@ -55,6 +57,13 @@ impl<Msg> TextInput<Msg> {
     /// Sets the control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Sets the packing density ([`Density`]). `Comfortable` (default) is
+    /// byte-identical to no call.
+    pub fn density(mut self, density: Density) -> Self {
+        self.density = density;
         self
     }
 
@@ -93,13 +102,16 @@ impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
     fn from(t: TextInput<Msg>) -> Self {
         let invalid = t.invalid;
         let placeholder = t.placeholder.clone();
+        // Density scales the field height on the shared grid; the text size is
+        // held (density is spacing, not type).
+        let m = t.size.metrics_at(t.density);
         let mut el = raw_input(t.value, t.placeholder)
             .w(t.width)
-            .h(t.size.height())
+            .h(m.height)
             .px(SP3)
             .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shrink0()
-            .size(t.size.text_size())
+            .size(m.font)
             .transition(Transition::colors())
             .disabled(t.disabled)
             .invalid(invalid);

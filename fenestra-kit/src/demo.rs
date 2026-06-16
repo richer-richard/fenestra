@@ -616,36 +616,30 @@ pub fn glass_showcase<Msg>(theme: &Theme) -> Element<Msg> {
 /// change is visible in a single frame. Each control is a labeled box sized
 /// from [`ControlSize::metrics_at`]; the label font is constant across columns
 /// (density scales spacing, not type). Shared by the density golden test.
-pub fn density_showcase<Msg>(theme: &Theme) -> Element<Msg> {
-    use crate::widgets::{ControlSize, Density};
-    use fenestra_core::{R_MD, SP6};
+pub fn density_showcase<Msg: 'static>(theme: &Theme) -> Element<Msg> {
+    use crate::widgets::{ButtonVariant, Density, button, select, text_input};
+    use fenestra_core::SP6;
 
-    let control =
-        |theme: &Theme, label: &str, size: ControlSize, density: Density| -> Element<Msg> {
-            let m = size.metrics_at(density);
-            row()
-                .h(m.height)
-                .px(m.pad_x)
-                .gap(m.gap)
-                .items_center()
-                .rounded(R_MD)
-                .bg(theme.element)
-                .border(1.0, theme.border)
-                .children([
-                    div().w(m.icon).h(m.icon).rounded(R_SM).bg(theme.accent),
-                    text(label.to_owned()).size(m.font).color(theme.text),
-                ])
-        };
-
+    // Real kit widgets, restyled by one knob: `.density(..)`. Comfortable is
+    // byte-identical to the default; Compact tightens and Spacious loosens the
+    // shared height grid, while every label keeps its legible size.
     let column = |theme: &Theme, name: &str, density: Density| -> Element<Msg> {
-        col().gap(SP2).items_start().children([
+        col().gap(SP3).items_start().children([
             text(name.to_owned())
                 .size(TextSize::Xs)
                 .weight(Weight::Semibold)
                 .color(theme.text_muted),
-            control(theme, "Button", ControlSize::Sm, density),
-            control(theme, "Button", ControlSize::Md, density),
-            control(theme, "Button", ControlSize::Lg, density),
+            Element::from(
+                button("Save")
+                    .variant(ButtonVariant::Primary)
+                    .density(density),
+            ),
+            Element::from(text_input("query").width(150.0).density(density)),
+            Element::from(
+                select(0, ["Recent", "Oldest", "A–Z"])
+                    .width(150.0)
+                    .density(density),
+            ),
         ])
     };
 
@@ -654,7 +648,7 @@ pub fn density_showcase<Msg>(theme: &Theme) -> Element<Msg> {
             .size(TextSize::Xl)
             .weight(Weight::Semibold)
             .color(theme.text),
-        text("The same controls at Compact / Comfortable / Spacious.")
+        text("The same kit widgets at Compact / Comfortable / Spacious — one .density() knob.")
             .size(TextSize::Sm)
             .color(theme.text_muted),
         row().gap(SP6).items_start().children([

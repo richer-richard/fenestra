@@ -98,6 +98,23 @@ pub struct InputData {
     pub multiline: bool,
 }
 
+/// Optical corrections for a [`Kind::Path`] (see [`crate::optical`]): geometric
+/// nudges that make a shape *look* right even though it measures "wrong". Both
+/// default to off, so a path renders byte-identically until opted in — set them
+/// per icon where the shape needs it, rather than auto-detecting (which would
+/// silently shift every existing icon).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct OpticalCorrection {
+    /// Scale the drawn path up by [`crate::optical::CIRCLE_OVERSHOOT`] about the
+    /// viewbox center, so a round or pointed icon reads the same visual size as
+    /// square-edged neighbors.
+    pub overshoot: bool,
+    /// Translate the path so its centroid (visual mass, [`crate::optical::centroid`])
+    /// sits at the viewbox center instead of its bounding-box center — the
+    /// classic "nudge the play triangle toward its point" correction.
+    pub center: bool,
+}
+
 /// Path payload for [`Kind::Path`].
 #[derive(Debug, Clone, PartialEq)]
 pub struct PathData {
@@ -107,6 +124,8 @@ pub struct PathData {
     pub viewbox: (f64, f64),
     /// Stroke width in viewbox units; `None` fills the path instead.
     pub stroke: Option<f64>,
+    /// Optical corrections (overshoot / centroid centering); both off by default.
+    pub optical: OpticalCorrection,
 }
 
 /// How an overlay child opens and closes.
@@ -651,6 +670,27 @@ impl<Msg> Element<Msg> {
     /// `period_ms`). Only path elements rotate; used by spinners.
     pub fn spin(mut self, period_ms: f32) -> Self {
         self.spin = Some(period_ms);
+        self
+    }
+
+    /// Optically overshoots a path icon ([`crate::optical::CIRCLE_OVERSHOOT`]):
+    /// scales the drawn path up about the viewbox center so a round or pointed
+    /// glyph reads the same visual size as square-edged neighbors. No-op on
+    /// non-path elements; off by default (existing icons are unchanged).
+    pub fn optical_overshoot(mut self) -> Self {
+        if let Kind::Path(p) = &mut self.kind {
+            p.optical.overshoot = true;
+        }
+        self
+    }
+
+    /// Centers a path icon on its visual mass ([`crate::optical::centroid`])
+    /// rather than its bounding box — the play-triangle correction. No-op on
+    /// non-path elements; off by default.
+    pub fn optical_center(mut self) -> Self {
+        if let Kind::Path(p) = &mut self.kind {
+            p.optical.center = true;
+        }
         self
     }
 
@@ -1303,6 +1343,23 @@ impl<Msg> Element<Msg> {
         self.style = self.style.text_wrap(wrap);
         self
     }
+
+    /// Sets optical sizing explicitly
+    /// ([`OpticalSizing`](crate::OpticalSizing)) — how a variable font's
+    /// `opsz` axis is driven.
+    pub fn optical(mut self, optical: crate::style::OpticalSizing) -> Self {
+        self.style = self.style.optical(optical);
+        self
+    }
+
+    /// Tracks the `opsz` axis to the rendered size
+    /// ([`OpticalSizing::Auto`](crate::OpticalSizing::Auto)) — small text gets
+    /// the text-optical master, large sizes the display master. A no-op on
+    /// static faces (the embedded Inter / mono).
+    pub fn optical_auto(mut self) -> Self {
+        self.style = self.style.optical_auto();
+        self
+    }
 }
 
 /// A plain container box (flex row by default, like taffy).
@@ -1434,6 +1491,7 @@ pub fn path<Msg>(bez: kurbo::BezPath, viewbox: (f64, f64), stroke: Option<f64>) 
         path: std::sync::Arc::new(bez),
         viewbox,
         stroke,
+        optical: OpticalCorrection::default(),
     }))
     .w(viewbox.0 as f32)
     .h(viewbox.1 as f32)

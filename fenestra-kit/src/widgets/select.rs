@@ -19,7 +19,7 @@ use fenestra_core::{
     spacer, text,
 };
 
-use super::ControlSize;
+use super::{ControlSize, Density};
 use crate::icons;
 
 /// A select under construction; converts into an [`Element`].
@@ -27,6 +27,7 @@ pub struct Select<Msg> {
     selected: usize,
     options: Vec<String>,
     size: ControlSize,
+    density: Density,
     width: f32,
     disabled: bool,
     on_change: Option<std::rc::Rc<dyn Fn(usize) -> Msg>>,
@@ -42,6 +43,7 @@ pub fn select<Msg>(
         selected,
         options: options.into_iter().map(Into::into).collect(),
         size: ControlSize::default(),
+        density: Density::default(),
         width: 200.0,
         disabled: false,
         on_change: None,
@@ -53,6 +55,13 @@ impl<Msg> Select<Msg> {
     /// Sets the control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Sets the packing density ([`Density`]). `Comfortable` (default) is
+    /// byte-identical to no call.
+    pub fn density(mut self, density: Density) -> Self {
+        self.density = density;
         self
     }
 
@@ -88,6 +97,9 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
     fn from(sel: Select<Msg>) -> Self {
         let selected = sel.selected.min(sel.options.len().saturating_sub(1));
         let label = sel.options.get(selected).cloned().unwrap_or_default();
+        // Density scales the trigger height on the shared grid; the label font
+        // is held (density is spacing, not type), so `m.font == text_size()`.
+        let m = sel.size.metrics_at(sel.density);
 
         // The listbox: options on a raised surface, selected one tinted.
         let listbox = col()
@@ -111,15 +123,13 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
                     .themed(|t: &Theme, s| s.rounded((t.radius.lg - SP1).max(0.0)))
                     .shrink0()
                     .cursor(Cursor::Pointer)
-                    .children([text(opt.clone()).size(sel.size.text_size()).themed(
-                        move |t: &Theme, s| {
-                            if is_selected {
-                                s.color(t.accent_text)
-                            } else {
-                                s.color(t.text)
-                            }
-                        },
-                    )])
+                    .children([text(opt.clone()).size(m.font).themed(move |t: &Theme, s| {
+                        if is_selected {
+                            s.color(t.accent_text)
+                        } else {
+                            s.color(t.text)
+                        }
+                    })])
                     .transition(Transition::colors())
                     .state_layer(|t| t.text);
                 if is_selected {
@@ -138,7 +148,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             .items_center()
             .gap(SP2)
             .w(sel.width)
-            .h(sel.size.height())
+            .h(m.height)
             .px(SP3)
             .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shrink0()
@@ -149,7 +159,7 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             .themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.0, t.border))
             .semantics(Semantics::ComboBox)
             .label(label.clone())
-            .children([text(label).size(sel.size.text_size())])
+            .children([text(label).size(m.font)])
             .children([spacer(), chevron])
             .children([listbox]);
 

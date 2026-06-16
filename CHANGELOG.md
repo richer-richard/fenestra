@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.28.0 — 2026-06-16
+
+Typography, density, and optical polish — four threads, each opt-in and
+defaulting to a true no-op, so every existing golden is byte-identical.
+
+### Added
+
+- **Optical sizing (`OpticalSizing`)**: drives a variable font's `opsz` axis.
+  `.optical_auto()` tracks the rendered size (CSS `font-optical-sizing: auto`),
+  `.optical(OpticalSizing::Fixed(n))` pins one optical master, and the default
+  emits no variation (static faces and existing output unchanged). On `Style`
+  and `Element`; threaded through shaping, the layout cache key, and editors.
+- **Bundled text serif — Fraunces** (`fenestra-looks`): a variable text-optical
+  serif (`opsz` 9–144, `wght` 100–900; upright + true italic, SIL OFL). It is
+  the `warm_editorial` Look's `Serif` role — a real text serif for prose — with
+  Playfair Display kept for display headlines. New `optical_sizing` golden.
+- **Widget density (`.density(Density)`)**: `button`, `icon_button`,
+  `text_input`, and `select` take `Compact` / `Comfortable` (default) /
+  `Spacious`, packing the shared height grid tighter or looser while the label
+  font stays legible. `Comfortable` is byte-identical to before.
+- **Optical icon correction**: `.optical_overshoot()` scales a round/pointed
+  path icon so it reads the same visual size as square neighbors, and
+  `.optical_center()` seats an asymmetric glyph on its centroid (the play-button
+  nudge). Opt-in per icon (uncorrected paths render identically). New
+  `optical_overshoot` golden; `optical_play` now uses the builder.
+
+### Changed
+
+- **`warm_editorial`** body serif is now Fraunces (was Playfair, a display
+  face); display headlines stay Playfair. Only the `look_warm_editorial` golden
+  moves.
+- **Command palette** derives its panel from `Surface::Menu` instead of a
+  hand-rolled recipe (one source of truth; tracks the radius knob). Corners rise
+  `R_MD`→`R_LG`; new `command_palette` golden locks it.
+- **Markdown code blocks** read the theme radius token (`radius.sm`) instead of
+  a hardcoded `6.0`, so a sharp/soft theme re-rounds them (byte-identical at the
+  default).
+
+### Fixed
+
+- **Editors clear a toggled-off OpenType feature or `opsz` axis** instead of
+  leaving the prior property stuck on a persistent editor (the 0.16 known
+  limitation) — `apply_style` is now insert-or-remove.
+
 ## 0.27.1 — 2026-06-16
 
 ### Added

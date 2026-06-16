@@ -18,7 +18,7 @@
 
 use fenestra_core::{Color, Cursor, Element, Semantics, Theme, Transition, Weight, row, text};
 
-use super::ControlSize;
+use super::{ControlSize, Density};
 
 /// The label color for a button variant; dimmed to the disabled token for the
 /// neutral variants (solids dim via subtree opacity instead).
@@ -101,6 +101,7 @@ pub struct Button<Msg> {
     label: String,
     variant: ButtonVariant,
     size: ControlSize,
+    density: Density,
     disabled: bool,
     on_click: Option<Msg>,
     key: Option<String>,
@@ -112,6 +113,7 @@ pub fn button<Msg>(label: impl Into<String>) -> Button<Msg> {
         label: label.into(),
         variant: ButtonVariant::default(),
         size: ControlSize::default(),
+        density: Density::default(),
         disabled: false,
         on_click: None,
         key: None,
@@ -128,6 +130,15 @@ impl<Msg> Button<Msg> {
     /// Sets the control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Sets the packing density ([`Density`]): `Compact` / `Comfortable`
+    /// (default) / `Spacious` tighten or loosen height, padding, and gap on the
+    /// shared grid while the label keeps its legible size. `Comfortable` is
+    /// byte-identical to no call at all.
+    pub fn density(mut self, density: Density) -> Self {
+        self.density = density;
         self
     }
 
@@ -154,18 +165,19 @@ impl<Msg> From<Button<Msg>> for Element<Msg> {
     fn from(b: Button<Msg>) -> Self {
         let variant = b.variant;
         let disabled = b.disabled;
+        let m = b.size.metrics_at(b.density);
         let label_text = b.label.clone();
         let label = text(b.label)
-            .size(b.size.text_size())
+            .size(m.font)
             .weight(Weight::Medium)
             .themed(move |t: &Theme, s| s.color(label_color(t, variant, disabled)));
 
         let mut el = row()
             .items_center()
             .justify_center()
-            .h(b.size.height())
-            .px(b.size.padding_x())
-            .gap(b.size.gap())
+            .h(m.height)
+            .px(m.pad_x)
+            .gap(m.gap)
             .themed(|t: &Theme, s| s.rounded(t.radius.md))
             .shrink0()
             .children([label])
@@ -198,6 +210,7 @@ pub struct IconButton<Msg> {
     icon: Element<Msg>,
     variant: ButtonVariant,
     size: ControlSize,
+    density: Density,
     disabled: bool,
     label: Option<String>,
     on_click: Option<Msg>,
@@ -211,6 +224,7 @@ pub fn icon_button<Msg>(icon: impl Into<Element<Msg>>) -> IconButton<Msg> {
         icon: icon.into(),
         variant: ButtonVariant::Ghost,
         size: ControlSize::default(),
+        density: Density::default(),
         disabled: false,
         label: None,
         on_click: None,
@@ -228,6 +242,13 @@ impl<Msg> IconButton<Msg> {
     /// Sets the control size.
     pub fn size(mut self, size: ControlSize) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Sets the packing density ([`Density`]). `Comfortable` (default) is
+    /// byte-identical to no call.
+    pub fn density(mut self, density: Density) -> Self {
+        self.density = density;
         self
     }
 
@@ -260,13 +281,14 @@ impl<Msg> From<IconButton<Msg>> for Element<Msg> {
     fn from(b: IconButton<Msg>) -> Self {
         let variant = b.variant;
         let disabled = b.disabled;
-        let edge = b.size.icon();
+        let m = b.size.metrics_at(b.density);
+        let edge = m.icon;
         let icon = b
             .icon
             .w(edge)
             .h(edge)
             .themed(move |t: &Theme, s| s.color(icon_color(t, variant, disabled)));
-        let side = b.size.height();
+        let side = m.height;
         let mut el = row()
             .items_center()
             .justify_center()

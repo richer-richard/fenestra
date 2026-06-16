@@ -179,7 +179,8 @@ screen-reader text-editing protocol, live regions, and rich text.
 
 ## License
 
-MIT or Apache-2.0, at your option. The embedded Inter font and the
-Playfair Display faces used by the poster example are licensed under the
-SIL Open Font License 1.1; the vendored Lucide icon path data is ISC (see
-`fenestra-kit/LICENSE-LUCIDE.txt`).
+MIT or Apache-2.0, at your option. The embedded Inter font, the Playfair
+Display faces (poster and editorial looks), the Fraunces variable text serif
+(the `opsz`/optical-sizing serif in the warm-editorial look), and JetBrains
+Mono (terminal look) are licensed under the SIL Open Font License 1.1; the
+vendored Lucide icon path data is ISC (see `fenestra-kit/LICENSE-LUCIDE.txt`).

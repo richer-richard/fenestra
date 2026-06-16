@@ -1602,3 +1602,170 @@ a user has to re-derive at every call site.
     (Fraunces/Tiempos-class) is most valuable alongside `opsz`, and is an asset +
     OFL-vendoring decision. 0.27 ships the *guidance* (use a text serif or the
     sans for body) rather than a new font binary.
+
+## 0.28: typography, density & optical polish
+
+One release bundling four threads, each defaulting to a true no-op so the entire
+prior golden corpus is byte-identical: variable-font optical sizing + a bundled
+text serif, density through the widget kit, optical correction in the path
+render pass, and a polish/consistency sweep.
+
+### Optical sizing + the bundled text serif (the 0.27-deferred typography)
+
+The two 0.27-deferred typography items, now shipped together (they are most
+valuable as a pair): variable-font optical sizing and a bundled text serif.
+
+- **`OpticalSizing` drives the `opsz` axis.** A `Copy` enum in the text-style
+  group (`Default` | `Auto` | `Fixed(f32)`), mirroring `FontFeatures`: `Default`
+  emits *no* variation (so every static face — Inter, JetBrains Mono — and every
+  existing golden is byte-identical), `Auto` tracks the rendered px (CSS
+  `font-optical-sizing: auto`), `Fixed` pins one optical master. Builders
+  `.optical(OpticalSizing)` / `.optical_auto()` on `Style` and `Element`.
+- **Plumbed through the one shaping path, as a CSS source string.** parley 0.10
+  exposes `StyleProperty::FontVariations(FontVariations::Source(Cow<str>))`
+  (verified in the resolved 0.10 source, `style/font.rs`), parsed by parlance's
+  `FontVariation::parse_css_list` — the exact `Source(Cow::Owned(..))` shape the
+  feature path already uses. `opsz_source(px)` emits `"opsz" <n>`; pushed in
+  `shape_greedy`, `shape_rich` (per-span re-track under `Auto` so a display span
+  and a body span in one paragraph each get their own master), and `input.rs`
+  (a no-op on the editor's static Inter, kept for consistency). Weight needs no
+  push: fontique's `Synthesis` already sets the `wght` axis from the requested
+  `FontWeight` for a variable face (parley `shape::variations_iter` chains
+  synthesis settings *then* the explicit `FontVariations`), proven by the
+  pre-existing variable-Playfair Look goldens.
+- **Cache-key regression-locked (the 0.16 lesson).** The resolved `opsz` value
+  joins `LayoutKey` as `f32::to_bits` (a finite non-negative value is always
+  `< u32::MAX`, the no-axis sentinel, so they never collide). `Auto`-at-px and
+  `Fixed(px)` resolve to the same `opsz` ⇒ the same key — a correct cache hit,
+  not a bug. `layout_key_differs_on_opsz` was written first and watched fail
+  before `opsz` was added to the key.
+- **Bundled text serif: Fraunces (SIL OFL).** A variable text-optical serif
+  (`opsz` 9–144, `wght` 100–900), instanced with `SOFT`/`WONK` pinned to 0 for
+  clean letterforms (upright + a true italic, both family `Fraunces` so one role
+  registers both and the italic is selected, not synthetically skewed). It
+  becomes `warm_editorial`'s `Serif` role — the documented "Playfair is
+  display-only" gap fix — with **Playfair Display kept for `Display` headlines**:
+  a real display + text serif pairing. Only `look_warm_editorial` moves
+  (regenerated, eyeballed); the other five Look goldens and every kit/charts/
+  facade golden are byte-identical (default-preservation holds).
+- **Eyeball artifact: a dedicated `optical_sizing` golden** (the 0.17/0.18
+  dedicated-golden convention): the same Fraunces glyphs at one size pinned to
+  `opsz 9` (text master, sturdy/low-contrast) vs `opsz 144` (display master,
+  fine/high-contrast) — only the axis differs — plus an `Auto` block proving the
+  size-tracked everyday usage.
+- **Deferred (unchanged):** arbitrary variation axes beyond `opsz` (`TextStyle`
+  is `Copy`, so a `Vec` of axes would break it; `wght` already rides the weight
+  attribute, and other axes — `grad`, `slnt` — are a future typed addition);
+  the true multi-line drop-cap (still waits on parley text-exclusion); plumbing
+  registered display/serif faces into *editors* (static-text only today).
+
+### Density through the widget kit
+
+The 0.23 `Density` primitive becomes a real product feature: the kit's
+ControlSize-driven widgets take a `.density(Density)` builder and resolve their
+geometry through `ControlSize::metrics_at(density)` instead of the
+Comfortable-only `metrics()`.
+
+- **Per-widget `.density()`, not a subtree context.** fenestra has no style
+  inheritance (each leaf resolves its own style — see the 0.15 `Ch` note), so a
+  subtree-wide `col().density(..)` would need an ambient/context system, which
+  fights the no-hidden-state model. The honest, idiomatic delivery is an
+  explicit `.density(Density)` on each control: `button(..)`, `icon_button(..)`,
+  `text_input(..)`, `select(..)` — the four widgets that sit on the shared
+  `ControlSize` height grid. Checkbox/radio/switch/slider have fixed geometry
+  and are deliberately excluded (density scales the control grid, not glyph-sized
+  toggles). DECISION.
+- **Comfortable is byte-identical.** Every widget defaults to
+  `Density::Comfortable`, and `metrics_at(Comfortable) == metrics()` (pinned by
+  `comfortable_is_byte_identical_to_today`), so the entire existing golden corpus
+  is unchanged — density is pure opt-in. Verified: every kit/gallery golden
+  passed without regeneration.
+- **Density scales spacing, not type.** A widget resolves the full
+  `ControlMetrics` bundle once (`let m = size.metrics_at(density)`) and reads
+  `m.height`/`m.pad_x`/`m.gap`/`m.font`/`m.icon`. Because `metrics_at` holds the
+  label `font` across all three densities (the 0.23 invariant), a Compact
+  control is shorter and tighter but its text never drops below its legible size
+  — visible in the showcase where every column's labels are the same size.
+- **The per-field `ControlSize` accessors were removed.** `padding_x`,
+  `text_size`, `gap`, and `icon` (`pub(crate)`, each wrapping the
+  Comfortable-only `metrics()`) had no remaining callers once widgets resolved
+  through `metrics_at`, and were density-blind — kept-but-unused would be a trap.
+  Deleted (root-cause fix, not a `#[allow(dead_code)]`); `height()` stays as a
+  public nominal-height accessor.
+- **`density_showcase` now dogfoods the real builders.** It was a hand-rolled
+  geometry mock (raw `row()`s with manual `metrics_at`) precisely because no
+  `.density()` API existed; it is rewritten to render actual `button` /
+  `text_input` / `select` at Compact / Comfortable / Spacious. The
+  `density_showcase` golden is regenerated (intended, eyeballed). Its signature
+  gained `Msg: 'static` (the `select` bound).
+
+### Optical correction in the path render pass
+
+The 0.25 `optical` helpers (overshoot, centroid) were math-only — a caller had
+to apply them by hand (the `optical_play` golden shifted triangle vertices
+itself). 0.30 wires them into the path render pass as opt-in `path()` builders.
+
+- **Opt-in, not auto-detected.** `Element::optical_overshoot()` and
+  `optical_center()` set an `OpticalCorrection { overshoot, center }` on
+  `PathData` (both default false). The painter's `optical_pretransform` returns
+  `Affine::IDENTITY` when neither is set, so every existing icon/path golden is
+  byte-identical. fenestra has no style inheritance, and detecting "is this glyph
+  circular / asymmetric?" from an arbitrary `BezPath` is heuristic and would
+  silently shift the whole icon set — so correction is explicit per icon, exactly
+  like every other 0.2x knob (radius, elevation, opsz, density) defaults to a
+  no-op. DECISION (the "auto" in the original follow-up framing is unsafe; opt-in
+  preserves the verification-first guarantee).
+- **A viewbox-space pre-transform.** The correction composes *before* the
+  viewbox→rect scale in `draw_path_rotated`: centroid centering
+  (`translate(viewbox_center − centroid)`) then overshoot
+  (`scale_about(CIRCLE_OVERSHOOT, viewbox_center)`). The centroid reuses
+  `optical::centroid` over the path's on-curve anchor points
+  (`path_anchor_centroid`) — the helper is now actually exercised by the
+  renderer, not just by callers.
+- **Equivalence proven, not assumed.** The `optical_play` golden was rewritten to
+  use `.optical_center()` instead of hand-shifting vertices and stays
+  byte-identical — the builder applies the identical centroid shift in viewbox
+  space. A new `optical_overshoot` golden shows a square, a same-size circle (reads
+  smaller), and an `.optical_overshoot()` circle (reads the same size). Four
+  painter unit tests pin the pre-transform geometry (identity-when-off, centroid
+  mean, centroid→center, scale-about-center by the overshoot ratio).
+- **Deferred:** auto-applying correction across a curated icon set (e.g. an
+  "optical" Lucide variant that opts the whole set in) — a set-level decision, not
+  a per-render heuristic; and threading smoothing/overshoot into shadows and image
+  clips (still circular, as noted in 0.20).
+
+### Polish & consistency sweep
+
+A small, low-risk sweep of documented known-limitations — each fixed test-first
+or golden-verified, none changing default output it shouldn't.
+
+- **Editors clear a toggled-off feature / `opsz` (the 0.16 limitation).**
+  `input.rs::apply_style` was insert-only, so flipping an OpenType feature (or
+  the new optical-sizing axis) *off* on a persistent editor left the prior
+  `StyleProperty` stuck. It is now insert-or-`remove` (by variant discriminant —
+  parley's `edit_styles()` is a discriminant-keyed `StyleSet`). White-box
+  regression `editor_clears_toggled_off_feature_and_opsz` was written first and
+  watched fail. The new opsz path is covered by the same fix, so it never had
+  the bug.
+- **Command palette derives from `Surface::Menu` (the 0.19 follow-up).** The
+  panel's hand-rolled `rounded(radius.md) + shadow(Lg) + bg(elevated(2)) +
+  border(subtle)` is replaced by `.surface(Surface::Menu)` — one source of truth
+  shared with menus/popovers, and it now tracks the radius knob. Only change:
+  the corner radius rises `R_MD`→`R_LG` (the bundle's floating radius). The
+  palette had **no** golden, so a new `command_palette` golden was added to lock
+  and eyeball it (closing a coverage gap as well as the consistency follow-up).
+  `date_picker` is deliberately left hand-rolled: it renders *inline* and
+  shadowless, which maps to no floating role cleanly (forcing `Raised` would only
+  swap its fill for no win) — recorded rather than forced.
+- **Markdown code blocks read the radius token.** The fenced-code panel used a
+  hardcoded `rounded(6.0)`; it now uses `t.radius.sm` so a sharp/soft theme
+  re-rounds code blocks too. `radius.sm` defaults to `R_SM` = 6, so the markdown
+  goldens are byte-identical.
+- **Deferred — horizontal code-block scroll.** The 0.15 note imagined fenced code
+  scrolling horizontally (Tailwind `prose pre { overflow-x }`) instead of
+  wrapping at the reading measure. fenestra's scroll machinery is **vertical
+  only** (`FrameState` tracks `offset_y`, clamps against content *height*, and
+  the scrollbar/wheel routing are y-axis); horizontal scroll is a real feature
+  (an `offset_x` axis, x clamping, shift-wheel routing, a horizontal scrollbar),
+  not a polish item. Code still wraps at the measure; recorded for a dedicated
+  horizontal-scroll milestone.

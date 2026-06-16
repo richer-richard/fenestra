@@ -294,10 +294,15 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                         blocks.push(
                             col()
                                 .p(10.0)
-                                .rounded(6.0)
                                 .w_full()
+                                // Radius from the theme scale (was a hardcoded
+                                // 6.0) so a sharp/soft theme re-rounds code
+                                // blocks too; `radius.sm` defaults to R_SM = 6,
+                                // so default output is unchanged.
                                 .themed(|t: &Theme, s| {
-                                    s.bg(t.elevated_surface(1)).border(1.0, t.border_subtle)
+                                    s.rounded(t.radius.sm)
+                                        .bg(t.elevated_surface(1))
+                                        .border(1.0, t.border_subtle)
                                 })
                                 .children([text(body).mono().size(TextSize::Sm).selectable()]),
                         );

@@ -11,7 +11,8 @@
 //! - [`console`] — observability console: a cool-slate field under one
 //!   electric-lime accent, sans body with mono numerals; sharp and minimal.
 //! - [`warm_editorial`] — warm paper and ink: a cream-and-terracotta field
-//!   ([`Theme::derive`]) with Playfair serif prose under sans chrome.
+//!   ([`Theme::derive`]) with Fraunces text-serif prose (optical `opsz` axis)
+//!   under sans chrome, Playfair kept for display headlines.
 //! - [`playful`] — a soft pastel canvas with a saturated accent, for
 //!   whiteboard-class, friendly tools.
 //!
@@ -52,6 +53,17 @@ impl Look {
 
 const PLAYFAIR: &[u8] = include_bytes!("../assets/PlayfairDisplay.ttf");
 const PLAYFAIR_ITALIC: &[u8] = include_bytes!("../assets/PlayfairDisplay-Italic.ttf");
+/// Fraunces — a variable *text*-optical serif (axes `opsz` 9–144, `wght`
+/// 100–900; SOFT/WONK pinned to 0 for clean letterforms). Unlike the Didone
+/// Playfair (display-only), Fraunces is drawn to read at body sizes, and its
+/// `opsz` axis lets one face serve both small prose and large headings — pair
+/// it with [`fenestra_core::OpticalSizing::Auto`]. SIL OFL (see
+/// `assets/OFL-Fraunces.txt`).
+const FRAUNCES: &[u8] = include_bytes!("../assets/Fraunces[opsz,wght].ttf");
+/// Fraunces Italic — the matching true italic (same `Fraunces` family, so it
+/// registers alongside the upright under one role and is selected for italic
+/// spans rather than synthetically skewed). Same `opsz`/`wght` axes; SIL OFL.
+const FRAUNCES_ITALIC: &[u8] = include_bytes!("../assets/Fraunces-Italic[opsz,wght].ttf");
 const JB_MONO: &[u8] = include_bytes!("../assets/JetBrainsMono-Regular.ttf");
 const JB_MONO_MEDIUM: &[u8] = include_bytes!("../assets/JetBrainsMono-Medium.ttf");
 const JB_MONO_SEMIBOLD: &[u8] = include_bytes!("../assets/JetBrainsMono-SemiBold.ttf");
@@ -105,12 +117,15 @@ pub fn terminal(mode: Mode) -> Look {
     }
 }
 
-/// Warm paper and ink: a cream-and-terracotta field with Playfair serif prose
-/// under sans chrome. The palette is *derived* — a warm neutral field (hue 80,
-/// a touch off gray) and a terracotta accent (hue 40) at crisp contrast — not
-/// hand-placed, so light and dark stay coherent. Apps set prose runs to
-/// [`FamilyRole::Serif`] and keep controls on the sans default; serif prose
-/// reads best at ≥20px with open leading, while smaller labels stay sans.
+/// Warm paper and ink: a cream-and-terracotta field with a real text serif for
+/// prose under sans chrome. The palette is *derived* — a warm neutral field
+/// (hue 80, a touch off gray) and a terracotta accent (hue 40) at crisp
+/// contrast — not hand-placed, so light and dark stay coherent. The body serif
+/// is now **Fraunces** (a text-optical face), with **Playfair Display** kept for
+/// large [`FamilyRole::Display`] headlines: a proper display+text serif pairing
+/// rather than one Didone stretched down to reading sizes. Set prose runs to
+/// [`FamilyRole::Serif`] and pair with [`OpticalSizing::Auto`](fenestra_core::OpticalSizing::Auto)
+/// so the `opsz` axis tracks the size; keep controls on the sans default.
 /// Elevation reads as borders more than shadows on paper.
 pub fn warm_editorial(mode: Mode) -> Look {
     Look {
@@ -125,7 +140,8 @@ pub fn warm_editorial(mode: Mode) -> Look {
             mode,
         ),
         faces: vec![
-            (FamilyRole::Serif, PLAYFAIR),
+            (FamilyRole::Serif, FRAUNCES),
+            (FamilyRole::Serif, FRAUNCES_ITALIC),
             (FamilyRole::Display, PLAYFAIR),
         ],
     }

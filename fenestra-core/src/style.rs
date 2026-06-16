@@ -526,6 +526,49 @@ impl FontFeatures {
     }
 }
 
+/// How the `opsz` (optical size) variation axis of a *variable* font is set.
+/// Optical-size masters are drawn for a size range: fine, high-contrast cuts
+/// at large display sizes and sturdier, more open cuts at small text sizes, so
+/// a face looks right across the scale instead of one master scaled up and
+/// down. Maps to CSS `font-optical-sizing` / the `opsz` `font-variation-settings`
+/// axis.
+///
+/// This only affects faces that carry an `opsz` axis (e.g. the bundled Fraunces
+/// text serif); static faces — the embedded Inter, JetBrains Mono — have no
+/// such axis, so it is a no-op for them. The default ([`OpticalSizing::Default`])
+/// sets *no* variation, so every element renders byte-identically to before this
+/// knob existed; opt in per element.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub enum OpticalSizing {
+    /// Leave the font's own default `opsz` (emit no variation). The default,
+    /// so existing output is unchanged.
+    #[default]
+    Default,
+    /// `opsz` tracks the rendered size in px (CSS `font-optical-sizing: auto`):
+    /// small text picks up the text-optical master, large sizes the display
+    /// master. The everyday choice for a variable text face.
+    Auto,
+    /// Pin `opsz` to a fixed axis value (the font's `opsz` units, ≈ points),
+    /// independent of the rendered size. For showing one optical master at any
+    /// size (specimens, deliberate contrast).
+    Fixed(f32),
+}
+
+impl OpticalSizing {
+    /// The `opsz` axis value to apply for text rendered at `px` logical pixels,
+    /// or `None` to leave the font's default (emit no `opsz` variation).
+    /// [`Auto`](Self::Auto) returns `px`; [`Fixed`](Self::Fixed) its (clamped
+    /// non-negative) value.
+    #[must_use]
+    pub fn opsz_at(self, px: f32) -> Option<f32> {
+        match self {
+            OpticalSizing::Default => None,
+            OpticalSizing::Auto => Some(px.max(0.0)),
+            OpticalSizing::Fixed(v) => Some(v.max(0.0)),
+        }
+    }
+}
+
 /// The text style group. `color`, `line_height`, and `letter_spacing`
 /// default to the theme/text-size tokens when `None`.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -556,6 +599,10 @@ pub struct TextStyle {
     /// [`TextWrap::Normal`], which costs nothing; other modes do extra
     /// line-break passes inside shaping for this element only.
     pub wrap: TextWrap,
+    /// Optical sizing: how the `opsz` variation axis of a variable font is set.
+    /// Defaults to [`OpticalSizing::Default`] (no variation), so static faces
+    /// and existing output are untouched.
+    pub optical: OpticalSizing,
 }
 
 /// The complete style of an element: layout, paint, and text groups.
@@ -1414,6 +1461,21 @@ impl Style {
         self.text.wrap = wrap;
         self
     }
+
+    /// Sets optical sizing explicitly ([`OpticalSizing`]) — how the `opsz`
+    /// variation axis of a variable font is driven.
+    pub fn optical(mut self, optical: OpticalSizing) -> Self {
+        self.text.optical = optical;
+        self
+    }
+
+    /// Tracks the `opsz` axis to the rendered size ([`OpticalSizing::Auto`],
+    /// CSS `font-optical-sizing: auto`) — small text gets the text-optical
+    /// master, large sizes the display master. A no-op on static faces.
+    pub fn optical_auto(mut self) -> Self {
+        self.text.optical = OpticalSizing::Auto;
+        self
+    }
 }
 
 impl Style {
@@ -1696,5 +1758,38 @@ mod gradient_tests {
         assert_eq!(zero_steps.len(), 2);
         assert_eq!(zero_steps[0].color.to_rgba8(), a.to_rgba8());
         assert_eq!(zero_steps[1].color.to_rgba8(), b.to_rgba8());
+    }
+
+    #[test]
+    fn optical_sizing_resolves_opsz_per_mode() {
+        // Default emits no axis at any size; Auto tracks the rendered px;
+        // Fixed pins a value (clamped non-negative) regardless of size.
+        assert_eq!(OpticalSizing::Default.opsz_at(16.0), None);
+        assert_eq!(OpticalSizing::Default.opsz_at(48.0), None);
+        assert_eq!(OpticalSizing::Auto.opsz_at(16.0), Some(16.0));
+        assert_eq!(OpticalSizing::Auto.opsz_at(48.0), Some(48.0));
+        assert_eq!(OpticalSizing::Fixed(72.0).opsz_at(16.0), Some(72.0));
+        assert_eq!(OpticalSizing::Fixed(72.0).opsz_at(48.0), Some(72.0));
+        // Negatives clamp to 0 (a valid axis floor, never a negative coord).
+        assert_eq!(OpticalSizing::Fixed(-5.0).opsz_at(16.0), Some(0.0));
+        // The default of the typed value is `Default` (no behavior change).
+        assert_eq!(OpticalSizing::default(), OpticalSizing::Default);
+    }
+
+    #[test]
+    fn optical_builders_set_the_axis() {
+        // The ergonomic builders flow into the text style group.
+        assert_eq!(Style::default().text.optical, OpticalSizing::Default);
+        assert_eq!(
+            Style::default().optical_auto().text.optical,
+            OpticalSizing::Auto
+        );
+        assert_eq!(
+            Style::default()
+                .optical(OpticalSizing::Fixed(60.0))
+                .text
+                .optical,
+            OpticalSizing::Fixed(60.0)
+        );
     }
 }

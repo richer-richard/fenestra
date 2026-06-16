@@ -517,8 +517,14 @@ pub(crate) fn draw_path_rotated(
     } else {
         Affine::rotate_about(rotation, rect.center())
     };
-    let transform =
-        rotate * Affine::translate((rect.x0, rect.y0)) * Affine::scale_non_uniform(sx, sy);
+    // Optical corrections act in viewbox space (before the viewbox→rect
+    // scale): centroid centering then overshoot scaling, both about the
+    // viewbox center. `IDENTITY` when neither is set, so uncorrected paths are
+    // byte-identical.
+    let transform = rotate
+        * Affine::translate((rect.x0, rect.y0))
+        * Affine::scale_non_uniform(sx, sy)
+        * optical_pretransform(data);
     let trimmed;
     let path: &BezPath = if trim >= 1.0 {
         &data.path
@@ -535,6 +541,56 @@ pub(crate) fn draw_path_rotated(
         }
         None => scene.fill(Fill::NonZero, transform, color, None, path),
     }
+}
+
+/// The viewbox-space pre-transform that realizes a path's optical corrections
+/// (see [`crate::optical`]): centroid centering, then overshoot scaling, both
+/// about the viewbox center. Returns [`Affine::IDENTITY`] when neither is set.
+fn optical_pretransform(data: &PathData) -> Affine {
+    let optical = data.optical;
+    if !optical.overshoot && !optical.center {
+        return Affine::IDENTITY;
+    }
+    let center = Point::new(data.viewbox.0 / 2.0, data.viewbox.1 / 2.0);
+    let mut pre = Affine::IDENTITY;
+    if optical.center
+        && let Some((cx, cy)) = path_anchor_centroid(&data.path)
+    {
+        // Shift the centroid onto the viewbox center, so the viewbox→rect map
+        // then lands it at the rect center (the play-triangle nudge).
+        pre = Affine::translate((center.x - cx, center.y - cy));
+    }
+    if optical.overshoot {
+        pre = Affine::scale_about(f64::from(crate::optical::CIRCLE_OVERSHOOT), center) * pre;
+    }
+    pre
+}
+
+/// The centroid of a path's anchor points (the mean of its on-curve vertices),
+/// via [`crate::optical::centroid`] — the visual-mass proxy used to optically
+/// center an asymmetric icon. `None` for an empty path.
+fn path_anchor_centroid(path: &BezPath) -> Option<(f64, f64)> {
+    use kurbo::PathEl;
+    let mut pts: Vec<(f32, f32)> = Vec::new();
+    for el in path.elements() {
+        let p = match el {
+            PathEl::MoveTo(p)
+            | PathEl::LineTo(p)
+            | PathEl::QuadTo(_, p)
+            | PathEl::CurveTo(_, _, p) => *p,
+            PathEl::ClosePath => continue,
+        };
+        #[expect(
+            clippy::cast_possible_truncation,
+            reason = "icon viewbox coords are small (≤ a few hundred); f32 is exact enough for a centroid"
+        )]
+        pts.push((p.x as f32, p.y as f32));
+    }
+    if pts.is_empty() {
+        return None;
+    }
+    let (cx, cy) = crate::optical::centroid(&pts);
+    Some((f64::from(cx), f64::from(cy)))
 }
 
 /// Keeps the first `t` fraction (by arc length) of a path.
@@ -575,6 +631,72 @@ fn last_point(path: &BezPath) -> Point {
         Some(kurbo::PathEl::MoveTo(p) | kurbo::PathEl::LineTo(p)) => *p,
         Some(kurbo::PathEl::QuadTo(_, p) | kurbo::PathEl::CurveTo(_, _, p)) => *p,
         _ => Point::ORIGIN,
+    }
+}
+
+#[cfg(test)]
+mod optical_tests {
+    use super::*;
+    use crate::element::{OpticalCorrection, PathData};
+
+    /// The play triangle from the `optical_play` golden, in a 48×48 viewbox.
+    fn play_tri() -> PathData {
+        let mut p = BezPath::new();
+        p.move_to((14.0, 12.0));
+        p.line_to((14.0, 36.0));
+        p.line_to((34.0, 24.0));
+        p.close_path();
+        PathData {
+            path: std::sync::Arc::new(p),
+            viewbox: (48.0, 48.0),
+            stroke: None,
+            optical: OpticalCorrection::default(),
+        }
+    }
+
+    #[test]
+    fn no_correction_is_identity() {
+        // Off by default ⇒ uncorrected paths are byte-identical.
+        assert_eq!(optical_pretransform(&play_tri()), Affine::IDENTITY);
+    }
+
+    #[test]
+    fn anchor_centroid_is_the_vertex_mean() {
+        // centroid ≈ ((14+14+34)/3, (12+36+24)/3) = (20.667, 24).
+        let (cx, cy) = path_anchor_centroid(&play_tri().path).expect("non-empty");
+        assert!((cx - 62.0 / 3.0).abs() < 1e-3, "cx {cx}");
+        assert!((cy - 24.0).abs() < 1e-3, "cy {cy}");
+    }
+
+    #[test]
+    fn center_moves_centroid_to_viewbox_center() {
+        let mut d = play_tri();
+        d.optical.center = true;
+        let pre = optical_pretransform(&d);
+        // The centroid maps onto the viewbox center (24, 24) — the play nudge.
+        let moved = pre * Point::new(62.0 / 3.0, 24.0);
+        assert!(
+            (moved.x - 24.0).abs() < 1e-3 && (moved.y - 24.0).abs() < 1e-3,
+            "{moved:?}"
+        );
+    }
+
+    #[test]
+    fn overshoot_scales_about_the_viewbox_center() {
+        let mut d = play_tri();
+        d.optical.overshoot = true;
+        let pre = optical_pretransform(&d);
+        let center = Point::new(24.0, 24.0);
+        // The center is the fixed point of the scale.
+        let fixed = pre * center;
+        assert!(
+            (fixed.x - 24.0).abs() < 1e-6 && (fixed.y - 24.0).abs() < 1e-6,
+            "{fixed:?}"
+        );
+        // A point 10 units from center moves out by exactly the overshoot ratio.
+        let out = pre * Point::new(34.0, 24.0);
+        let expected = 24.0 + 10.0 * f64::from(crate::optical::CIRCLE_OVERSHOOT);
+        assert!((out.x - expected).abs() < 1e-4, "{out:?} vs {expected}");
     }
 }
 

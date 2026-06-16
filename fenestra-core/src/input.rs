@@ -139,10 +139,35 @@ fn apply_style(editor: &mut parley::PlainEditor<LayoutBrush>, style: &ResolvedTe
         style.line_height,
     )));
     styles.insert(StyleProperty::LetterSpacing(style.letter_spacing));
-    if let Some(s) = style.features.feature_string() {
-        styles.insert(StyleProperty::FontFeatures(parley::FontFeatures::Source(
-            std::borrow::Cow::Owned(s),
-        )));
+    // Features and optical sizing are insert-or-*remove*: re-applying a style
+    // that turned a feature (or the opsz axis) off must clear the prior property,
+    // not leave it stuck on a persistent editor (the 0.16 known limitation).
+    // `edit_styles` is a discriminant-keyed set, so removal by variant is exact.
+    match style.features.feature_string() {
+        Some(s) => {
+            styles.insert(StyleProperty::FontFeatures(parley::FontFeatures::Source(
+                std::borrow::Cow::Owned(s),
+            )));
+        }
+        None => {
+            styles.remove(std::mem::discriminant(&StyleProperty::FontFeatures(
+                parley::FontFeatures::empty(),
+            )));
+        }
+    }
+    // Optical sizing (no-op on the editor's static Inter; correct if an app
+    // registers a variable face).
+    match style.optical.opsz_at(style.px) {
+        Some(opsz) => {
+            styles.insert(StyleProperty::FontVariations(
+                parley::FontVariations::Source(std::borrow::Cow::Owned(format!("\"opsz\" {opsz}"))),
+            ));
+        }
+        None => {
+            styles.remove(std::mem::discriminant(&StyleProperty::FontVariations(
+                parley::FontVariations::empty(),
+            )));
+        }
     }
     styles.insert(StyleProperty::FontFamily(match style.family {
         crate::tokens::FamilyRole::Sans => FontFamily::named("Inter"),
@@ -656,4 +681,59 @@ pub(crate) fn paint(
 
     scene.pop_layer();
     caret_rect
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LayoutBrush, apply_style};
+    use crate::style::{NumericSpacing, OpticalSizing, TextStyle};
+    use crate::text::resolve_text;
+    use crate::theme::Theme;
+    use std::mem::discriminant;
+
+    /// Toggling an OpenType feature (or the opsz axis) off on a *persistent*
+    /// editor must clear the prior property, not leave it stuck (the 0.16
+    /// known limitation). White-box: inspect the editor's resolved style set.
+    #[test]
+    fn editor_clears_toggled_off_feature_and_opsz() {
+        let theme = Theme::light();
+        let mut editor = parley::PlainEditor::<LayoutBrush>::new(16.0);
+
+        let feat_key = discriminant(&parley::StyleProperty::<LayoutBrush>::FontFeatures(
+            parley::FontFeatures::empty(),
+        ));
+        let var_key = discriminant(&parley::StyleProperty::<LayoutBrush>::FontVariations(
+            parley::FontVariations::empty(),
+        ));
+
+        // Apply a style WITH tabular figures and auto optical sizing.
+        let on = TextStyle {
+            features: crate::style::FontFeatures {
+                spacing: NumericSpacing::Tabular,
+                ..Default::default()
+            },
+            optical: OpticalSizing::Auto,
+            ..Default::default()
+        };
+        apply_style(&mut editor, &resolve_text(&on, &theme));
+        assert!(
+            editor.edit_styles().inner().contains_key(&feat_key),
+            "feature property is set when enabled"
+        );
+        assert!(
+            editor.edit_styles().inner().contains_key(&var_key),
+            "opsz variation is set under Auto"
+        );
+
+        // Re-apply the default style (feature off, opsz Default): both must clear.
+        apply_style(&mut editor, &resolve_text(&TextStyle::default(), &theme));
+        assert!(
+            !editor.edit_styles().inner().contains_key(&feat_key),
+            "feature property is removed when toggled off"
+        );
+        assert!(
+            !editor.edit_styles().inner().contains_key(&var_key),
+            "opsz variation is removed when toggled off"
+        );
+    }
 }

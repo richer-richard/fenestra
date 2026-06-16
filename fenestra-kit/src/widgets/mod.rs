@@ -203,29 +203,11 @@ impl ControlSize {
         }
     }
 
-    /// Control height in logical px.
+    /// Control height in logical px (at [`Density::Comfortable`]). The nominal
+    /// grid height for this size; density-aware widgets resolve the full
+    /// [`ControlMetrics`] via [`metrics_at`](Self::metrics_at) instead.
     pub const fn height(self) -> f32 {
         self.metrics().height
-    }
-
-    /// Horizontal padding in logical px.
-    pub(crate) const fn padding_x(self) -> f32 {
-        self.metrics().pad_x
-    }
-
-    /// Label text size.
-    pub(crate) const fn text_size(self) -> fenestra_core::TextSize {
-        self.metrics().font
-    }
-
-    /// Internal icon/label gap in logical px.
-    pub(crate) const fn gap(self) -> f32 {
-        self.metrics().gap
-    }
-
-    /// Icon edge length in logical px.
-    pub(crate) const fn icon(self) -> f32 {
-        self.metrics().icon
     }
 }
 

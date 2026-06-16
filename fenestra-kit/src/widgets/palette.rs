@@ -2,7 +2,7 @@
 //! owns the query and the open flag (Elm-pure).
 
 use fenestra_core::{
-    Element, Key, Overlay, SP1, SP2, Semantics, ShadowToken, TextSize, Theme, col, text,
+    Element, Key, Overlay, SP1, SP2, Semantics, Surface, TextSize, Theme, col, text,
 };
 
 use crate::{menu, text_input};
@@ -85,13 +85,15 @@ impl<Msg: Clone + 'static> From<CommandPalette<Msg>> for Element<Msg> {
             input = input.on_key(move |k| matches!(k.key, Key::Enter).then(|| first.clone()));
         }
 
+        // The floating panel derives its material from the surface bundle
+        // (`Surface::Menu`: Elevated(2) fill, subtle border, Lg shadow,
+        // theme-radius corners) instead of a hand-rolled recipe — one source of
+        // truth shared with menus/popovers, and it tracks the radius knob.
         let mut panel = col()
             .p(SP2)
             .gap(SP1)
             .w(440.0)
-            .themed(|t: &Theme, s| s.rounded(t.radius.md))
-            .shadow(ShadowToken::Lg)
-            .themed(|t: &Theme, s| s.bg(t.elevated_surface(2)).border(1.0, t.border_subtle))
+            .surface(Surface::Menu)
             .semantics(Semantics::Dialog)
             .label("Command palette")
             .child(input);
