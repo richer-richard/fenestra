@@ -901,6 +901,7 @@ dependencies = [
 name = "fenestra-cli"
 version = "0.28.0"
 dependencies = [
+ "fenestra-core",
  "fenestra-describe",
  "fenestra-shell",
  "image",
