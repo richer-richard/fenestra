@@ -19,5 +19,6 @@ fenestra-shell.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 image.workspace = true
+clap = { version = "4.6.1", features = ["derive"] }
 # clap (CLI binary) is resolved to its latest 4.x at integration in Phase 4
 # (Task 17), never pinned from memory.
