@@ -66,6 +66,42 @@ pub fn meets(text: Color, bg: Color, target_lc: f64) -> bool {
     lc_abs(text, bg) >= target_lc
 }
 
+/// WCAG 2 relative luminance of an opaque sRGB color — the piecewise-linear
+/// sRGB EOTF (with the `0.03928` toe), distinct from APCA's straight-2.4
+/// estimate in [`srgb_to_y`]. Alpha is ignored.
+fn wcag_luminance(c: Color) -> f64 {
+    let [r, g, b, _a] = c.components;
+    let lin = |ch: f32| {
+        let u = f64::from(ch).clamp(0.0, 1.0);
+        if u <= 0.039_28 {
+            u / 12.92
+        } else {
+            ((u + 0.055) / 1.055).powf(2.4)
+        }
+    };
+    S_RCO * lin(r) + S_GCO * lin(g) + S_BCO * lin(b)
+}
+
+/// The WCAG 2 contrast ratio between two opaque colors: `(L1 + 0.05) / (L2 +
+/// 0.05)` with the lighter luminance on top. Ranges from `1.0` (identical) to
+/// `21.0` (black on white). APCA ([`lc`]) models perception better, but WCAG 2
+/// is the shipping legal standard, so the verification surface reports both.
+#[must_use]
+pub fn wcag2_ratio(a: Color, b: Color) -> f64 {
+    let la = wcag_luminance(a);
+    let lb = wcag_luminance(b);
+    let (hi, lo) = if la >= lb { (la, lb) } else { (lb, la) };
+    (hi + 0.05) / (lo + 0.05)
+}
+
+/// Whether `text` on `bg` clears the WCAG 2 AA threshold: `4.5:1` for normal
+/// text, `3.0:1` for large text (`large = true`: >= 18pt, or >= 14pt bold).
+#[must_use]
+pub fn wcag2_passes(text: Color, bg: Color, large: bool) -> bool {
+    let threshold = if large { 3.0 } else { 4.5 };
+    wcag2_ratio(text, bg) >= threshold
+}
+
 /// APCA readability anchors as `(effective px @ weight 400, required Lc)`,
 /// strictly decreasing in `Lc` and strictly increasing in px. The weight-400
 /// baseline of [`required_lc`]; heavier weights map to a larger effective px.

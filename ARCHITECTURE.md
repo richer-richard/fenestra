@@ -1769,3 +1769,34 @@ or golden-verified, none changing default output it shouldn't.
   (an `offset_x` axis, x clamping, shift-wheel routing, a horizontal scrollbar),
   not a polish item. Code still wraps at the measure; recorded for a dedicated
   horizontal-scroll milestone.
+
+### Serialized description boundary (fenestra-describe / -cli / -mcp)
+
+A serde `Description` (a JSON mirror of an element tree) parses to the same
+`Element` the builders produce, then runs the identical render + verification
+pipeline — so an out-of-process caller (a CLI, or an MCP server) can build,
+render, query, and assert a UI over one stable boundary.
+
+- **Three new crates.** `fenestra-describe` (windowless: core + kit) owns the
+  `Description` format, the `to_element` parser, the output DTOs, and the
+  *structural* engine (access tree / query / aria snapshot / a11y) built on
+  `build_frame` — no GPU needed. `fenestra-cli` adds the *pixel/stateful* engine
+  (render to PNG, `interact` via `Harness`, screenshot match) and the `fenestra`
+  binary. `fenestra-mcp` is a thin MCP server over the cli engine.
+- **Format rules.** Schema-tagged (`"fenestra/1"`) from day one; every struct is
+  `deny_unknown_fields` (a typo is an error, not a dropped field); colors are
+  theme role names or an `oklch` escape hatch (never raw hex); handlers are inert
+  intent strings (no logic crosses the boundary); the parser clamps over panic
+  (an unresolvable color degrades to a default and records a path-pointed error).
+  Style is nested under a `style` key rather than flattened, because serde's
+  `deny_unknown_fields` and `#[serde(flatten)]` are mutually exclusive and
+  strictness wins.
+- **Additive core change.** Per-text-node legibility needs the resolved
+  foreground/background/size/weight, which only the private `FrameNode` tree
+  holds, so it lives in core: `Frame::legibility(window_bg) -> Vec<TextLegibility>`
+  reports each text run's APCA `Lc` and WCAG 2 ratio against the floor for its
+  rendered size (`window_bg` is passed in because the frame does not store the
+  composite background). `apca` gains `wcag2_ratio` / `wcag2_passes` (the WCAG 2
+  piecewise-luminance ratio, distinct from APCA's straight-2.4 estimate), and
+  `Semantics::aria_role` makes the role vocabulary public. All additive — the
+  existing surface is byte-for-byte unchanged.

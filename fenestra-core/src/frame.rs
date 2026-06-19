@@ -160,6 +160,37 @@ pub struct AccessNode {
     pub children: Vec<AccessNode>,
 }
 
+/// One text node's legibility, measured on the real resolved colors and size —
+/// produced by [`Frame::legibility`]. Reports both the APCA `Lc` and the WCAG 2
+/// ratio against the floor each standard sets for the rendered size, so an agent
+/// can prove a screen is readable without looking at a single pixel.
+#[derive(Debug, Clone)]
+pub struct TextLegibility {
+    /// The text whose legibility this describes.
+    pub text: String,
+    /// Resolved foreground (text) color.
+    pub fg: crate::Color,
+    /// Effective background behind the text: the nearest solid ancestor fill,
+    /// or the window background when no ancestor fills.
+    pub bg: crate::Color,
+    /// Rendered size in logical pixels.
+    pub size_px: f32,
+    /// Numeric OpenType weight.
+    pub weight: f32,
+    /// Measured APCA `Lc` magnitude.
+    pub lc: f64,
+    /// The APCA `Lc` floor required at this size and weight.
+    pub required_lc: f64,
+    /// WCAG 2 contrast ratio.
+    pub wcag2: f64,
+    /// Whether the text clears its APCA floor.
+    pub passes_apca: bool,
+    /// Whether the text clears WCAG 2 AA at its size.
+    pub passes_wcag2: bool,
+    /// Layout rect of the text in logical pixels.
+    pub rect: Rect,
+}
+
 /// A static text payload borrowed from the frame (plain or rich).
 pub(crate) enum StaticText<'a> {
     Plain(&'a str),
@@ -1454,6 +1485,58 @@ impl Frame {
             root.children.push(project(&overlay.node));
         }
         root
+    }
+
+    /// Per-text-node legibility, measured on the resolved colors and sizes —
+    /// the data behind "prove this UI is legible". For every text run it reports
+    /// the APCA `Lc` against [`required_lc`](crate::required_lc) and the WCAG 2
+    /// ratio against the AA threshold, using the nearest solid ancestor fill (or
+    /// `window_bg`) as the background. Non-text nodes are skipped.
+    ///
+    /// `window_bg` is the color the frame is composited over (the theme
+    /// background); the frame does not store it, so the caller supplies it.
+    pub fn legibility(&self, window_bg: crate::Color) -> Vec<TextLegibility> {
+        fn walk(node: &FrameNode, inherited_bg: crate::Color, out: &mut Vec<TextLegibility>) {
+            let bg = solid_fill(&node.style).unwrap_or(inherited_bg);
+            let text_style = match &node.kind {
+                PaintKind::Text { text, style } => Some((text.clone(), style)),
+                PaintKind::Rich { spans, style } => Some((
+                    spans.iter().map(|s| s.text.as_str()).collect::<String>(),
+                    style,
+                )),
+                _ => None,
+            };
+            if let Some((text, style)) = text_style {
+                let fg = style.color;
+                let lc = crate::apca::lc_abs(fg, bg);
+                let required_lc = crate::apca::required_lc(style.px, style.weight);
+                let wcag2 = crate::apca::wcag2_ratio(fg, bg);
+                // WCAG large text: >= 24px (18pt), or >= 18.66px (14pt) bold.
+                let large = style.px >= 24.0 || (style.px >= 18.66 && style.weight >= 700.0);
+                out.push(TextLegibility {
+                    text,
+                    fg,
+                    bg,
+                    size_px: style.px,
+                    weight: style.weight,
+                    lc,
+                    required_lc,
+                    wcag2,
+                    passes_apca: lc >= required_lc,
+                    passes_wcag2: wcag2 >= if large { 3.0 } else { 4.5 },
+                    rect: node.rect,
+                });
+            }
+            for child in &node.children {
+                walk(child, bg, out);
+            }
+        }
+        let mut out = Vec::new();
+        walk(&self.root, window_bg, &mut out);
+        for overlay in &self.overlays {
+            walk(&overlay.node, window_bg, &mut out);
+        }
+        out
     }
 
     /// A human- and agent-readable dump of the built frame: one line per

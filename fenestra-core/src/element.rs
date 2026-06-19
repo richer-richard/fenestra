@@ -299,6 +299,16 @@ pub enum Semantics {
     Image,
 }
 
+impl Semantics {
+    /// The ARIA role word for this role (`"button"`, `"textbox"`, …) — the same
+    /// vocabulary [`Frame::access_yaml`](crate::Frame::access_yaml) emits. The
+    /// public name for a node's role, stable across versions.
+    #[must_use]
+    pub fn aria_role(&self) -> &'static str {
+        crate::query::role_name(self)
+    }
+}
+
 /// One styled run of a [`rich_text`] paragraph. Unset properties
 /// inherit the paragraph's text style.
 #[derive(Debug, Clone, PartialEq)]
