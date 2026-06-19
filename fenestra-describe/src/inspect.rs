@@ -4,7 +4,9 @@
 //! snapshots, and the accessibility report all live here; only pixels need the
 //! shell, one layer up.
 
-use fenestra_core::{AccessNode, Color, Fonts, Frame, FrameState, Semantics, Theme, build_frame};
+use fenestra_core::{
+    AccessNode, Color, Fonts, Frame, FrameState, Query, Semantics, Theme, build_frame, by,
+};
 use regex::Regex;
 use serde::Deserialize;
 
@@ -48,8 +50,15 @@ pub fn access_tree(
     theme: &Theme,
     size: (u32, u32),
 ) -> Result<AccessNodeDto, Vec<DescribeError>> {
-    let frame = build(desc, theme, size)?;
-    Ok(node_to_dto(&frame.access_tree(), &[]))
+    Ok(frame_access_tree(&build(desc, theme, size)?))
+}
+
+/// Converts a built frame's access tree to the typed DTO (with stable refs) —
+/// the frame-level primitive the cli engine uses to capture a tree after driving
+/// interactions on a live harness.
+#[must_use]
+pub fn frame_access_tree(frame: &Frame) -> AccessNodeDto {
+    node_to_dto(&frame.access_tree(), &[])
 }
 
 /// A semantic selector, mirroring the harness query vocabulary. All set
@@ -140,6 +149,45 @@ impl Selector {
             .or(self.name_contains.as_ref())
             .or(self.label_contains.as_ref())
             .map(|s| s.to_lowercase())
+    }
+
+    /// Builds a frame [`Query`] from this selector, for driving the harness.
+    /// Mirrors the harness query vocabulary: `role` (+ `name`) first, then
+    /// `label`, then `value`, then `id`.
+    ///
+    /// # Errors
+    /// An unknown role word, or an empty selector.
+    pub fn to_query(&self) -> Result<Query, String> {
+        let mut q = match self.role.as_deref() {
+            Some(role) => by::role(role_from_str(role)?),
+            None => match (&self.label, &self.label_contains) {
+                (Some(l), _) => by::label(l),
+                (None, Some(l)) => by::label_contains(l),
+                (None, None) => match (&self.value, &self.value_contains) {
+                    (Some(v), _) => by::value(v),
+                    (None, Some(v)) => by::value_contains(v),
+                    (None, None) => match &self.id {
+                        Some(id) => by::id(id),
+                        None => {
+                            return Err("empty selector: set role, label, value, or id".into());
+                        }
+                    },
+                },
+            },
+        };
+        if self.role.is_some() {
+            if let Some(l) = &self.label {
+                q = q.name(l);
+            } else if let Some(l) = &self.label_contains {
+                q = q.name_contains(l);
+            }
+        }
+        if let Some(n) = &self.name {
+            q = q.name(n);
+        } else if let Some(n) = &self.name_contains {
+            q = q.name_contains(n);
+        }
+        Ok(q)
     }
 }
 
@@ -514,4 +562,33 @@ fn collect_unlabeled(node: &AccessNodeDto, out: &mut Vec<AccessNodeDto>) {
 fn hex(c: Color) -> String {
     let p = c.to_rgba8();
     format!("#{:02x}{:02x}{:02x}", p.r, p.g, p.b)
+}
+
+/// Maps an ARIA role word to a `Semantics` (state-less; the query matches by
+/// role discriminant). Unknown words are reported, not silently ignored.
+fn role_from_str(role: &str) -> Result<Semantics, String> {
+    Ok(match role {
+        "button" => Semantics::Button,
+        "checkbox" => Semantics::Checkbox { checked: false },
+        "switch" => Semantics::Switch { on: false },
+        "radio" => Semantics::Radio { selected: false },
+        "slider" => Semantics::Slider {
+            value: 0.0,
+            min: 0.0,
+            max: 1.0,
+        },
+        "textbox" => Semantics::TextInput { multiline: false },
+        "combobox" => Semantics::ComboBox,
+        "dialog" => Semantics::Dialog,
+        "tab" => Semantics::Tab { selected: false },
+        "alert" => Semantics::Alert,
+        "text" => Semantics::Label,
+        "image" => Semantics::Image,
+        other => {
+            return Err(format!(
+                "unknown role {other:?} (expected button/checkbox/switch/radio/slider/\
+                 textbox/combobox/dialog/tab/alert/text/image)"
+            ));
+        }
+    })
 }
