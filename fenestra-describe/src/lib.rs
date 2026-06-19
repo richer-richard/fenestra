@@ -8,6 +8,7 @@
 //! GPU. Pixel rendering lives one layer up, in `fenestra-cli`.
 
 pub mod color;
+pub mod dto;
 pub mod error;
 pub mod format;
 pub mod parse;
