@@ -10,3 +10,4 @@
 pub mod color;
 pub mod error;
 pub mod format;
+pub mod parse;

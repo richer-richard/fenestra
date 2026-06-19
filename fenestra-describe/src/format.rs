@@ -191,19 +191,13 @@ pub struct RadioNode {
     pub fallback: Option<String>,
 }
 
-/// A numeric slider.
+/// A numeric slider over the normalized range `0.0..=1.0`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct SliderNode {
-    /// Current value.
+    /// Current value, `0.0..=1.0`.
     #[serde(default)]
     pub value: f32,
-    /// Range minimum (default `0.0`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min: Option<f32>,
-    /// Range maximum (default `1.0`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max: Option<f32>,
     /// Intent string emitted on change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_change: Option<String>,
