@@ -11,5 +11,6 @@ pub mod color;
 pub mod dto;
 pub mod error;
 pub mod format;
+pub mod inspect;
 pub mod parse;
 pub mod vocabulary;
