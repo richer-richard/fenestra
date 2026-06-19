@@ -1,0 +1,21 @@
+[package]
+name = "fenestra-mcp"
+description = "Model Context Protocol server exposing the fenestra GUI framework to AI agents"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fenestra-cli.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+image.workspace = true
+# rmcp, schemars, tokio are resolved to their latest releases at integration
+# in Phase 5 (Task 18), never pinned from memory.

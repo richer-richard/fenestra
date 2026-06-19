@@ -889,6 +889,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "fenestra-cli"
+version = "0.28.0"
+dependencies = [
+ "fenestra-describe",
+ "fenestra-shell",
+ "image",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fenestra-core"
 version = "0.28.0"
 dependencies = [
@@ -903,6 +914,18 @@ dependencies = [
  "serde_json",
  "taffy",
  "vello",
+]
+
+[[package]]
+name = "fenestra-describe"
+version = "0.28.0"
+dependencies = [
+ "fenestra-core",
+ "fenestra-kit",
+ "fenestra-shell",
+ "insta",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -932,6 +955,16 @@ dependencies = [
  "fenestra-core",
  "fenestra-shell",
  "pulldown-cmark",
+]
+
+[[package]]
+name = "fenestra-mcp"
+version = "0.28.0"
+dependencies = [
+ "fenestra-cli",
+ "image",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

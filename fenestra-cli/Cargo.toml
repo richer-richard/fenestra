@@ -1,0 +1,22 @@
+[package]
+name = "fenestra-cli"
+description = "Command-line renderer and verification harness for the fenestra GUI framework"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fenestra-describe.workspace = true
+fenestra-shell.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+image.workspace = true
+# clap (CLI binary) is resolved to its latest 4.x at integration in Phase 4
+# (Task 17), never pinned from memory.

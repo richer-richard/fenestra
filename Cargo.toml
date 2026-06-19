@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks"]
+members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks", "fenestra-describe", "fenestra-cli", "fenestra-mcp"]
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -20,6 +20,8 @@ unsafe_code = "forbid"
 fenestra-core = { version = "0.28.0", path = "fenestra-core" }
 fenestra-shell = { version = "0.28.0", path = "fenestra-shell" }
 fenestra-kit = { version = "0.28.0", path = "fenestra-kit" }
+fenestra-describe = { version = "0.28.0", path = "fenestra-describe" }
+fenestra-cli = { version = "0.28.0", path = "fenestra-cli" }
 
 winit = "0.30.13"
 wgpu = "29.0.3"
