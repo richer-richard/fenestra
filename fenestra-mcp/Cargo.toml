@@ -13,9 +13,16 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+fenestra-core.workspace = true
 fenestra-cli.workspace = true
+fenestra-describe.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 image.workspace = true
-# rmcp, schemars, tokio are resolved to their latest releases at integration
-# in Phase 5 (Task 18), never pinned from memory.
+# rmcp 1.7.0: `macros` + `server` are default; add stdio transport. schemars,
+# tokio, and base64 versions are pinned to what rmcp 1.7.0 resolves, so they
+# unify with its re-exports. (Resolved at integration, not from memory.)
+rmcp = { version = "1.7.0", features = ["transport-io"] }
+schemars = "1.2.1"
+tokio = { version = "1.52.3", features = ["rt-multi-thread", "macros"] }
+base64 = "0.22.1"
