@@ -6,3 +6,6 @@
 //! `fenestra-kit`, so parsing, the structural access tree, semantic
 //! queries, aria snapshots, and accessibility checks all run without a
 //! GPU. Pixel rendering lives one layer up, in `fenestra-cli`.
+
+pub mod error;
+pub mod format;
