@@ -13,4 +13,5 @@ pub mod error;
 pub mod format;
 pub mod inspect;
 pub mod parse;
+pub mod state;
 pub mod vocabulary;

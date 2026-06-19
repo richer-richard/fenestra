@@ -9,6 +9,7 @@ use fenestra_describe::error::DescribeError;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{self, Selector};
 use fenestra_describe::parse::to_element;
+use fenestra_describe::state::{Action, StateMap};
 use fenestra_shell::{Harness, render_element};
 use image::{Rgba, RgbaImage};
 use serde::Deserialize;
@@ -135,6 +136,8 @@ pub struct InteractOut {
     pub tree: AccessNodeDto,
     /// The rendered pixels after the steps, when requested.
     pub png: Option<RgbaImage>,
+    /// The runtime state after the steps (bound widgets' values reflect here).
+    pub state: StateMap,
 }
 
 /// Drives a description through scripted interactions on the headless harness,
@@ -159,10 +162,25 @@ pub fn interact(
     for (index, step) in steps.iter().enumerate() {
         apply_step(&mut h, step, index)?;
     }
-    let emitted = h.take_messages();
+    // Map the emitted actions: keep the inert author intents (the Elm-level
+    // signal); the framework-owned Set actions are already applied to the state.
+    let emitted = h
+        .take_messages()
+        .into_iter()
+        .filter_map(|a| match a {
+            Action::Intent(s) => Some(s),
+            Action::SetBool(..) | Action::SetText(..) | Action::SetNumber(..) => None,
+        })
+        .collect();
+    let state = h.app().state().clone();
     let tree = inspect::frame_access_tree(h.frame());
     let png = if want_png { Some(h.render()) } else { None };
-    Ok(InteractOut { emitted, tree, png })
+    Ok(InteractOut {
+        emitted,
+        tree,
+        png,
+        state,
+    })
 }
 
 /// Resolves a selector against the harness's current frame, returning a

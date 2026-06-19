@@ -1,31 +1,47 @@
-//! Parse a [`Description`] into an `Element<String>` — the same tree the
-//! builders produce, ready for the identical render and verification pipeline.
+//! Parse a [`Description`] into an `Element<Action>` — the same tree the builders
+//! produce, ready for the identical render and verification pipeline.
 //!
-//! The parser never panics on hostile input (clamp over panic): a color role it
-//! cannot resolve, or an alignment word it does not know, degrades to a sensible
-//! default and records a path-pointed [`DescribeError`] instead of failing the
-//! whole screen. Handlers become inert intent strings — the closure ignores the
-//! live event value and returns the author's fixed intent.
+//! Handlers carry an [`Action`]: an unbound widget emits an inert author
+//! [`Action::Intent`] (the original string), while a widget with `bind` emits a
+//! framework-owned state change (toggle a bool, set text, set a number) that the
+//! engine applies — no logic crosses the boundary. A bound widget also reads its
+//! displayed value from the runtime `state`, so typing and toggling reflect.
+//!
+//! The parser never panics on hostile input (clamp over panic): a color it cannot
+//! resolve, or an alignment word it does not know, degrades to a default and
+//! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
-use fenestra_core::{Color, Element, Theme, Weight, col, div, divider, row, spacer, stack, text};
+use fenestra_core::{Element, Theme, Weight, col, div, divider, row, spacer, stack, text};
 use fenestra_kit::{ButtonVariant, button, checkbox, radio, slider, switch, text_area, text_input};
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
-use crate::format::{Container, Description, Leaf, Node, SCHEMA_V1, Style, TextNode};
+use crate::format::{Container, Description, InputNode, Leaf, Node, SCHEMA_V1, Style, TextNode};
+use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
-/// Parses `desc` into an element, or the accumulated problems. Strict: any
-/// problem (a bad schema tag, an unresolvable color, an unknown alignment word)
-/// makes this return `Err` so an agent fixes the description before rendering.
-/// Use [`to_element_lenient`] to render the best-effort tree anyway.
+/// Parses `desc` into an element, or the accumulated problems, against the
+/// description's own initial `state`. Strict: any problem makes this return `Err`.
 ///
 /// # Errors
 /// A non-empty [`Vec`] of path-pointed [`DescribeError`]s.
 pub fn to_element(
     desc: &Description,
     theme: &Theme,
-) -> Result<Element<String>, Vec<DescribeError>> {
-    let (el, errors) = to_element_lenient(desc, theme);
+) -> Result<Element<Action>, Vec<DescribeError>> {
+    to_element_with(desc, theme, &desc.state)
+}
+
+/// Like [`to_element`], but renders bound widgets from an explicit runtime
+/// `state` (the engine passes the live state after each interaction).
+///
+/// # Errors
+/// A non-empty [`Vec`] of path-pointed [`DescribeError`]s.
+pub fn to_element_with(
+    desc: &Description,
+    theme: &Theme,
+    state: &StateMap,
+) -> Result<Element<Action>, Vec<DescribeError>> {
+    let (el, errors) = to_element_lenient_with(desc, theme, state);
     if errors.is_empty() {
         Ok(el)
     } else {
@@ -33,13 +49,21 @@ pub fn to_element(
     }
 }
 
-/// Like [`to_element`], but always returns a best-effort element alongside any
-/// problems, so a renderer can show the degraded UI with its warnings attached
-/// rather than refusing. This is the clamp-over-panic contract made visible.
+/// Best-effort parse against the description's own initial `state`, returning the
+/// element alongside any problems (the clamp-over-panic contract made visible).
 pub fn to_element_lenient(
     desc: &Description,
     theme: &Theme,
-) -> (Element<String>, Vec<DescribeError>) {
+) -> (Element<Action>, Vec<DescribeError>) {
+    to_element_lenient_with(desc, theme, &desc.state)
+}
+
+/// Best-effort parse against an explicit runtime `state`.
+pub fn to_element_lenient_with(
+    desc: &Description,
+    theme: &Theme,
+    state: &StateMap,
+) -> (Element<Action>, Vec<DescribeError>) {
     let mut errors = Vec::new();
     if desc.schema != SCHEMA_V1 {
         errors.push(DescribeError::new(
@@ -50,7 +74,7 @@ pub fn to_element_lenient(
             ),
         ));
     }
-    let el = node_to_element(&desc.root, theme, "root", &mut errors);
+    let el = node_to_element(&desc.root, theme, state, "root", &mut errors);
     (el, errors)
 }
 
@@ -59,14 +83,15 @@ pub fn to_element_lenient(
 fn node_to_element(
     node: &Node,
     theme: &Theme,
+    state: &StateMap,
     path: &str,
     errors: &mut Vec<DescribeError>,
-) -> Element<String> {
+) -> Element<Action> {
     match node {
-        Node::Row(c) => container(row(), c, theme, path, errors),
-        Node::Col(c) => container(col(), c, theme, path, errors),
-        Node::Div(c) => container(div(), c, theme, path, errors),
-        Node::Stack(c) => container(stack(), c, theme, path, errors),
+        Node::Row(c) => container(row(), c, theme, state, path, errors),
+        Node::Col(c) => container(col(), c, theme, state, path, errors),
+        Node::Div(c) => container(div(), c, theme, state, path, errors),
+        Node::Stack(c) => container(stack(), c, theme, state, path, errors),
         Node::Text(t) => text_node(t, theme, path, errors),
         Node::Divider(l) => leaf(divider(), l, theme, path, errors),
         Node::Spacer(l) => leaf(spacer(), l, theme, path, errors),
@@ -81,7 +106,7 @@ fn node_to_element(
                 }
             }
             if let Some(intent) = &b.on_click {
-                w = w.on_click(intent.clone());
+                w = w.on_click(Action::Intent(intent.clone()));
             }
             if b.disabled {
                 w = w.disabled(true);
@@ -92,12 +117,21 @@ fn node_to_element(
             w.into()
         }
         Node::Checkbox(c) => {
-            let mut w = checkbox(c.checked);
+            let checked = c
+                .bind
+                .as_ref()
+                .map_or(c.checked, |k| bound_bool(state, k, c.checked));
+            let mut w = checkbox(checked);
             if let Some(label) = &c.label {
                 w = w.label(label.clone());
             }
-            if let Some(intent) = &c.on_change {
-                w = w.on_toggle(intent.clone());
+            match &c.bind {
+                Some(key) => w = w.on_toggle(Action::SetBool(key.clone(), !checked)),
+                None => {
+                    if let Some(intent) = &c.on_change {
+                        w = w.on_toggle(Action::Intent(intent.clone()));
+                    }
+                }
             }
             if let Some(id) = &c.id {
                 w = w.id(id);
@@ -105,12 +139,18 @@ fn node_to_element(
             w.into()
         }
         Node::Switch(s) => {
-            let mut w = switch(s.on);
+            let on = s.bind.as_ref().map_or(s.on, |k| bound_bool(state, k, s.on));
+            let mut w = switch(on);
             if let Some(label) = &s.label {
                 w = w.label(label.clone());
             }
-            if let Some(intent) = &s.on_change {
-                w = w.on_toggle(intent.clone());
+            match &s.bind {
+                Some(key) => w = w.on_toggle(Action::SetBool(key.clone(), !on)),
+                None => {
+                    if let Some(intent) = &s.on_change {
+                        w = w.on_toggle(Action::Intent(intent.clone()));
+                    }
+                }
             }
             if let Some(id) = &s.id {
                 w = w.id(id);
@@ -123,7 +163,7 @@ fn node_to_element(
                 w = w.label(label.clone());
             }
             if let Some(intent) = &r.on_change {
-                w = w.on_select(intent.clone());
+                w = w.on_select(Action::Intent(intent.clone()));
             }
             if let Some(id) = &r.id {
                 w = w.id(id);
@@ -131,13 +171,25 @@ fn node_to_element(
             w.into()
         }
         Node::Slider(s) => {
-            let mut w = slider(s.value);
+            let value = s
+                .bind
+                .as_ref()
+                .map_or(s.value, |k| bound_number(state, k, s.value));
+            let mut w = slider(value);
             if let Some(step) = s.step {
                 w = w.step(step);
             }
-            if let Some(intent) = &s.on_change {
-                let intent = intent.clone();
-                w = w.on_change(move |_| intent.clone());
+            match &s.bind {
+                Some(key) => {
+                    let key = key.clone();
+                    w = w.on_change(move |v| Action::SetNumber(key.clone(), v));
+                }
+                None => {
+                    if let Some(intent) = &s.on_change {
+                        let intent = intent.clone();
+                        w = w.on_change(move |_| Action::Intent(intent.clone()));
+                    }
+                }
             }
             if let Some(id) = &s.id {
                 w = w.id(id);
@@ -145,13 +197,22 @@ fn node_to_element(
             w.into()
         }
         Node::TextInput(i) => {
-            let mut w = text_input(i.value.clone());
+            let value = input_value(i, state);
+            let mut w = text_input(value);
             if let Some(ph) = &i.placeholder {
                 w = w.placeholder(ph.clone());
             }
-            if let Some(intent) = &i.on_input {
-                let intent = intent.clone();
-                w = w.on_input(move |_| intent.clone());
+            match &i.bind {
+                Some(key) => {
+                    let key = key.clone();
+                    w = w.on_input(move |s| Action::SetText(key.clone(), s));
+                }
+                None => {
+                    if let Some(intent) = &i.on_input {
+                        let intent = intent.clone();
+                        w = w.on_input(move |_| Action::Intent(intent.clone()));
+                    }
+                }
             }
             if let Some(id) = &i.id {
                 w = w.id(id);
@@ -159,13 +220,22 @@ fn node_to_element(
             w.into()
         }
         Node::TextArea(i) => {
-            let mut w = text_area(i.value.clone());
+            let value = input_value(i, state);
+            let mut w = text_area(value);
             if let Some(ph) = &i.placeholder {
                 w = w.placeholder(ph.clone());
             }
-            if let Some(intent) = &i.on_input {
-                let intent = intent.clone();
-                w = w.on_input(move |_| intent.clone());
+            match &i.bind {
+                Some(key) => {
+                    let key = key.clone();
+                    w = w.on_input(move |s| Action::SetText(key.clone(), s));
+                }
+                None => {
+                    if let Some(intent) = &i.on_input {
+                        let intent = intent.clone();
+                        w = w.on_input(move |_| Action::Intent(intent.clone()));
+                    }
+                }
             }
             if let Some(id) = &i.id {
                 w = w.id(id);
@@ -175,23 +245,33 @@ fn node_to_element(
     }
 }
 
+/// The displayed value of an input: the bound state value, else the literal.
+fn input_value(i: &InputNode, state: &StateMap) -> String {
+    i.bind
+        .as_ref()
+        .map_or_else(|| i.value.clone(), |k| bound_text(state, k, &i.value))
+}
+
 /// Builds a container element: style, id, then recursively-mapped children.
 fn container(
-    base: Element<String>,
+    base: Element<Action>,
     c: &Container,
     theme: &Theme,
+    state: &StateMap,
     path: &str,
     errors: &mut Vec<DescribeError>,
-) -> Element<String> {
+) -> Element<Action> {
     let mut el = apply_style(base, &c.style, theme, path, errors);
     if let Some(id) = &c.id {
         el = el.id(id);
     }
-    let children: Vec<Element<String>> = c
+    let children: Vec<Element<Action>> = c
         .children
         .iter()
         .enumerate()
-        .map(|(i, child)| node_to_element(child, theme, &format!("{path}/children/{i}"), errors))
+        .map(|(i, child)| {
+            node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors)
+        })
         .collect();
     el.children(children)
 }
@@ -202,7 +282,7 @@ fn text_node(
     theme: &Theme,
     path: &str,
     errors: &mut Vec<DescribeError>,
-) -> Element<String> {
+) -> Element<Action> {
     let mut el = apply_style(text(t.content.clone()), &t.style, theme, path, errors);
     if let Some(id) = &t.id {
         el = el.id(id);
@@ -212,12 +292,12 @@ fn text_node(
 
 /// Builds a childless decorative element (divider, spacer).
 fn leaf(
-    base: Element<String>,
+    base: Element<Action>,
     l: &Leaf,
     theme: &Theme,
     path: &str,
     errors: &mut Vec<DescribeError>,
-) -> Element<String> {
+) -> Element<Action> {
     let mut el = apply_style(base, &l.style, theme, path, errors);
     if let Some(id) = &l.id {
         el = el.id(id);
@@ -228,12 +308,12 @@ fn leaf(
 /// Applies a style block to an element. Unresolvable colors and unknown
 /// alignment words degrade to a default and record a path-pointed error.
 fn apply_style(
-    mut el: Element<String>,
+    mut el: Element<Action>,
     style: &Style,
     theme: &Theme,
     path: &str,
     errors: &mut Vec<DescribeError>,
-) -> Element<String> {
+) -> Element<Action> {
     if let Some(v) = style.p {
         el = el.p(v);
     }
@@ -299,7 +379,7 @@ fn apply_style(
     }
     if let Some(spec) = &style.color {
         match resolve_color(spec, theme) {
-            Ok(c) => el = text_color(el, c),
+            Ok(c) => el = el.color(c),
             Err(e) => errors.push(relocate(e, format!("{path}/style/color"))),
         }
     }
@@ -310,11 +390,6 @@ fn apply_style(
         el = el.weight(weight_from(w));
     }
     el
-}
-
-/// Sets text color on an element.
-fn text_color(el: Element<String>, color: Color) -> Element<String> {
-    el.color(color)
 }
 
 /// Re-points an error to a precise path.
@@ -353,8 +428,7 @@ fn button_variant(name: &str) -> Result<ButtonVariant, String> {
 /// Validates a description's JSON without rendering. Structural problems
 /// (unknown fields, bad variant tags, type mismatches) come back path-pointed
 /// via `serde_path_to_error`; semantic problems (an unknown color role or
-/// alignment word) are caught by a dry parse against the default theme — the set
-/// of valid color roles is theme-independent, so the default theme suffices.
+/// alignment word) are caught by a dry parse against the default theme.
 ///
 /// # Errors
 /// A non-empty [`Vec`] of path-pointed [`DescribeError`]s.

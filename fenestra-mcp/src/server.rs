@@ -108,6 +108,7 @@ impl FenestraServer {
         let structured = json!({
             "emitted": out.emitted,
             "tree": out.tree,
+            "state": out.state,
             "full_resolution_png": full,
         });
         let text = format!(

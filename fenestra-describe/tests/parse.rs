@@ -4,9 +4,10 @@ use fenestra_core::{Element, Fonts, FrameState, Theme, build_frame, oklch};
 use fenestra_describe::color::{COLOR_ROLES, resolve_color};
 use fenestra_describe::format::{ColorSpec, Description, OklchColor};
 use fenestra_describe::parse::{to_element, to_element_lenient, validate};
+use fenestra_describe::state::Action;
 
 /// Builds a frame from an element and returns its aria snapshot (no GPU).
-fn light_yaml(el: &Element<String>) -> String {
+fn light_yaml(el: &Element<Action>) -> String {
     let mut fonts = Fonts::embedded();
     let mut state = FrameState::new();
     let frame = build_frame(
@@ -223,4 +224,25 @@ fn button_variant_and_slider_step() {
     )
     .unwrap();
     assert!(to_element(&d3, &t).is_ok());
+}
+
+#[test]
+fn bound_widget_renders_from_initial_state() {
+    let t = Theme::light();
+    // A bound checkbox reads its initial checked state from the `state` map.
+    let d: Description = serde_json::from_str(
+        r#"{"schema":"fenestra/1","state":{"agreed":true},"root":{"checkbox":{"bind":"agreed","label":"Agree"}}}"#,
+    )
+    .unwrap();
+    let el = to_element(&d, &t).unwrap();
+    assert!(
+        light_yaml(&el).contains("[checked]"),
+        "a bound checkbox should render its initial state"
+    );
+    // A bound input shows its initial state value.
+    let d2: Description = serde_json::from_str(
+        r#"{"schema":"fenestra/1","state":{"name":"Ada"},"root":{"text_input":{"bind":"name"}}}"#,
+    )
+    .unwrap();
+    assert!(light_yaml(&to_element(&d2, &t).unwrap()).contains("Ada"));
 }

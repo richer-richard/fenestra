@@ -45,8 +45,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "checkbox",
-        "Two-state checkbox.",
-        r#"{"checked":false,"label":"Accept"}"#,
+        "Two-state checkbox. `bind` a root `state` key for a framework-owned toggle.",
+        r#"{"checked":false,"label":"Accept","bind":"accepted"}"#,
     ),
     (
         "switch",
@@ -65,8 +65,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "text_input",
-        "Single-line text field.",
-        r#"{"value":"","placeholder":"Search"}"#,
+        "Single-line text field. `bind` a root `state` key so typing echoes back.",
+        r#"{"value":"","placeholder":"Search","bind":"query"}"#,
     ),
     (
         "text_area",

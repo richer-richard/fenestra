@@ -18,6 +18,8 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::state::StateMap;
+
 /// The only schema tag v1 accepts. Additive minor revisions keep this string;
 /// a breaking change would bump it.
 pub const SCHEMA_V1: &str = "fenestra/1";
@@ -35,6 +37,10 @@ pub struct Description {
     /// `fenestra-render` engine, not here, so this crate stays render-agnostic.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<serde_json::Value>,
+    /// Initial runtime state for declarative bindings (a widget's `bind`): keys
+    /// to JSON values (bool / number / string).
+    #[serde(default, skip_serializing_if = "StateMap::is_empty")]
+    pub state: StateMap,
 }
 
 /// One node in the tree. Externally tagged: each node object carries exactly
@@ -138,6 +144,9 @@ pub struct CheckboxNode {
     /// Checked state.
     #[serde(default)]
     pub checked: bool,
+    /// Bind the checked state to a `state` key (the framework toggles it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
     /// Accessible label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -159,6 +168,9 @@ pub struct SwitchNode {
     /// On state.
     #[serde(default)]
     pub on: bool,
+    /// Bind the on state to a `state` key (the framework toggles it).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
     /// Accessible label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
@@ -201,6 +213,9 @@ pub struct SliderNode {
     /// Current value, `0.0..=1.0`.
     #[serde(default)]
     pub value: f32,
+    /// Bind the value to a `state` key (the framework sets it on change).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
     /// Snap increment, e.g. `0.1` (continuous when unset).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub step: Option<f32>,
@@ -222,6 +237,9 @@ pub struct InputNode {
     /// Current text value.
     #[serde(default)]
     pub value: String,
+    /// Bind the value to a `state` key (the framework sets it as the user types).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
     /// Placeholder shown when empty.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub placeholder: Option<String>,
