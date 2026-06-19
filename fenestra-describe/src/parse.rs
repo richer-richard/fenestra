@@ -323,3 +323,30 @@ fn weight_from(w: u16) -> Weight {
         Weight::Semibold
     }
 }
+
+/// Validates a description's JSON without rendering. Structural problems
+/// (unknown fields, bad variant tags, type mismatches) come back path-pointed
+/// via `serde_path_to_error`; semantic problems (an unknown color role or
+/// alignment word) are caught by a dry parse against the default theme — the set
+/// of valid color roles is theme-independent, so the default theme suffices.
+///
+/// # Errors
+/// A non-empty [`Vec`] of path-pointed [`DescribeError`]s.
+pub fn validate(json: &str) -> Result<(), Vec<DescribeError>> {
+    let de = &mut serde_json::Deserializer::from_str(json);
+    let desc: Description = match serde_path_to_error::deserialize(de) {
+        Ok(desc) => desc,
+        Err(e) => {
+            return Err(vec![DescribeError::new(
+                e.path().to_string(),
+                e.inner().to_string(),
+            )]);
+        }
+    };
+    let (_, errors) = to_element_lenient(&desc, &Theme::light());
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}

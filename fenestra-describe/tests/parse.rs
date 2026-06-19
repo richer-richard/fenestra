@@ -3,7 +3,7 @@
 use fenestra_core::{Element, Fonts, FrameState, Theme, build_frame, oklch};
 use fenestra_describe::color::{COLOR_ROLES, resolve_color};
 use fenestra_describe::format::{ColorSpec, Description, OklchColor};
-use fenestra_describe::parse::{to_element, to_element_lenient};
+use fenestra_describe::parse::{to_element, to_element_lenient, validate};
 
 /// Builds a frame from an element and returns its aria snapshot (no GPU).
 fn light_yaml(el: &Element<String>) -> String {
@@ -157,4 +157,42 @@ fn text_input_exposes_value() {
     let yaml = light_yaml(&el);
     assert!(yaml.contains("textbox"), "{yaml}");
     assert!(yaml.contains("draft"), "{yaml}");
+}
+
+#[test]
+fn validate_accepts_valid() {
+    assert!(validate(r#"{"schema":"fenestra/1","root":{"col":{"children":[]}}}"#).is_ok());
+}
+
+#[test]
+fn validate_rejects_unknown_field_with_path() {
+    let errs = validate(r#"{"schema":"fenestra/1","root":{"col":{"kids":[]}}}"#)
+        .err()
+        .unwrap();
+    assert!(errs[0].message.contains("unknown field"), "{:?}", errs[0]);
+    assert!(
+        errs[0].path.contains("col") || errs[0].path.contains("root"),
+        "path should locate the node: {}",
+        errs[0].path
+    );
+}
+
+#[test]
+fn validate_rejects_bad_variant_tag() {
+    let errs = validate(r#"{"schema":"fenestra/1","root":{"frobnicate":{}}}"#)
+        .err()
+        .unwrap();
+    assert!(errs[0].message.contains("unknown variant"), "{:?}", errs[0]);
+}
+
+#[test]
+fn validate_catches_semantic_color_error() {
+    // Structurally valid JSON, but `taupe` is not a theme role.
+    let errs = validate(r#"{"schema":"fenestra/1","root":{"col":{"style":{"bg":"taupe"}}}}"#)
+        .err()
+        .unwrap();
+    assert!(
+        errs.iter().any(|e| e.path.contains("bg")),
+        "expected a bg-path error: {errs:?}"
+    );
 }

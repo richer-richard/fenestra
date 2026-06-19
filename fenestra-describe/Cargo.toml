@@ -17,6 +17,7 @@ fenestra-core.workspace = true
 fenestra-kit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error = "0.1.20"
 
 [dev-dependencies]
 fenestra-shell.workspace = true
