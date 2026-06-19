@@ -1,5 +1,5 @@
 //! The grammar [`describe_vocabulary`] advertises, generated from the one node
-//! registry the format documents. A coherence test renders every advertised
+//! registry the format documents. A coherence test builds every advertised
 //! node, so the vocabulary can never claim a node the engine cannot build.
 
 use serde::Serialize;
@@ -9,7 +9,7 @@ use crate::format::SCHEMA_V1;
 
 /// One node type's documentation: its tag, a one-line summary, and a minimal
 /// example body (the JSON value that follows the tag key).
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct NodeDoc {
     /// The externally-tagged variant key, e.g. `"button"`.
     pub tag: String,
@@ -20,7 +20,7 @@ pub struct NodeDoc {
 }
 
 /// The full grammar an agent can request to learn the format up front.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct Vocabulary {
     /// The schema tag every description must carry.
     pub schema: String,
@@ -50,8 +50,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "switch",
-        "On/off switch.",
-        r#"{"on":false,"label":"Wi-Fi"}"#,
+        "On/off switch. `bind` a root `state` key for a framework-owned toggle.",
+        r#"{"on":false,"label":"Wi-Fi","bind":"wifi"}"#,
     ),
     (
         "radio",
@@ -60,8 +60,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "slider",
-        "Numeric slider over 0.0..=1.0 with an optional `step`.",
-        r#"{"value":0.5,"step":0.1}"#,
+        "Numeric slider over 0.0..=1.0 with an optional `step`. `bind` a root `state` key so dragging updates it.",
+        r#"{"value":0.5,"step":0.1,"bind":"volume"}"#,
     ),
     (
         "text_input",
@@ -70,8 +70,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "text_area",
-        "Multi-line text field.",
-        r#"{"value":"","placeholder":"Notes"}"#,
+        "Multi-line text field. `bind` a root `state` key so typing echoes back.",
+        r#"{"value":"","placeholder":"Notes","bind":"notes"}"#,
     ),
     ("divider", "Themed hairline rule.", r#"{}"#),
     ("spacer", "Flexible empty space.", r#"{}"#),

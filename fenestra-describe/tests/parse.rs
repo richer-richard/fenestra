@@ -227,6 +227,40 @@ fn button_variant_and_slider_step() {
 }
 
 #[test]
+fn non_finite_size_px_is_rejected_and_render_is_safe() {
+    let t = Theme::light();
+    // 1e300 parses as f64 then overflows f32 to +inf; a non-finite font size
+    // panics parley's line breaker. validate() must reject it up front, and a
+    // lenient parse must degrade so building a frame never panics.
+    let json =
+        r#"{"schema":"fenestra/1","root":{"text":{"content":"x","style":{"size_px":1e300}}}}"#;
+    let d: Description = serde_json::from_str(json).unwrap();
+    let (el, errs) = to_element_lenient(&d, &t);
+    // Degraded: the bad size is dropped and an error is recorded.
+    assert!(
+        errs.iter().any(|e| e.path.contains("size_px")),
+        "lenient parse should record the bad size_px: {errs:?}"
+    );
+    let _ = light_yaml(&el); // must not panic on a non-finite font size
+    // Strict validate rejects it with a path-pointed error.
+    let verrs = validate(json).expect_err("non-finite size_px must be rejected");
+    assert!(
+        verrs.iter().any(|e| e.path.contains("size_px")),
+        "{verrs:?}"
+    );
+}
+
+#[test]
+fn out_of_range_oklch_is_rejected() {
+    // Lightness -5 is outside the 0..=1 OKLCH range; the escape hatch must not
+    // bless a degenerate (possibly NaN) color that validate() calls valid.
+    let json =
+        r#"{"schema":"fenestra/1","root":{"div":{"style":{"bg":{"oklch":[-5.0,0.0,0.0]}}}}}"#;
+    let verrs = validate(json).expect_err("out-of-range oklch must be rejected");
+    assert!(verrs.iter().any(|e| e.path.contains("bg")), "{verrs:?}");
+}
+
+#[test]
 fn bound_widget_renders_from_initial_state() {
     let t = Theme::light();
     // A bound checkbox reads its initial checked state from the `state` map.

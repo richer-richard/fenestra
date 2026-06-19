@@ -39,11 +39,28 @@ pub const COLOR_ROLES: &[&str] = &[
 /// Resolves `spec` to a concrete color against `theme`.
 ///
 /// # Errors
-/// A [`DescribeError`] when a role name is not one of [`COLOR_ROLES`].
+/// A [`DescribeError`] when a role name is not one of [`COLOR_ROLES`], or when an
+/// `oklch` triple is out of range (lightness outside `0..=1`, negative chroma, or
+/// any non-finite component) — which would otherwise yield a degenerate or `NaN`
+/// color the renderer cannot reason about.
 pub fn resolve_color(spec: &ColorSpec, theme: &Theme) -> Result<Color, DescribeError> {
     match spec {
         ColorSpec::Oklch(o) => {
             let [l, c, h] = o.oklch;
+            if !(l.is_finite()
+                && (0.0..=1.0).contains(&l)
+                && c.is_finite()
+                && c >= 0.0
+                && h.is_finite())
+            {
+                return Err(DescribeError::new(
+                    "color",
+                    format!(
+                        "oklch out of range: lightness {l} must be in 0..=1, chroma {c} must be \
+                         finite and >= 0, hue {h} must be finite"
+                    ),
+                ));
+            }
             Ok(oklch(l, c, h))
         }
         ColorSpec::Role(name) => role_color(name, theme).ok_or_else(|| {

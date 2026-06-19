@@ -319,8 +319,9 @@ pub struct Style {
     pub weight: Option<u16>,
 }
 
-/// A color reference: a theme role name, or an explicit OKLCH triple. Raw hex
-/// is intentionally not representable — colors come from the theme.
+/// A color reference: a theme role name, or an explicit OKLCH triple. A raw hex
+/// string is not a known role, so it is rejected at color resolution — colors
+/// come from the theme, never an arbitrary literal.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ColorSpec {

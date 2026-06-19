@@ -314,25 +314,39 @@ fn apply_style(
     path: &str,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
-    if let Some(v) = style.p {
+    if let Some(v) = style.p
+        && finite_num(v, path, "p", errors)
+    {
         el = el.p(v);
     }
-    if let Some(v) = style.px {
+    if let Some(v) = style.px
+        && finite_num(v, path, "px", errors)
+    {
         el = el.px(v);
     }
-    if let Some(v) = style.py {
+    if let Some(v) = style.py
+        && finite_num(v, path, "py", errors)
+    {
         el = el.py(v);
     }
-    if let Some(v) = style.gap {
+    if let Some(v) = style.gap
+        && finite_num(v, path, "gap", errors)
+    {
         el = el.gap(v);
     }
-    if let Some(v) = style.w {
+    if let Some(v) = style.w
+        && finite_num(v, path, "w", errors)
+    {
         el = el.w(v);
     }
-    if let Some(v) = style.h {
+    if let Some(v) = style.h
+        && finite_num(v, path, "h", errors)
+    {
         el = el.h(v);
     }
-    if let Some(v) = style.rounded {
+    if let Some(v) = style.rounded
+        && finite_num(v, path, "rounded", errors)
+    {
         el = el.rounded(v);
     }
     if let Some(spec) = &style.bg {
@@ -343,7 +357,11 @@ fn apply_style(
     }
     if let Some(border) = &style.border {
         match resolve_color(&border.color, theme) {
-            Ok(c) => el = el.border(border.width, c),
+            Ok(c) => {
+                if finite_num(border.width, path, "border/width", errors) {
+                    el = el.border(border.width, c);
+                }
+            }
             Err(e) => errors.push(relocate(e, format!("{path}/style/border/color"))),
         }
     }
@@ -384,12 +402,39 @@ fn apply_style(
         }
     }
     if let Some(v) = style.size_px {
-        el = el.size_px(v);
+        if v.is_finite() && v > 0.0 && v <= MAX_FONT_PX {
+            el = el.size_px(v);
+        } else {
+            errors.push(DescribeError::new(
+                format!("{path}/style/size_px"),
+                format!("size_px must be a finite number in 0..={MAX_FONT_PX}; got {v}"),
+            ));
+        }
     }
     if let Some(w) = style.weight {
         el = el.weight(weight_from(w));
     }
     el
+}
+
+/// Largest font size, in logical pixels, a description may request. A larger or
+/// non-finite size is an authoring error and would force the text layout into a
+/// pathological slow path, so the boundary rejects it rather than render it.
+const MAX_FONT_PX: f32 = 4096.0;
+
+/// Accepts a finite style length; a non-finite (`NaN`/`±∞`) value is an authoring
+/// error, so it records a path-pointed error and returns `false` (the caller then
+/// skips applying it, degrading rather than rendering nonsense).
+fn finite_num(v: f32, path: &str, field: &str, errors: &mut Vec<DescribeError>) -> bool {
+    if v.is_finite() {
+        true
+    } else {
+        errors.push(DescribeError::new(
+            format!("{path}/style/{field}"),
+            format!("{field} must be a finite number; got {v}"),
+        ));
+        false
+    }
 }
 
 /// Re-points an error to a precise path.

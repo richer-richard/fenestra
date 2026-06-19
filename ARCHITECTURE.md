@@ -1813,28 +1813,63 @@ render, query, and assert a UI over one stable boundary.
   description-parser libFuzzer target was run (1.9M executions, no panics).
 
 The within-track-A roadmap is static+intent → declarative state → full builder
-parity. v1 ships **static + intent**; these are deliberately deferred with a
-design recorded here, because each is a focused increment rather than a tail-end
-addition, and rushing them would erode the boundary's guarantees.
+parity. As of 0.31, **declarative state** and the **MCP output contract** have
+shipped; the design that was recorded here as deferred is now the implementation.
 
-- **Declarative state (the Elm wall).** Handlers are inert strings, so v1 has no
-  app state: typing emits an intent but the rendered value does not echo (a
-  bound checkbox would not reflect a toggle). The clean design keeps logic out of
-  the JSON: a root `state` map plus a per-widget `bind: "key"`, where the
-  framework owns the transition (toggle a bool, set an input's text) — no
-  expressions cross the boundary. This needs an `Action` message type
-  (`Intent(String)` | `Set(key, value)`) threaded through the parser, the
-  `DescribedApp`, and `interact`, which is a breaking change to the just-published
-  `to_element` signature — hence its own increment, not a cram. (An alternative,
-  echoing the core editor buffer into the access tree, was rejected: it would
-  change `fenestra-core`'s input model for *every* app, not just descriptions.)
-- **MCP `outputSchema`.** Deferred deliberately: rmcp derives a tool's output
-  schema only from a `Json<T>` return, which the visual tools (render/interact/
-  match — they carry an image) cannot use, and `validate` needs `isError`. The
-  tools already return the typed value as `structuredContent`; forcing `Json<T>`
-  would fragment the rich-content design for a partial, four-of-eight gain.
-- **Full-resolution image as a `resource_link`.** The full-res PNG is written to
-  a temp file and its path returned in the structured result; a true MCP
-  `resource_link` needs a `resources/read` handler, which suits *persistent*
-  resources, not a one-shot render. Temp-path (or the inline downscaled preview)
-  is the right fit; revisited only if a persistent-artifact use case appears.
+- **Declarative state (the Elm wall) — shipped 0.31.** Logic stays out of the
+  JSON: a root `state` map plus a per-widget `bind: "key"`, where the framework
+  owns the transition (toggle a bool, set an input's text, set a slider number)
+  — no expressions cross the boundary. An `Action` message type
+  (`Intent(String)` | `SetBool/SetText/SetNumber(key, value)`) is threaded
+  through the parser (now returning `Element<Action>`), `DescribedApp` (which
+  owns the runtime state map and applies `Set*` in `update`), and `interact`
+  (whose result now carries the post-interaction `state`). The breaking
+  `to_element` change was absorbed with `_with(state)` variants so most call
+  sites kept the simple form. An unbound handler still emits an inert `Intent`
+  (observed via `take_messages`, not applied); only a `bind` writes state. Radio
+  remains intent-only (group semantics, no single bound key). (The rejected
+  alternative — echoing the core editor buffer into the access tree — would have
+  changed `fenestra-core`'s input model for *every* app, not just descriptions.)
+- **MCP `outputSchema` — shipped 0.31.** The four assertion tools (`query_ui`,
+  `check_a11y`, `match_aria_snapshot`, `describe_vocabulary`) return rmcp
+  `Json<T>`, so rmcp derives a formal `outputSchema` from the describe DTOs
+  (which now derive `schemars::JsonSchema`). The three image-bearing tools
+  (render/interact/match_screenshot) and `validate` still return a rich
+  `CallToolResult` (image + `structuredContent`, or `isError`): rmcp cannot
+  derive a schema *and* carry image content from a single return, so this is a
+  deliberate, documented split, not an omission.
+- **Full-resolution image as a `resource_link` — shipped 0.31.** The full-res
+  PNG is written to a temp file and returned as a `Content::resource_link`
+  (a `file://` URI, mime `image/png`) next to the inline downscaled preview, so a
+  large image never bloats the response yet stays one fetch away. The temp
+  footprint is bounded: each process keeps at most the last 64 renders on disk
+  (older files are removed as new ones are written). The link is local-only by
+  design — the shipped transport is stdio, so a same-machine client resolves the
+  path; a networked transport would rely on the inline preview instead.
+
+**0.31 hardening (adversarial review).** A bounded fan-out review of the new
+crates surfaced one real DoS and several validation gaps, all fixed with
+regression tests:
+
+- **Non-finite / enormous font size hung the text layout (the real find).** A
+  `size_px` of `∞` / `NaN` / `f32::MAX` made parley's line breaker spin forever
+  on wrapping text (its per-glyph advance arithmetic overflows and never fits a
+  line) — a worse failure than a panic for a long-lived MCP server. Fixed in
+  `fenestra-core`: `resolve_text` (and the rich-span size path) now clamp font
+  size to a finite `0..=4096`, mirroring the existing `clamp_advance` for wrap
+  width, so *every* fenestra app is protected, not only descriptions.
+- **`validate()` now rejects what would render badly.** The describe boundary
+  validated structure and color roles but not style *numbers*: a non-finite
+  dimension/border width, an out-of-range `size_px`, or an out-of-gamut `oklch`
+  (lightness outside `0..=1`, negative chroma, or a non-finite component) passed
+  `validate()` then rendered as garbage. All are now path-pointed errors, so
+  "valid" means "renders sanely" — the boundary's core promise.
+- **Deferred (defense-in-depth, not reachable today).** The parser owns no
+  explicit recursion-depth guard; a pathologically deep `Description` is bounded
+  upstream by serde_json's default 128-level deserialization limit (and the MCP
+  transport bounds the incoming `Value`), so no live entry point can overflow. A
+  self-owned depth bound on the public `to_element` is a future hardening item.
+  Minor declarative-state foot-guns (a `bind` co-existing with an intent handler
+  silently prefers the bind; an out-of-range *initial* slider value in `state`
+  reads back un-normalized until first interaction; `SetNumber` widens f32 to
+  f64 in the returned state JSON) are recorded as known low-severity behaviors.

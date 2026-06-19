@@ -24,9 +24,12 @@ binary.
 - `match_screenshot` — compare against a baseline image.
 - `validate` — validate a description without rendering.
 
-Each tool leads with a typed structured result; the visual tools also attach a
-downscaled preview image, and write the full-resolution PNG to a temp file whose
-path is returned in the structured result.
+Each tool leads with a typed structured result — the four assertion tools
+(`query_ui`, `check_a11y`, `match_aria_snapshot`, `describe_vocabulary`) carry a
+formal `outputSchema` so a client knows the result shape up front. The visual
+tools also attach a downscaled preview image and a `resource_link` to the
+full-resolution PNG (a `file://` temp path), so a large image never bloats the
+response yet stays one fetch away.
 
 ## License
 

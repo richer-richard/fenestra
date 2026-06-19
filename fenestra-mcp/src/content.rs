@@ -1,25 +1,29 @@
 //! Building MCP results: lead with a typed `structuredContent` value and a text
-//! serialization, then attach a *downscaled* preview image (the full-resolution
-//! PNG is written to a temp file and its path returned, so a large image never
-//! bloats every response as base64).
+//! serialization, attach a *downscaled* inline preview image, and add a
+//! `resource_link` to the full-resolution PNG (a `file://` temp path) so a large
+//! image never bloats every response as base64 yet stays one fetch away.
 
 use std::io::Cursor;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use base64::Engine as _;
 use image::{ImageFormat, RgbaImage};
-use rmcp::model::{CallToolResult, Content};
+use rmcp::model::{CallToolResult, Content, RawResource};
 use serde_json::Value;
 
 /// Longest-edge cap, in pixels, for the inline (token-cheap) preview image.
 const PREVIEW_CAP: u32 = 768;
 
 /// A successful result: a text serialization, the structured value as
-/// `structuredContent`, and an optional inline downscaled preview image.
+/// `structuredContent`, and (when an image is given) a downscaled inline preview
+/// plus a `resource_link` to the full-resolution PNG.
 pub fn ok(text: String, structured: Value, image: Option<&RgbaImage>) -> CallToolResult {
     let mut content = vec![Content::text(text)];
     if let Some(png) = image {
         content.push(inline_image(png));
+        if let Some(link) = full_res_link(png) {
+            content.push(link);
+        }
     }
     let mut result = CallToolResult::success(content);
     result.structured_content = Some(structured);
@@ -64,12 +68,31 @@ fn inline_image(png: &RgbaImage) -> Content {
     Content::image(b64, "image/png")
 }
 
-/// Writes the full-resolution PNG to a unique temp file; returns its path, or
-/// `None` if the write fails (the preview still goes back inline).
-pub fn save_full(png: &RgbaImage) -> Option<String> {
+/// How many full-resolution temp PNGs to retain per process. Each render writes
+/// one; we delete the file from `KEEP_FULL_RES` renders ago, so a long-lived
+/// server session keeps at most this many on disk instead of leaking unbounded.
+/// A client would have to lag this many renders behind to miss a file it still
+/// wants — implausible for a synchronous agent.
+const KEEP_FULL_RES: u64 = 64;
+
+/// Writes the full-resolution PNG to a unique temp file and returns a
+/// `resource_link` content block pointing at it (a `file://` URI), or `None` if
+/// the write fails (the inline preview still goes back).
+fn full_res_link(png: &RgbaImage) -> Option<Content> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("fenestra-mcp-{}-{n}.png", std::process::id()));
+    let dir = std::env::temp_dir();
+    let pid = std::process::id();
+    let path = dir.join(format!("fenestra-mcp-{pid}-{n}.png"));
     png.save(&path).ok()?;
-    Some(path.to_string_lossy().into_owned())
+    // Bound the temp footprint: drop the render from KEEP_FULL_RES calls ago.
+    if let Some(old) = n.checked_sub(KEEP_FULL_RES) {
+        let _ = std::fs::remove_file(dir.join(format!("fenestra-mcp-{pid}-{old}.png")));
+    }
+    let mut resource = RawResource::new(
+        format!("file://{}", path.display()),
+        "full-resolution-render.png",
+    );
+    resource.mime_type = Some("image/png".to_string());
+    Some(Content::resource_link(resource))
 }

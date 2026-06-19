@@ -43,6 +43,23 @@ fn clamp_advance(max_advance: Option<f32>) -> Option<f32> {
     max_advance.and_then(|w| w.is_finite().then(|| w.clamp(0.0, 1.0e9)))
 }
 
+/// The largest font size, in logical pixels, that we shape. A non-finite or
+/// enormous size makes parley's line breaker spin forever (its per-glyph advance
+/// arithmetic overflows toward infinity and never fits a line); no real UI needs
+/// a glyph taller than this, so the ceiling is a safe guard, not a limitation.
+const MAX_FONT_PX: f32 = 4096.0;
+
+/// Clamps a requested font size to a finite, sane range. A non-finite request
+/// falls back to `fallback` (the role's token size); a finite one is clamped to
+/// `0.0..=MAX_FONT_PX`. Mirrors [`clamp_advance`] for the wrap width.
+fn sane_font_px(px: f32, fallback: f32) -> f32 {
+    if px.is_finite() {
+        px.clamp(0.0, MAX_FONT_PX)
+    } else {
+        fallback
+    }
+}
+
 /// Word count of the last line's source text — the orphan predicate for
 /// [`prettify`].
 fn last_line_word_count(layout: &Layout<LayoutBrush>, text: &str) -> usize {
@@ -170,7 +187,7 @@ pub(crate) struct ResolvedText {
 
 /// Resolves the text style group against the theme and size tokens.
 pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
-    let px = ts.size_px.unwrap_or_else(|| ts.size.px());
+    let px = sane_font_px(ts.size_px.unwrap_or_else(|| ts.size.px()), ts.size.px());
     ResolvedText {
         px,
         weight: ts.weight.value(),
@@ -552,6 +569,8 @@ impl Fonts {
                 );
             }
             if let Some(px) = span.size_px {
+                // A span size bypasses `resolve_text`, so guard it here too.
+                let px = sane_font_px(px, style.px);
                 builder.push(StyleProperty::FontSize(px), range.clone());
                 // Under Auto, re-track this span's `opsz` to its own size so a
                 // large display span and small body span in one paragraph each

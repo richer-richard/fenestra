@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 
 /// A node's layout rectangle in logical pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct Bounds {
     /// Left edge.
     pub x: f64,
@@ -19,7 +19,7 @@ pub struct Bounds {
 }
 
 /// One node of the typed access tree — the agent's primary view of a UI.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccessNodeDto {
     /// Stable reference for `query`/`interact`: the node's key when set, else a
     /// structural path like `/0/2/1`.
@@ -49,7 +49,7 @@ pub struct AccessNodeDto {
 }
 
 /// The result of a `query`: exact matches, plus the nearest candidates on a miss.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct QueryResult {
     /// Nodes matching the selector, in tree order.
     pub matches: Vec<AccessNodeDto>,
@@ -59,7 +59,7 @@ pub struct QueryResult {
 }
 
 /// One contrast shortfall between a theme text/background role pair.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct ContrastDto {
     /// The role pair that fell short, e.g. `"text_muted on surface_raised"`.
     pub pair: String,
@@ -70,7 +70,7 @@ pub struct ContrastDto {
 }
 
 /// Per-text-node legibility, measured on the real resolved colors and sizes.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct LegibilityDto {
     /// The text whose legibility this describes.
     pub text: String,
@@ -97,7 +97,7 @@ pub struct LegibilityDto {
 }
 
 /// The accessibility report: theme contrast, labeling, and per-node legibility.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct A11yReport {
     /// True when the theme reports no contrast violations — its calibrated
     /// legibility contract. See `node_legibility` for the strict per-node detail.
@@ -114,7 +114,7 @@ pub struct A11yReport {
 }
 
 /// The result of an aria-snapshot match: pass/fail plus a readable line diff.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AriaDiff {
     /// Whether the actual tree matched the expected snapshot.
     pub ok: bool,

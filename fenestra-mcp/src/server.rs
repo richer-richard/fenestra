@@ -9,14 +9,18 @@
 
 use fenestra_core::Theme;
 use fenestra_describe as describe;
+use fenestra_describe::dto::{A11yReport, AriaDiff, QueryResult};
 use fenestra_describe::error::DescribeError;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{self, AriaMode, Selector};
+use fenestra_describe::vocabulary::Vocabulary;
 use fenestra_render::engine::{self, EngineError, Step};
 use fenestra_render::resolve_theme;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{ServerCapabilities, ServerInfo};
-use rmcp::{ErrorData, ServerHandler, model::CallToolResult, tool, tool_handler, tool_router};
+use rmcp::{
+    ErrorData, Json, ServerHandler, model::CallToolResult, tool, tool_handler, tool_router,
+};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -37,7 +41,7 @@ impl FenestraServer {
 
     #[tool(
         name = "render_ui",
-        description = "Render a fenestra/1 UI description to a typed accessibility tree, a downscaled preview image, and automatic accessibility warnings (contrast, labeling, per-text-node legibility). Read the access tree first; the full-resolution PNG path is in the structured result."
+        description = "Render a fenestra/1 UI description to a typed accessibility tree, a downscaled preview image, and automatic accessibility warnings (contrast, labeling, per-text-node legibility). Read the access tree first; the full-resolution PNG comes back as a resource_link."
     )]
     async fn render_ui(
         &self,
@@ -49,11 +53,9 @@ impl FenestraServer {
         let out = blocking(move || engine::render(&desc, &theme, size))
             .await?
             .map_err(engine_err)?;
-        let full = content::save_full(&out.png);
         let structured = json!({
             "tree": out.tree,
             "warnings": out.warnings,
-            "full_resolution_png": full,
         });
         let text = format!(
             "{}\n\nlegible: {} · unlabeled controls: {} · contrast violations: {}",
@@ -72,19 +74,14 @@ impl FenestraServer {
     async fn query_ui(
         &self,
         Parameters(p): Parameters<QueryParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<Json<QueryResult>, ErrorData> {
         let desc = parse_desc(&p.description)?;
         let theme = theme_of(p.theme.as_ref())?;
         let size = parse_size(p.size.as_deref())?;
         let selector: Selector = serde_json::from_value(p.selector.clone())
             .map_err(|e| ErrorData::invalid_params(format!("invalid selector: {e}"), None))?;
         let result = inspect::query(&desc, &theme, size, &selector).map_err(map_parse)?;
-        let text = format!(
-            "{} match(es), {} nearest candidate(s)",
-            result.matches.len(),
-            result.nearest.len()
-        );
-        Ok(content::ok(text, to_value(&result), None))
+        Ok(Json(result))
     }
 
     #[tool(
@@ -104,12 +101,10 @@ impl FenestraServer {
         let out = blocking(move || engine::interact(&desc, &theme, size, &steps, want_png))
             .await?
             .map_err(engine_err)?;
-        let full = out.png.as_ref().and_then(content::save_full);
         let structured = json!({
             "emitted": out.emitted,
             "tree": out.tree,
             "state": out.state,
-            "full_resolution_png": full,
         });
         let text = format!(
             "emitted: {:?}\n\n{}",
@@ -126,19 +121,12 @@ impl FenestraServer {
     async fn check_a11y(
         &self,
         Parameters(p): Parameters<CheckParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<Json<A11yReport>, ErrorData> {
         let desc = parse_desc(&p.description)?;
         let theme = theme_of(p.theme.as_ref())?;
         let size = parse_size(p.size.as_deref())?;
         let report = inspect::check_a11y(&desc, &theme, size).map_err(map_parse)?;
-        let text = format!(
-            "legible: {} · unlabeled: {} · contrast violations: {} · text nodes measured: {}",
-            report.legible,
-            report.unlabeled.len(),
-            report.contrast_violations.len(),
-            report.node_legibility.len(),
-        );
-        Ok(content::ok(text, to_value(&report), None))
+        Ok(Json(report))
     }
 
     #[tool(
@@ -148,7 +136,7 @@ impl FenestraServer {
     async fn match_aria_snapshot(
         &self,
         Parameters(p): Parameters<MatchAriaParams>,
-    ) -> Result<CallToolResult, ErrorData> {
+    ) -> Result<Json<AriaDiff>, ErrorData> {
         let desc = parse_desc(&p.description)?;
         let theme = theme_of(p.theme.as_ref())?;
         let size = parse_size(p.size.as_deref())?;
@@ -165,12 +153,7 @@ impl FenestraServer {
         };
         let diff =
             inspect::match_aria(&desc, &theme, size, &p.expected, mode).map_err(map_parse)?;
-        let text = if diff.ok {
-            "match".to_string()
-        } else {
-            format!("mismatch:\n{}", diff.diff)
-        };
-        Ok(content::ok(text, to_value(&diff), None))
+        Ok(Json(diff))
     }
 
     #[tool(
@@ -198,14 +181,12 @@ impl FenestraServer {
         })
         .await?
         .map_err(engine_err)?;
-        let diff_path = diff.diff_png.as_ref().and_then(content::save_full);
         let structured = json!({
             "ok": diff.ok,
             "differing": diff.differing,
             "total": diff.total,
             "max_delta": diff.max_delta,
             "worst": [diff.worst.0, diff.worst.1],
-            "diff_png": diff_path,
         });
         let text = format!(
             "{}: {}/{} pixels differ (max channel delta {})",
@@ -221,14 +202,8 @@ impl FenestraServer {
         name = "describe_vocabulary",
         description = "Return the description grammar: every node type with a minimal example, and the theme color roles a color may name. Call this first to learn how to author a fenestra/1 description."
     )]
-    async fn describe_vocabulary(&self) -> Result<CallToolResult, ErrorData> {
-        let vocab = describe::vocabulary::describe_vocabulary();
-        let text = format!(
-            "{} node types, {} color roles",
-            vocab.nodes.len(),
-            vocab.color_roles.len()
-        );
-        Ok(content::ok(text, to_value(&vocab), None))
+    async fn describe_vocabulary(&self) -> Json<Vocabulary> {
+        Json(describe::vocabulary::describe_vocabulary())
     }
 
     #[tool(
@@ -302,6 +277,7 @@ struct RenderParams {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 struct QueryParams {
+    /// The UI description: a `fenestra/1` JSON object.
     description: Value,
     /// Selector: `{"role":"button","name":"Add"}` (role/name/value/id).
     selector: Value,
@@ -313,6 +289,7 @@ struct QueryParams {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 struct InteractParams {
+    /// The UI description: a `fenestra/1` JSON object.
     description: Value,
     /// An array of interaction steps, e.g. `[{"click":{"role":"button","name":"Add"}}]`.
     steps: Value,
@@ -327,6 +304,7 @@ struct InteractParams {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 struct CheckParams {
+    /// The UI description: a `fenestra/1` JSON object.
     description: Value,
     #[serde(default)]
     size: Option<String>,
@@ -336,6 +314,7 @@ struct CheckParams {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 struct MatchAriaParams {
+    /// The UI description: a `fenestra/1` JSON object.
     description: Value,
     /// The expected aria snapshot.
     expected: String,
@@ -350,6 +329,7 @@ struct MatchAriaParams {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 struct MatchScreenshotParams {
+    /// The UI description: a `fenestra/1` JSON object.
     description: Value,
     /// Path to the baseline PNG on disk.
     baseline_path: String,
@@ -367,6 +347,7 @@ struct MatchScreenshotParams {
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
 struct ValidateParams {
+    /// The UI description: a `fenestra/1` JSON object.
     description: Value,
 }
 
@@ -442,11 +423,6 @@ fn errs_to_value(errs: &[DescribeError]) -> Value {
     )
 }
 
-/// Serializes a DTO to a JSON value (DTOs always serialize).
-fn to_value<T: serde::Serialize>(value: &T) -> Value {
-    serde_json::to_value(value).unwrap_or(Value::Null)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +454,24 @@ mod tests {
         // Every tool advertises an input schema object.
         for t in &tools {
             assert!(!t.input_schema.is_empty(), "{} has no input schema", t.name);
+        }
+        // The typed (Json<T>) tools advertise an output schema, so a client knows
+        // the shape of the structured result before calling.
+        let with_output: Vec<&str> = tools
+            .iter()
+            .filter(|t| t.output_schema.is_some())
+            .map(|t| t.name.as_ref())
+            .collect();
+        for expected in [
+            "query_ui",
+            "check_a11y",
+            "match_aria_snapshot",
+            "describe_vocabulary",
+        ] {
+            assert!(
+                with_output.contains(&expected),
+                "{expected} should advertise an output schema; have {with_output:?}"
+            );
         }
     }
 
@@ -525,7 +519,18 @@ mod tests {
             structured.get("tree").is_some(),
             "tree is in the structured result"
         );
-        assert!(r.content.len() >= 2, "a text block and a preview image");
+        assert!(
+            r.content.len() >= 3,
+            "a text block, an inline preview, and a full-res resource_link"
+        );
+        // The full-resolution render comes back as a resource_link, not base64.
+        let link = r
+            .content
+            .iter()
+            .find_map(|c| c.as_resource_link())
+            .expect("a resource_link to the full-resolution PNG");
+        assert!(link.uri.starts_with("file://"), "uri: {}", link.uri);
+        assert_eq!(link.mime_type.as_deref(), Some("image/png"));
     }
 
     #[tokio::test]

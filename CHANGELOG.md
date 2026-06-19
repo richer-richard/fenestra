@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.31.0 — 2026-06-19
+
+Closes the two deferred phase-2 increments — declarative state and the MCP output
+contract — and hardens the boundary from an adversarial review. Additive
+throughout; every existing golden is byte-identical.
+
+### Added
+
+- **Declarative state (the Elm wall is gone).** A `Description` may carry a root
+  `state` map, and a widget may `bind` a state key. The framework owns the
+  transition — a bound checkbox/switch toggles, a bound input echoes typed text,
+  a bound slider updates its number — with no logic in the JSON. `interact` now
+  returns the post-interaction `state`. Unbound handlers still emit inert intent
+  strings. `describe_vocabulary` advertises `bind` on every bindable widget.
+- **MCP `outputSchema`.** `query_ui`, `check_a11y`, `match_aria_snapshot`, and
+  `describe_vocabulary` return a typed result with a formal `outputSchema`
+  (derived from the describe DTOs, which now derive `schemars::JsonSchema`), so a
+  client knows the result shape before calling.
+- **Full-resolution render as a `resource_link`.** Visual tools attach the
+  full-res PNG as an MCP `resource_link` (a `file://` URI) next to the inline
+  downscaled preview, instead of a bare path in the structured result. Per-process
+  temp files are bounded to the last 64 renders.
+
+### Fixed
+
+- **Text layout no longer hangs on a pathological font size.** A non-finite or
+  enormous `size_px` (`∞`, `NaN`, `f32::MAX`) made the line breaker spin forever
+  on wrapping text; `fenestra-core` now clamps font size to a finite range, so
+  every app is protected.
+- **`validate()` rejects out-of-range style numbers.** A non-finite dimension or
+  border width, an out-of-range `size_px`, or an out-of-gamut `oklch` (lightness
+  outside `0..=1`, negative chroma, or a non-finite component) is now a
+  path-pointed error instead of silently rendering garbage.
+
 ## 0.30.0 — 2026-06-19
 
 ### Added

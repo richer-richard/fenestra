@@ -95,3 +95,25 @@ fn ime_preedit_with_out_of_range_cursor_does_not_panic() {
     let _ = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 60.0), 1.0);
     let _ = text::<()>("still alive");
 }
+
+/// A non-finite or enormous font size hangs parley's line breaker (its advance
+/// arithmetic overflows toward infinity and never fits a line). `resolve_text`
+/// clamps the size to a finite, sane range; reaching the end of this test —
+/// rather than spinning forever — is the assertion.
+#[test]
+fn pathological_font_size_does_not_hang_layout() {
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    // Wrapping text in a narrow column is what exercises the line breaker.
+    let phrase = "the quick brown fox jumps over the lazy dog repeatedly";
+    for size in [f32::INFINITY, f32::MAX, f32::NAN, 1.0e30, -8.0] {
+        let view: Element<()> = col().w(120.0).children([text(phrase).size_px(size)]);
+        let frame = build_frame(&view, &theme, &mut fonts, &mut state, (120.0, 200.0), 1.0);
+        // It must still produce an accessible tree (degraded, not hung/panicked).
+        assert!(
+            frame.access_yaml().contains("quick"),
+            "size {size} should still lay out the text"
+        );
+    }
+}
