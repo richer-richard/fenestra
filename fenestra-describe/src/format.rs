@@ -32,7 +32,7 @@ pub struct Description {
     pub root: Node,
     /// Optional theme recipe: a `fenestra_core::ThemeSpec` JSON object, or a
     /// preset selector `{ "preset": "light" | "dark" }`. Resolved by the
-    /// `fenestra-cli` engine, not here, so this crate stays render-agnostic.
+    /// `fenestra-render` engine, not here, so this crate stays render-agnostic.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub theme: Option<serde_json::Value>,
 }

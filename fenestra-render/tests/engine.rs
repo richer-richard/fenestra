@@ -2,11 +2,11 @@
 //! after-tree, self-explaining misses), and match_screenshot (tolerance + masks).
 //! These exercise the render path, so they need a GPU.
 
-use fenestra_cli::engine::EngineError;
-use fenestra_cli::{Step, interact, match_screenshot, render, resolve_theme};
 use fenestra_describe::dto::{AccessNodeDto, Bounds};
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::Selector;
+use fenestra_render::engine::EngineError;
+use fenestra_render::{Step, interact, match_screenshot, render, resolve_theme};
 
 const FORM: &str = r#"{"schema":"fenestra/1","root":{"col":{"children":[
     {"button":{"label":"Add","on_click":"add"}},

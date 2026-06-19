@@ -1780,7 +1780,7 @@ render, query, and assert a UI over one stable boundary.
 - **Three new crates.** `fenestra-describe` (windowless: core + kit) owns the
   `Description` format, the `to_element` parser, the output DTOs, and the
   *structural* engine (access tree / query / aria snapshot / a11y) built on
-  `build_frame` — no GPU needed. `fenestra-cli` adds the *pixel/stateful* engine
+  `build_frame` — no GPU needed. `fenestra-render` adds the *pixel/stateful* engine
   (render to PNG, `interact` via `Harness`, screenshot match) and the `fenestra`
   binary. `fenestra-mcp` is a thin MCP server over the cli engine.
 - **Format rules.** Schema-tagged (`"fenestra/1"`) from day one; every struct is

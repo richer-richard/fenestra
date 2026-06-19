@@ -1,5 +1,5 @@
 [package]
-name = "fenestra-cli"
+name = "fenestra-render"
 description = "Command-line renderer and verification harness for the fenestra GUI framework"
 version.workspace = true
 edition.workspace = true

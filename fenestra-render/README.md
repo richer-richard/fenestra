@@ -1,4 +1,4 @@
-# fenestra-cli
+# fenestra-render
 
 The command-line renderer and verification harness for
 [fenestra](https://github.com/richer-richard/fenestra): render a UI described as
@@ -8,7 +8,7 @@ baselines.
 ## Install
 
 ```sh
-cargo install fenestra-cli   # installs the `fenestra` binary
+cargo install fenestra-render   # installs the `fenestra` binary
 ```
 
 ## Subcommands

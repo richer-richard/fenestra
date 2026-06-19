@@ -7,13 +7,13 @@
 //! error; a *verification mismatch* (a failed aria/screenshot/a11y check) is a
 //! normal successful result the agent reads — not an error.
 
-use fenestra_cli::engine::{self, EngineError, Step};
-use fenestra_cli::resolve_theme;
 use fenestra_core::Theme;
 use fenestra_describe as describe;
 use fenestra_describe::error::DescribeError;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{self, AriaMode, Selector};
+use fenestra_render::engine::{self, EngineError, Step};
+use fenestra_render::resolve_theme;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{ServerCapabilities, ServerInfo};
 use rmcp::{ErrorData, ServerHandler, model::CallToolResult, tool, tool_handler, tool_router};

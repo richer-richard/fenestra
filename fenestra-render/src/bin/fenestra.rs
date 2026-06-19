@@ -10,13 +10,13 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use fenestra_cli::engine::{Step, interact, match_screenshot, render};
-use fenestra_cli::resolve_theme;
 use fenestra_core::Theme;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{AriaMode, Selector, check_a11y, match_aria, query};
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
+use fenestra_render::engine::{Step, interact, match_screenshot, render};
+use fenestra_render::resolve_theme;
 use serde_json::json;
 
 #[derive(Parser)]
@@ -449,7 +449,7 @@ fn err(message: &str) -> ExitCode {
 }
 
 /// Reports an engine error and returns the error exit code.
-fn fail(e: &fenestra_cli::engine::EngineError) -> ExitCode {
+fn fail(e: &fenestra_render::engine::EngineError) -> ExitCode {
     eprintln!("{e}");
     ExitCode::from(EXIT_ERROR)
 }

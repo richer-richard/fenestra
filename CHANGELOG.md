@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.29.0 — 2026-06-19
+## 0.29.1 — 2026-06-19
 
 A serialized boundary for describing and verifying UIs as JSON — with a CLI and
 an MCP server — plus the per-text-node legibility primitives they read. Additive
@@ -16,10 +16,10 @@ throughout: every existing golden is byte-identical.
   tree, semantic `query` (with nearest-candidates on a miss), `aria_snapshot` +
   `match_aria` (partial / strict / regex), `check_a11y`, path-pointed `validate`,
   and a self-coherent `describe_vocabulary`.
-- **`fenestra-cli`** — the `fenestra` binary: `render`, `query`, `interact`,
+- **`fenestra-render`** — the `fenestra` binary: `render`, `query`, `interact`,
   `check`, `match-aria`, `match-png`, `vocabulary`, and `validate` subcommands,
   reading a description from a path or stdin and emitting JSON (`cargo install
-  fenestra-cli`).
+  fenestra-render`).
 - **`fenestra-mcp`** — a Model Context Protocol server (over stdio) exposing the
   same eight operations as tools, so an AI assistant can build, render, query,
   and assert native UIs (`cargo install fenestra-mcp`).
