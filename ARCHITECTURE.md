@@ -1800,3 +1800,41 @@ render, query, and assert a UI over one stable boundary.
   piecewise-luminance ratio, distinct from APCA's straight-2.4 estimate), and
   `Semantics::aria_role` makes the role vocabulary public. All additive — the
   existing surface is byte-for-byte unchanged.
+- **Crate rename (0.29.1).** The CLI crate published as `fenestra-render`, not
+  `fenestra-cli`: that name was already taken on crates.io by an unrelated
+  project. The installed binary is still `fenestra`; only the crate / `cargo
+  install` name changed.
+
+### Description format follow-ups + deferred phase-2
+
+- **0.29.1 → 0.30 additions.** Button `variant` (primary / secondary / ghost /
+  danger) and slider `step` are now in the format (additive optional fields,
+  mapped to the kit builders, surfaced in `describe_vocabulary`). The
+  description-parser libFuzzer target was run (1.9M executions, no panics).
+
+The within-track-A roadmap is static+intent → declarative state → full builder
+parity. v1 ships **static + intent**; these are deliberately deferred with a
+design recorded here, because each is a focused increment rather than a tail-end
+addition, and rushing them would erode the boundary's guarantees.
+
+- **Declarative state (the Elm wall).** Handlers are inert strings, so v1 has no
+  app state: typing emits an intent but the rendered value does not echo (a
+  bound checkbox would not reflect a toggle). The clean design keeps logic out of
+  the JSON: a root `state` map plus a per-widget `bind: "key"`, where the
+  framework owns the transition (toggle a bool, set an input's text) — no
+  expressions cross the boundary. This needs an `Action` message type
+  (`Intent(String)` | `Set(key, value)`) threaded through the parser, the
+  `DescribedApp`, and `interact`, which is a breaking change to the just-published
+  `to_element` signature — hence its own increment, not a cram. (An alternative,
+  echoing the core editor buffer into the access tree, was rejected: it would
+  change `fenestra-core`'s input model for *every* app, not just descriptions.)
+- **MCP `outputSchema`.** Deferred deliberately: rmcp derives a tool's output
+  schema only from a `Json<T>` return, which the visual tools (render/interact/
+  match — they carry an image) cannot use, and `validate` needs `isError`. The
+  tools already return the typed value as `structuredContent`; forcing `Json<T>`
+  would fragment the rich-content design for a partial, four-of-eight gain.
+- **Full-resolution image as a `resource_link`.** The full-res PNG is written to
+  a temp file and its path returned in the structured result; a true MCP
+  `resource_link` needs a `resources/read` handler, which suits *persistent*
+  resources, not a one-shot render. Temp-path (or the inline downscaled preview)
+  is the right fit; revisited only if a persistent-artifact use case appears.

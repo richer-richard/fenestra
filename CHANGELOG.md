@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.30.0 — 2026-06-19
+
+### Added
+
+- **Description format**: button `variant` (primary / secondary / ghost / danger)
+  and slider `step` — additive optional fields, mapped to the kit builders and
+  surfaced in `describe_vocabulary`.
+
+The `fenestra-describe` parser's libFuzzer target was run (1.9M executions, no
+panics on hostile JSON). Declarative state (value echo / the Elm wall), MCP
+`outputSchema`, and a full-resolution `resource_link` are deferred to focused
+phase-2 increments — see ARCHITECTURE.md for the designs and rationale.
+
 ## 0.29.1 — 2026-06-19
 
 A serialized boundary for describing and verifying UIs as JSON — with a CLI and
