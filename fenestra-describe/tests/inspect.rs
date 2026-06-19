@@ -4,7 +4,9 @@
 use fenestra_core::Theme;
 use fenestra_describe::dto::AccessNodeDto;
 use fenestra_describe::format::Description;
-use fenestra_describe::inspect::{Selector, access_tree, query};
+use fenestra_describe::inspect::{
+    AriaMode, Selector, access_tree, aria_snapshot, check_a11y, match_aria, query,
+};
 
 const FORM: &str = r#"{"schema":"fenestra/1","root":{"col":{"children":[
     {"button":{"label":"Add","on_click":"add"}},
@@ -74,4 +76,117 @@ fn empty_selector_is_rejected() {
         &Selector::default(),
     );
     assert!(res.is_err());
+}
+
+#[test]
+fn aria_snapshot_and_partial_and_strict() {
+    let d = desc(FORM);
+    let snap = aria_snapshot(&d, &Theme::light(), (400, 300)).unwrap();
+    assert!(snap.contains(r#"button "Add""#), "{snap}");
+
+    // Partial: a subset of lines matches.
+    let partial = match_aria(
+        &d,
+        &Theme::light(),
+        (400, 300),
+        r#"- button "Add""#,
+        AriaMode::Partial,
+    )
+    .unwrap();
+    assert!(partial.ok, "{}", partial.diff);
+
+    // Strict: one line is not the whole tree.
+    let strict = match_aria(
+        &d,
+        &Theme::light(),
+        (400, 300),
+        r#"- button "Add""#,
+        AriaMode::Strict,
+    )
+    .unwrap();
+    assert!(!strict.ok);
+    assert!(!strict.diff.is_empty());
+}
+
+#[test]
+fn aria_regex_match() {
+    let d = desc(FORM);
+    let ok = match_aria(
+        &d,
+        &Theme::light(),
+        (400, 300),
+        r#"- button "A\w+""#,
+        AriaMode::Regex,
+    )
+    .unwrap();
+    assert!(ok.ok, "{}", ok.diff);
+    let miss = match_aria(
+        &d,
+        &Theme::light(),
+        (400, 300),
+        r#"- button "Z\w+""#,
+        AriaMode::Regex,
+    )
+    .unwrap();
+    assert!(!miss.ok);
+    // An invalid pattern is a reported error, not a panic.
+    let bad = match_aria(
+        &d,
+        &Theme::light(),
+        (400, 300),
+        "- button (",
+        AriaMode::Regex,
+    );
+    assert!(bad.is_err());
+}
+
+#[test]
+fn check_a11y_clean_form_is_labeled_and_legible() {
+    let report = check_a11y(&desc(FORM), &Theme::light(), (400, 300)).unwrap();
+    assert!(
+        report.unlabeled.is_empty(),
+        "button + checkbox are labeled: {:?}",
+        report.unlabeled
+    );
+    assert!(
+        !report.node_legibility.is_empty(),
+        "the labels should be measured"
+    );
+    assert!(
+        report.legible,
+        "the default theme renders legibly: {report:?}"
+    );
+}
+
+#[test]
+fn check_a11y_flags_unlabeled_button() {
+    let d = desc(r#"{"schema":"fenestra/1","root":{"button":{"label":""}}}"#);
+    let report = check_a11y(&d, &Theme::light(), (300, 120)).unwrap();
+    assert_eq!(
+        report.unlabeled.len(),
+        1,
+        "an empty-label button is unlabeled"
+    );
+    assert_eq!(report.unlabeled[0].role, "button");
+}
+
+#[test]
+fn node_legibility_catches_custom_low_contrast() {
+    // A custom near-invisible text color (not a theme role): the theme's contrast
+    // contract cannot see it, but per-node legibility measures it as it renders.
+    let d = desc(
+        r#"{"schema":"fenestra/1","root":{"col":{"style":{"bg":{"oklch":[0.97,0.0,0.0]}},"children":[
+            {"text":{"content":"ghost","style":{"color":{"oklch":[0.95,0.0,0.0]}}}}
+        ]}}}"#,
+    );
+    let report = check_a11y(&d, &Theme::light(), (300, 120)).unwrap();
+    let ghost = report
+        .node_legibility
+        .iter()
+        .find(|l| l.text == "ghost")
+        .expect("the text was measured");
+    assert!(
+        !ghost.passes_apca,
+        "custom low-contrast text should fail strict APCA: {ghost:?}"
+    );
 }

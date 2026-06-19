@@ -99,7 +99,8 @@ pub struct LegibilityDto {
 /// The accessibility report: theme contrast, labeling, and per-node legibility.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct A11yReport {
-    /// True when there are no contrast violations and every text node is legible.
+    /// True when the theme reports no contrast violations — its calibrated
+    /// legibility contract. See `node_legibility` for the strict per-node detail.
     pub legible: bool,
     /// Theme role pairs that fall short of their APCA floor.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]

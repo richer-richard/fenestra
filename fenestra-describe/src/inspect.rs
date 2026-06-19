@@ -4,10 +4,13 @@
 //! snapshots, and the accessibility report all live here; only pixels need the
 //! shell, one layer up.
 
-use fenestra_core::{AccessNode, Fonts, Frame, FrameState, Semantics, Theme, build_frame};
+use fenestra_core::{AccessNode, Color, Fonts, Frame, FrameState, Semantics, Theme, build_frame};
+use regex::Regex;
 use serde::Deserialize;
 
-use crate::dto::{AccessNodeDto, Bounds, QueryResult};
+use crate::dto::{
+    A11yReport, AccessNodeDto, AriaDiff, Bounds, ContrastDto, LegibilityDto, QueryResult,
+};
 use crate::error::DescribeError;
 use crate::format::Description;
 use crate::parse::to_element;
@@ -276,4 +279,239 @@ fn flatten(node: &AccessNodeDto, out: &mut Vec<AccessNodeDto>) {
     for child in &node.children {
         flatten(child, out);
     }
+}
+
+// ----------------------------------------------------------- aria snapshots
+
+/// The aria snapshot of a description — Playwright's `- role "name" [attr]`
+/// grammar, deterministic and signal-dense. Lock it with a snapshot test, or
+/// match an expected shape against it with [`match_aria`].
+///
+/// # Errors
+/// The parse errors when the description does not parse cleanly.
+pub fn aria_snapshot(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+) -> Result<String, Vec<DescribeError>> {
+    Ok(build(desc, theme, size)?.access_yaml())
+}
+
+/// How an expected aria snapshot is matched against the actual one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AriaMode {
+    /// Every expected line appears in the actual snapshot, in order; extra
+    /// actual lines are ignored. The default — robust to unrelated changes.
+    #[default]
+    Partial,
+    /// The snapshots are identical, line for line (indentation included).
+    Strict,
+    /// Each expected line is a regular expression, matched in order against the
+    /// actual lines. The aria grammar's `[...]` and `"..."` are literal text, so
+    /// escape brackets (`\[`, `\]`) when matching attributes.
+    Regex,
+}
+
+/// Matches an expected aria snapshot against the description's actual one.
+///
+/// # Errors
+/// The parse errors when the description does not parse, or (in [`AriaMode::Regex`])
+/// an invalid regular expression in `expected`.
+pub fn match_aria(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+    expected: &str,
+    mode: AriaMode,
+) -> Result<AriaDiff, Vec<DescribeError>> {
+    let actual = aria_snapshot(desc, theme, size)?;
+    match mode {
+        AriaMode::Strict => Ok(strict_diff(expected, &actual)),
+        AriaMode::Partial => Ok(literal_subsequence_diff(expected, &actual)),
+        AriaMode::Regex => regex_subsequence_diff(expected, &actual).map_err(|e| vec![e]),
+    }
+}
+
+/// Non-empty lines with trailing whitespace trimmed (leading indent kept).
+fn snapshot_lines(s: &str) -> Vec<&str> {
+    s.lines()
+        .map(str::trim_end)
+        .filter(|l| !l.trim().is_empty())
+        .collect()
+}
+
+/// Strict line-for-line comparison (indentation significant).
+fn strict_diff(expected: &str, actual: &str) -> AriaDiff {
+    let exp = snapshot_lines(expected);
+    let act = snapshot_lines(actual);
+    if exp == act {
+        return AriaDiff {
+            ok: true,
+            diff: String::new(),
+        };
+    }
+    let mut diff = String::new();
+    for i in 0..exp.len().max(act.len()) {
+        let e = exp.get(i).copied().unwrap_or_default();
+        let a = act.get(i).copied().unwrap_or_default();
+        if e == a {
+            diff.push_str(&format!("  {a}\n"));
+        } else {
+            if !e.is_empty() {
+                diff.push_str(&format!("- {e}\n"));
+            }
+            if !a.is_empty() {
+                diff.push_str(&format!("+ {a}\n"));
+            }
+        }
+    }
+    AriaDiff { ok: false, diff }
+}
+
+/// Subsequence match with literal line equality.
+fn literal_subsequence_diff(expected: &str, actual: &str) -> AriaDiff {
+    let exp: Vec<&str> = snapshot_lines(expected)
+        .into_iter()
+        .map(str::trim)
+        .collect();
+    let act: Vec<&str> = snapshot_lines(actual).into_iter().map(str::trim).collect();
+    let mut cursor = 0;
+    let mut missing = Vec::new();
+    for e in &exp {
+        match act[cursor..].iter().position(|a| a == e) {
+            Some(off) => cursor += off + 1,
+            None => missing.push((*e).to_string()),
+        }
+    }
+    finish_subsequence(&missing, &act, "lines not found")
+}
+
+/// Subsequence match where each expected line is a regular expression.
+fn regex_subsequence_diff(expected: &str, actual: &str) -> Result<AriaDiff, DescribeError> {
+    let exp: Vec<&str> = snapshot_lines(expected)
+        .into_iter()
+        .map(str::trim)
+        .collect();
+    let act: Vec<&str> = snapshot_lines(actual).into_iter().map(str::trim).collect();
+    let mut cursor = 0;
+    let mut missing = Vec::new();
+    for e in &exp {
+        let re = Regex::new(e)
+            .map_err(|err| DescribeError::new("expected", format!("invalid regex {e:?}: {err}")))?;
+        match act[cursor..].iter().position(|a| re.is_match(a)) {
+            Some(off) => cursor += off + 1,
+            None => missing.push((*e).to_string()),
+        }
+    }
+    Ok(finish_subsequence(&missing, &act, "patterns not matched"))
+}
+
+/// Builds the `AriaDiff` from a subsequence match's missing lines.
+fn finish_subsequence(missing: &[String], act: &[&str], kind: &str) -> AriaDiff {
+    if missing.is_empty() {
+        return AriaDiff {
+            ok: true,
+            diff: String::new(),
+        };
+    }
+    let mut diff = format!("expected {kind} (in order):\n");
+    for m in missing {
+        diff.push_str(&format!("- {m}\n"));
+    }
+    diff.push_str("\nactual:\n");
+    for a in act {
+        diff.push_str(&format!("  {a}\n"));
+    }
+    AriaDiff { ok: false, diff }
+}
+
+// ------------------------------------------------------------- a11y report
+
+/// Interactive roles that must carry an accessible name.
+const INTERACTIVE_ROLES: &[&str] = &[
+    "button", "checkbox", "switch", "radio", "slider", "textbox", "combobox", "tab",
+];
+
+/// The accessibility report: theme contrast, labeling, and per-node legibility,
+/// all from the real resolved render — the evidence that a screen is readable
+/// and every control is named, with no pixels required.
+///
+/// # Errors
+/// The parse errors when the description does not parse cleanly.
+pub fn check_a11y(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+) -> Result<A11yReport, Vec<DescribeError>> {
+    let frame = build(desc, theme, size)?;
+    let tree = node_to_dto(&frame.access_tree(), &[]);
+
+    let contrast_violations: Vec<ContrastDto> = theme
+        .contrast_report()
+        .iter()
+        .map(|v| ContrastDto {
+            pair: v.pair.clone(),
+            measured_lc: v.measured_lc,
+            required_lc: v.required_lc,
+        })
+        .collect();
+
+    let mut unlabeled = Vec::new();
+    collect_unlabeled(&tree, &mut unlabeled);
+
+    let node_legibility: Vec<LegibilityDto> = frame
+        .legibility(theme.bg)
+        .iter()
+        .map(|l| LegibilityDto {
+            text: l.text.clone(),
+            fg: hex(l.fg),
+            bg: hex(l.bg),
+            size_px: l.size_px,
+            weight: l.weight,
+            lc: l.lc,
+            required_lc: l.required_lc,
+            wcag2: l.wcag2,
+            passes_apca: l.passes_apca,
+            passes_wcag2: l.passes_wcag2,
+            bounds: Bounds {
+                x: l.rect.x0,
+                y: l.rect.y0,
+                w: l.rect.width(),
+                h: l.rect.height(),
+            },
+        })
+        .collect();
+
+    // The overall verdict follows the theme's calibrated contrast contract — the
+    // same `validate_contrast` proof shipped Looks assert, which uses a relaxed
+    // floor for filled-control labels. `node_legibility` below carries the strict
+    // per-node APCA/WCAG2 detail (body-text floor) for finer inspection, so a
+    // marginal control-label miss does not flip the whole screen to illegible.
+    let legible = contrast_violations.is_empty();
+
+    Ok(A11yReport {
+        legible,
+        contrast_violations,
+        unlabeled,
+        node_legibility,
+    })
+}
+
+/// Collects interactive nodes that lack an accessible name.
+fn collect_unlabeled(node: &AccessNodeDto, out: &mut Vec<AccessNodeDto>) {
+    let interactive = INTERACTIVE_ROLES.contains(&node.role.as_str());
+    let named = node.name.as_deref().is_some_and(|n| !n.trim().is_empty());
+    if interactive && !named {
+        out.push(flat(node));
+    }
+    for child in &node.children {
+        collect_unlabeled(child, out);
+    }
+}
+
+/// Formats a color as `#rrggbb`.
+fn hex(c: Color) -> String {
+    let p = c.to_rgba8();
+    format!("#{:02x}{:02x}{:02x}", p.r, p.g, p.b)
 }
