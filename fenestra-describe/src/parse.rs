@@ -8,7 +8,7 @@
 //! live event value and returns the author's fixed intent.
 
 use fenestra_core::{Color, Element, Theme, Weight, col, div, divider, row, spacer, stack, text};
-use fenestra_kit::{button, checkbox, radio, slider, switch, text_area, text_input};
+use fenestra_kit::{ButtonVariant, button, checkbox, radio, slider, switch, text_area, text_input};
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
@@ -72,6 +72,14 @@ fn node_to_element(
         Node::Spacer(l) => leaf(spacer(), l, theme, path, errors),
         Node::Button(b) => {
             let mut w = button(b.label.clone());
+            if let Some(name) = &b.variant {
+                match button_variant(name) {
+                    Ok(variant) => w = w.variant(variant),
+                    Err(message) => {
+                        errors.push(DescribeError::new(format!("{path}/variant"), message));
+                    }
+                }
+            }
             if let Some(intent) = &b.on_click {
                 w = w.on_click(intent.clone());
             }
@@ -124,6 +132,9 @@ fn node_to_element(
         }
         Node::Slider(s) => {
             let mut w = slider(s.value);
+            if let Some(step) = s.step {
+                w = w.step(step);
+            }
             if let Some(intent) = &s.on_change {
                 let intent = intent.clone();
                 w = w.on_change(move |_| intent.clone());
@@ -322,6 +333,21 @@ fn weight_from(w: u16) -> Weight {
     } else {
         Weight::Semibold
     }
+}
+
+/// Maps a button-variant name to the kit variant.
+fn button_variant(name: &str) -> Result<ButtonVariant, String> {
+    Ok(match name {
+        "primary" => ButtonVariant::Primary,
+        "secondary" => ButtonVariant::Secondary,
+        "ghost" => ButtonVariant::Ghost,
+        "danger" => ButtonVariant::Danger,
+        other => {
+            return Err(format!(
+                "unknown button variant {other:?}; expected primary|secondary|ghost|danger"
+            ));
+        }
+    })
 }
 
 /// Validates a description's JSON without rendering. Structural problems

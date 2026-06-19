@@ -117,6 +117,9 @@ pub struct ButtonNode {
     /// Intent string emitted on click.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_click: Option<String>,
+    /// Visual emphasis: `primary` (default) | `secondary` | `ghost` | `danger`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant: Option<String>,
     /// Whether the button is disabled.
     #[serde(default)]
     pub disabled: bool,
@@ -198,6 +201,9 @@ pub struct SliderNode {
     /// Current value, `0.0..=1.0`.
     #[serde(default)]
     pub value: f32,
+    /// Snap increment, e.g. `0.1` (continuous when unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<f32>,
     /// Intent string emitted on change.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_change: Option<String>,

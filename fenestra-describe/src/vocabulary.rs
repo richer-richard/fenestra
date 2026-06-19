@@ -40,8 +40,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ("text", "A run of text.", r#"{"content":"Hello"}"#),
     (
         "button",
-        "Activatable button.",
-        r#"{"label":"Add","on_click":"add"}"#,
+        "Activatable button. `variant`: primary | secondary | ghost | danger.",
+        r#"{"label":"Add","on_click":"add","variant":"primary"}"#,
     ),
     (
         "checkbox",
@@ -60,8 +60,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "slider",
-        "Numeric slider over 0.0..=1.0.",
-        r#"{"value":0.5}"#,
+        "Numeric slider over 0.0..=1.0 with an optional `step`.",
+        r#"{"value":0.5,"step":0.1}"#,
     ),
     (
         "text_input",

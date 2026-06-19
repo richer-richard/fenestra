@@ -196,3 +196,31 @@ fn validate_catches_semantic_color_error() {
         "expected a bg-path error: {errs:?}"
     );
 }
+
+#[test]
+fn button_variant_and_slider_step() {
+    let t = Theme::light();
+    // A valid variant builds.
+    let d: Description = serde_json::from_str(
+        r#"{"schema":"fenestra/1","root":{"button":{"label":"Delete","variant":"danger","on_click":"del"}}}"#,
+    )
+    .unwrap();
+    assert!(to_element(&d, &t).is_ok());
+    // An unknown variant degrades (the button still realizes) and records a path error.
+    let d2: Description = serde_json::from_str(
+        r#"{"schema":"fenestra/1","root":{"button":{"label":"X","variant":"neon"}}}"#,
+    )
+    .unwrap();
+    let (el, errs) = to_element_lenient(&d2, &t);
+    assert!(light_yaml(&el).contains("X"));
+    assert!(
+        errs.iter().any(|e| e.path.ends_with("/variant")),
+        "{errs:?}"
+    );
+    // Slider step is accepted.
+    let d3: Description = serde_json::from_str(
+        r#"{"schema":"fenestra/1","root":{"slider":{"value":0.5,"step":0.25}}}"#,
+    )
+    .unwrap();
+    assert!(to_element(&d3, &t).is_ok());
+}
