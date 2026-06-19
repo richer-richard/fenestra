@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.29.0 — 2026-06-19
+
+A serialized boundary for describing and verifying UIs as JSON — with a CLI and
+an MCP server — plus the per-text-node legibility primitives they read. Additive
+throughout: every existing golden is byte-identical.
+
+### Added
+
+- **`fenestra-describe`** — a serde `Description` (a schema-tagged `"fenestra/1"`,
+  strict `deny_unknown_fields` JSON mirror of an element tree) that parses to the
+  same `Element` the builders produce. Containers, text, and the interactive
+  widgets; colors by theme role name or an `oklch` escape hatch; handlers are
+  inert intent strings. Plus the windowless structural engine: a typed access
+  tree, semantic `query` (with nearest-candidates on a miss), `aria_snapshot` +
+  `match_aria` (partial / strict / regex), `check_a11y`, path-pointed `validate`,
+  and a self-coherent `describe_vocabulary`.
+- **`fenestra-cli`** — the `fenestra` binary: `render`, `query`, `interact`,
+  `check`, `match-aria`, `match-png`, `vocabulary`, and `validate` subcommands,
+  reading a description from a path or stdin and emitting JSON (`cargo install
+  fenestra-cli`).
+- **`fenestra-mcp`** — a Model Context Protocol server (over stdio) exposing the
+  same eight operations as tools, so an AI assistant can build, render, query,
+  and assert native UIs (`cargo install fenestra-mcp`).
+- **`Frame::legibility`** (`fenestra-core`): per-text-node APCA `Lc` and WCAG 2
+  contrast measured against the floor for each rendered size, with
+  `apca::wcag2_ratio` / `apca::wcag2_passes` and a public `Semantics::aria_role`.
+
 ## 0.28.0 — 2026-06-16
 
 Typography, density, and optical polish — four threads, each opt-in and
