@@ -110,16 +110,19 @@ autocomplete. Every widget routes every color through the theme; flip one
 
 ## The kit
 
-Button, IconButton, Checkbox, Switch, Radio, Slider, TextInput (parley
-editing, clipboard, IME), TextArea (multiline, auto-growing), Select,
-Tooltip, Modal (focus trap + backdrop), Toasts, Tabs, Card, StatCard,
-Badge, Avatar, Divider, Progress, Spinner, Table, Callout, and a vendored
-Lucide icon subset — every state, both themes:
+Button, IconButton, Checkbox, Switch, Radio, Slider, SegmentedControl,
+TextInput (parley editing, clipboard, IME), TextArea (multiline,
+auto-growing), Select, Tooltip, Modal (focus trap + backdrop), Toasts, Tabs,
+Card, StatCard, Badge, Avatar, StatusIndicator (with a live pulse), Kbd
+key-caps, Skeleton loaders, Divider, Progress (including a Material-3
+Expressive wavy bar), Spinner, Table, Callout, and a vendored Lucide icon
+subset — every state, both themes:
 
 | | |
 | --- | --- |
 | ![controls, light](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/controls_light.png) | ![controls, dark](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/controls_dark.png) |
 | ![display widgets, light](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/display_light.png) | ![display widgets, dark](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/display_dark.png) |
+| ![segmented control, status, skeletons, key-caps, wavy progress — light](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/feedback_light.png) | ![segmented control, status, skeletons, key-caps, wavy progress — dark](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/feedback_dark.png) |
 
 Regenerate this corpus any time with `cargo run --example gallery` — it
 renders headlessly.

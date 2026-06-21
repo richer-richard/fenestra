@@ -6,9 +6,9 @@ use fenestra_core::{
 };
 
 use crate::{
-    ButtonVariant, ControlSize, Status, avatar, badge, button, callout, card, checkbox, icons,
-    progress, radio, select, slider, spinner, stat_card, switch, table, tabs, text_area,
-    text_input,
+    ButtonVariant, ControlSize, Status, avatar, badge, button, callout, card, checkbox, icons, kbd,
+    progress, radio, segmented, select, skeleton, skeleton_circle, skeleton_text, slider, spinner,
+    stat_card, status, switch, table, tabs, text_area, text_input, wavy_progress,
 };
 
 fn section<Msg>(title: &str, content: Element<Msg>) -> Element<Msg> {
@@ -170,6 +170,79 @@ pub fn gallery_display(theme: &Theme) -> Element<()> {
 
 fn svec<const N: usize>(items: [&str; N]) -> Vec<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
+}
+
+/// The feedback & vocabulary additions: a segmented control, live status
+/// indicators, skeleton loaders, and keyboard hints — every state in one frame.
+pub fn gallery_feedback(theme: &Theme) -> Element<()> {
+    col().p(SP6).gap(SP6).bg(theme.bg).children([
+        section(
+            "SEGMENTED CONTROL",
+            col().gap(SP3).items_start().children([
+                segmented(0, ["List", "Board", "Calendar"], |_| ()),
+                segmented(1, ["Day", "Week", "Month"], |_| ()),
+            ]),
+        ),
+        section(
+            "STATUS",
+            row().gap(SP6).items_center().children([
+                Element::from(status("Operational", Status::Success).live(true)),
+                Element::from(status("Degraded", Status::Warning)),
+                Element::from(status("Outage", Status::Danger)),
+                Element::from(status("Deploying", Status::Accent).live(true)),
+            ]),
+        ),
+        section(
+            "SKELETON",
+            card().w(360.0).children([
+                row().gap(SP4).items_center().children([
+                    skeleton_circle(40.0),
+                    col()
+                        .gap(SP2)
+                        .grow()
+                        .children([skeleton(140.0, 12.0), skeleton(90.0, 12.0)]),
+                ]),
+                skeleton_text(3),
+            ]),
+        ),
+        section(
+            "KEYBOARD",
+            col().gap(SP3).items_start().children([
+                row().gap(SP3).items_center().children([
+                    kbd(["cmd", "K"]),
+                    kbd(["cmd", "shift", "P"]),
+                    kbd(["enter"]),
+                    kbd(["esc"]),
+                ]),
+                // A command-palette-style row with a right-aligned shortcut column.
+                row()
+                    .w(360.0)
+                    .h(40.0)
+                    .px(SP3)
+                    .gap(SP3)
+                    .items_center()
+                    .themed(|t: &Theme, s| {
+                        s.rounded(t.radius.md)
+                            .bg(t.surface)
+                            .border(1.0, t.border_subtle)
+                    })
+                    .children([
+                        text("Search commands…")
+                            .size(TextSize::Sm)
+                            .grow()
+                            .themed(|t: &Theme, s| s.color(t.text_muted)),
+                        kbd(["cmd", "K"]),
+                    ]),
+            ]),
+        ),
+        section(
+            "WAVY PROGRESS",
+            col()
+                .gap(SP4)
+                .items_start()
+                .children([wavy_progress(0.35, 280.0), wavy_progress(0.7, 280.0)]),
+        ),
+    ])
 }
 
 /// A sharp / minimal "observability console" — the design-range counterpart to

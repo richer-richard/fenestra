@@ -8,7 +8,8 @@ use fenestra_core::{
     col, text,
 };
 use fenestra_kit::{
-    button, console_showcase, gallery_controls, gallery_display, modal, select, text_input,
+    button, console_showcase, gallery_controls, gallery_display, gallery_feedback, modal, select,
+    text_input,
 };
 use fenestra_shell::{SyntheticEvent, render_app, render_element, testing::assert_png_snapshot};
 
@@ -42,6 +43,20 @@ fn gallery_display_dark() {
     let theme = Theme::dark();
     let image = render_element(gallery_display(&theme), &theme, (760, 1190));
     assert_png_snapshot(snapshot_dir(), "gallery_display_dark", &image);
+}
+
+#[test]
+fn gallery_feedback_light() {
+    let theme = Theme::light();
+    let image = render_element(gallery_feedback(&theme), &theme, (688, 710));
+    assert_png_snapshot(snapshot_dir(), "gallery_feedback_light", &image);
+}
+
+#[test]
+fn gallery_feedback_dark() {
+    let theme = Theme::dark();
+    let image = render_element(gallery_feedback(&theme), &theme, (688, 710));
+    assert_png_snapshot(snapshot_dir(), "gallery_feedback_dark", &image);
 }
 
 /// The slate + lime, sharp + flat "console" look (the design-range showcase).

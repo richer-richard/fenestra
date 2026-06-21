@@ -23,6 +23,11 @@ fn main() {
             .save(out.join(format!("display_{suffix}.png")))
             .expect("write display");
 
+        let feedback = render_element(fenestra::kit::gallery_feedback(&theme), &theme, (688, 710));
+        feedback
+            .save(out.join(format!("feedback_{suffix}.png")))
+            .expect("write feedback");
+
         // The sharp/minimal "console" look — design range beyond the soft default.
         let console_theme = Theme::derive(
             BaseField {
@@ -44,6 +49,6 @@ fn main() {
             .save(out.join(format!("console_{suffix}.png")))
             .expect("write console");
 
-        println!("wrote gallery/{{controls,display,console}}_{suffix}.png");
+        println!("wrote gallery/{{controls,display,feedback,console}}_{suffix}.png");
     }
 }

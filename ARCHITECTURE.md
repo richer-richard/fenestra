@@ -1873,3 +1873,69 @@ regression tests:
   silently prefers the bind; an out-of-range *initial* slider value in `state`
   reads back un-normalized until first interaction; `SetNumber` widens f32 to
   f64 in the returned state JSON) are recorded as known low-severity behaviors.
+
+## 0.32: feedback & vocabulary (research-driven)
+
+A five-strand survey of contemporary design systems (Linear/Raycast, Vercel
+Geist + Radix, shadcn / Tailwind v4 / Base UI, Material 3 Expressive, Apple HIG)
+named the same gaps repeatedly; this release ships the universal primitives
+fenestra lacked. Pure-additive — every prior golden is byte-identical; only new
+widgets and a new `gallery_feedback` golden scene (light + dark) were added.
+
+- **Segmented control.** A contained track (neutral `element` fill, 3px inner
+  padding) with a raised thumb (`surface_raised` + `ShadowToken::Sm`) behind the
+  active segment, corners concentric (thumb radius = track radius − padding).
+  Elm-pure like `tabs` (active index in, `on_select` out) and, like `tabs`, the
+  thumb **cross-fades** rather than slides: a true position slide needs
+  measured-position (shared-element) animation the per-element transition engine
+  deliberately does not do (the M6 tabs decision, reaffirmed). Each segment
+  carries `Semantics::Tab { selected }`.
+- **Skeleton fill is the translucent neutral twin.** `skeleton` / `skeleton_text`
+  / `skeleton_circle` fill with `neutral_alpha.step(4)`, not the solid `element`
+  step: a solid neutral vanishes against an elevated dark card (fill and surface
+  land on the same tone), whereas the alpha twin composites to a visible veil
+  over *any* surface. Motion is a slow opacity pulse (`Keyframes`, 1↔0.45 over
+  1.6s) that pins flat under reduced motion, so headless renders are
+  deterministic (the `progress_indeterminate` pattern).
+- **Live status ring rides the existing keyframe engine.** `status(..).live()`
+  stacks a sonar ring under the dot and animates scale 1→3 + opacity 0.7→0 on a
+  fast-bloom/slow-fade ease; reduced motion pins the first stop (ring hidden
+  behind the dot), so live and static indicators are identical in goldens and the
+  pulse appears only in a live window. The dot is decorative; the text label
+  carries the accessible meaning.
+- **`kbd` is sans, not mono, and keeps obscure keys as words.** Per Geist/Linear,
+  key-caps render in the body sans at `Xs` / Medium (not a monospace face), as
+  flat chips (neutral `element` fill + `border_subtle` hairline, no shadow) sized
+  to sit in palette/menu rows. Modifier names map to glyphs (⌘ ⇧ ⌥ ⌃) and arrows
+  to arrow glyphs, but Esc / Tab / Del render as short words — ⎋ / ⇥ are too
+  obscure at 12px. The chord is one `Semantics::Image` node with a combined
+  label; its glyph text projects as child `Label`s, the same shape a `button` has
+  (so tests query by role + name, not bare label).
+- **Wavy progress is a static parametric path.** `wavy_progress(fraction, width)`
+  strokes a sine polyline (amplitude 2.5, wavelength 16, sampled every 1.5px) in
+  the accent for the active span over a flat neutral track, built at a 1:1
+  viewbox so the wavelength is width-independent. The wave does *not* scroll (M3
+  Expressive animates `waveSpeed`; a static wave is deterministic and still
+  distinctive), so no reduced-motion handling is needed.
+
+### Considered and deferred (recorded at decision time)
+
+- **Two-track spring presets (M3 Expressive spatial vs effects).** Not added as
+  core tokens: fenestra's closed-form spring already *intrinsically* clamps the
+  effects-track properties (colors/opacity/shadows clamp at target; only lengths/
+  offsets overshoot — the 0.9 decision), so the headline "effects never bounce"
+  property already holds. The marginal value was calibrated named presets; the
+  new widgets use the existing `Transition::colors()` / `spring()` directly. A
+  named M3-calibrated preset set remains a cheap future addition.
+- **Tinted-gray neutral pairing (Radix's accent-biased grays).** The single
+  highest-leverage *visual-language* idea from the survey (inject ~0.003–0.010
+  OKLCH chroma at the accent hue across all 12 neutral steps, auto-paired by
+  accent), but it repaints every border, divider, and secondary-text role in
+  every theme — it changes the entire golden corpus and needs a per-theme APCA
+  re-validation. It earns its own release, not a slot in an additive one.
+- **Other surveyed primitives** — accordion/collapsible and DataList (both want a
+  measured-height open/close animation), the Sonner stack-and-expand toast
+  refinement, sheet/drawer, breadcrumb, a field/validation wrapper, input-group +
+  number stepper, pagination, OTP, and hover-card — are real gaps logged for
+  future releases. Linear's "moving specular glass" and FLIP layout animation are
+  larger, single-purpose efforts (each its own release).

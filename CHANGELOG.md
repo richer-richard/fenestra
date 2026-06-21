@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.32.0 — 2026-06-22
+
+Adds the universal modern primitives that premium apps ship — chosen from a
+five-strand survey of contemporary design systems (Linear/Raycast, Vercel Geist
++ Radix, shadcn / Tailwind v4 / Base UI, Material 3 Expressive, Apple HIG).
+Pure-additive: every existing golden is byte-identical; this release only adds
+new widgets and a new showcase scene.
+
+### Added
+
+- **Segmented control** (`segmented`) — a compact, single-select view/option
+  switcher: a contained track with a raised, cross-fading thumb behind the
+  active segment. Elm-pure (active index in, `on_select(index)` out), with ARIA
+  tab semantics per segment.
+- **Skeleton loaders** (`skeleton`, `skeleton_text`, `skeleton_circle`) — the
+  content-shaped loading placeholder. A gentle opacity pulse that pins flat under
+  reduced motion; the fill is the translucent neutral twin, so it reads on any
+  surface (a white card in light mode, an elevated card in dark) instead of
+  vanishing into a same-tone background.
+- **Status indicator** (`status`) — a semantic dot plus a label, with an optional
+  `.live()` pulsing "sonar" ring for realtime / online / recording states. The
+  dot is decorative; the label carries the meaning.
+- **Keyboard key-caps** (`kbd`) — flat-chip shortcut hints (`kbd(["cmd", "K"])`
+  → ⌘ K) that map modifier names to glyphs and keep obscure keys readable
+  (Esc/Tab as words). The whole chord exposes one accessible label.
+- **Wavy progress** (`wavy_progress`) — the Material 3 Expressive determinate
+  bar, drawn as an accent-stroked sine wave over a flat track: a pure-vector
+  parametric path, static so headless renders stay deterministic.
+- **Feedback showcase** (`gallery_feedback`) — a new headless golden scene
+  (light + dark) covering all of the above; `cargo run --example gallery`
+  now also renders `gallery/feedback_{light,dark}.png`.
+
 ## 0.31.0 — 2026-06-19
 
 Closes the two deferred phase-2 increments — declarative state and the MCP output

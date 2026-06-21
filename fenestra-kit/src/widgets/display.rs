@@ -2,9 +2,9 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, SP1, SP2, SP3, SP4, SP6,
-    Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition, Weight, col, div, path,
-    row, text,
+    CubicBezier, Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, SP1, SP2, SP3,
+    SP4, SP6, Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition, Weight, col,
+    div, path, row, stack, text,
 };
 use kurbo::BezPath;
 
@@ -171,6 +171,91 @@ pub fn badge_dot<Msg>(status: Status) -> Element<Msg> {
         .label(format!("{status:?} indicator"))
 }
 
+/// A labeled status indicator: a semantic dot plus a text label. Call
+/// [`StatusIndicator::live`] for a pulsing "sonar" ring — the realtime /
+/// online / recording cue. The dot is decorative; the label carries the
+/// meaning, so a screen reader reads the words, not a colored circle.
+///
+/// ```
+/// use fenestra_kit::{Status, status};
+///
+/// let el: fenestra_core::Element<()> = status("Operational", Status::Success).into();
+/// ```
+pub fn status<Msg>(label: impl Into<String>, status: Status) -> StatusIndicator<Msg> {
+    StatusIndicator {
+        label: label.into(),
+        status,
+        live: false,
+        _msg: std::marker::PhantomData,
+    }
+}
+
+/// A status indicator under construction; converts into an [`Element`].
+pub struct StatusIndicator<Msg> {
+    label: String,
+    status: Status,
+    live: bool,
+    _msg: std::marker::PhantomData<Msg>,
+}
+
+impl<Msg> StatusIndicator<Msg> {
+    /// Adds a pulsing sonar ring for realtime states (online / recording /
+    /// live). Static under reduced motion, so headless renders stay
+    /// deterministic — the ring only animates in a live window.
+    pub fn live(mut self, live: bool) -> Self {
+        self.live = live;
+        self
+    }
+}
+
+impl<Msg> From<StatusIndicator<Msg>> for Element<Msg> {
+    fn from(s: StatusIndicator<Msg>) -> Self {
+        let status = s.status;
+        let indicator: Element<Msg> = if s.live {
+            // A sonar ring blooms out from under the dot and fades (fast bloom,
+            // slow fade per the easing); the opaque dot rides on top.
+            let ring = div::<Msg>()
+                .w(8.0)
+                .h(8.0)
+                .rounded(R_FULL)
+                .themed(move |t: &Theme, st| st.bg(status.colors(t).solid))
+                .keyframes(
+                    Keyframes::new(1600.0)
+                        .ease(CubicBezier {
+                            x1: 0.22,
+                            y1: 0.61,
+                            x2: 0.36,
+                            y2: 1.0,
+                        })
+                        .stop(0.0, |st| st.opacity(0.7).scale(1.0))
+                        .stop(0.7, |st| st.opacity(0.15).scale(2.6))
+                        .stop(1.0, |st| st.opacity(0.0).scale(3.0)),
+                );
+            let dot = div::<Msg>()
+                .w(8.0)
+                .h(8.0)
+                .rounded(R_FULL)
+                .themed(move |t: &Theme, st| st.bg(status.colors(t).solid));
+            stack().w(8.0).h(8.0).shrink0().children([ring, dot])
+        } else {
+            div::<Msg>()
+                .w(8.0)
+                .h(8.0)
+                .rounded(R_FULL)
+                .shrink0()
+                .themed(move |t: &Theme, st| st.bg(status.colors(t).solid))
+        };
+        row()
+            .items_center()
+            .gap(SP2)
+            .shrink0()
+            .children([indicator])
+            .children([text(s.label)
+                .size(TextSize::Sm)
+                .themed(|t: &Theme, st| st.color(t.text_muted))])
+    }
+}
+
 /// An indeterminate activity bar: the fill sweeps from empty to full
 /// and fades, looping. Use when progress has no known fraction; pinned
 /// at the first keyframe under reduced motion.
@@ -212,6 +297,53 @@ pub fn progress<Msg>(fraction: f32) -> Element<Msg> {
                     .duration(MotionDuration::Base),
             )
             .themed(|t: &Theme, s| s.bg(t.accent))])
+}
+
+/// A determinate progress bar whose filled portion is drawn as a sine wave —
+/// the Material 3 Expressive "wavy" indicator. `fraction` (0..=1) of `width`
+/// logical px renders as an accent-stroked wave; the remainder is a flat
+/// neutral track. The wave is static, so headless renders are deterministic;
+/// for an indeterminate sweep use [`progress_indeterminate`].
+///
+/// ```
+/// use fenestra_kit::wavy_progress;
+///
+/// let el: fenestra_core::Element<()> = wavy_progress(0.6, 240.0);
+/// ```
+pub fn wavy_progress<Msg>(fraction: f32, width: f32) -> Element<Msg> {
+    let fraction = fraction.clamp(0.0, 1.0);
+    let width = width.max(1.0);
+    let amp = 2.5_f64;
+    let wavelength = 16.0_f64;
+    let stroke = 3.0_f64;
+    let w = f64::from(width);
+    let h = amp * 2.0 + stroke + 1.0;
+    let cy = h / 2.0;
+    let active_w = f64::from(fraction) * w;
+    let h_px = h as f32;
+
+    // The flat track spans the full width behind the wave.
+    let mut track = BezPath::new();
+    track.move_to((0.0, cy));
+    track.line_to((w, cy));
+
+    // The active portion is a sine wave sampled as a dense polyline; round
+    // joins (the painter's default) smooth it.
+    let mut wave = BezPath::new();
+    if active_w > 0.0 {
+        wave.move_to((0.0, cy));
+        let mut x = 0.0_f64;
+        while x < active_w {
+            x = (x + 1.5).min(active_w);
+            let y = cy + amp * (std::f64::consts::TAU * x / wavelength).sin();
+            wave.line_to((x, y));
+        }
+    }
+
+    stack().w(width).h(h_px).children([
+        path(track, (w, h), Some(stroke)).themed(|t: &Theme, s| s.color(t.neutrals.step(4))),
+        path(wave, (w, h), Some(stroke)).themed(|t: &Theme, s| s.color(t.accent)),
+    ])
 }
 
 /// A rotating arc spinner (800ms per turn; static under reduced motion).
