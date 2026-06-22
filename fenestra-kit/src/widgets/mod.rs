@@ -24,6 +24,7 @@ mod switch;
 mod text_area;
 mod text_input;
 mod toast;
+mod toolbar;
 mod tree;
 mod virtual_list;
 
@@ -55,6 +56,7 @@ pub use switch::{Switch, switch};
 pub use text_area::{TextArea, text_area};
 pub use text_input::{TextInput, text_input};
 pub use toast::{ToastStack, toast_stack};
+pub use toolbar::{Toolbar, toolbar};
 pub use tree::{TreeNode, TreeView, tree_view};
 pub use virtual_list::{virtual_list, virtual_list_variable};
 

@@ -1183,6 +1183,35 @@ impl Style {
         self
     }
 
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// packing it toward the cross-axis start (so it hugs its content instead
+    /// of stretching).
+    pub fn self_start(mut self) -> Self {
+        self.align_self = Some(AlignItems::Start);
+        self
+    }
+
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// centering it on the cross axis.
+    pub fn self_center(mut self) -> Self {
+        self.align_self = Some(AlignItems::Center);
+        self
+    }
+
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// packing it toward the cross-axis end.
+    pub fn self_end(mut self) -> Self {
+        self.align_self = Some(AlignItems::End);
+        self
+    }
+
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// stretching it to fill the cross axis.
+    pub fn self_stretch(mut self) -> Self {
+        self.align_self = Some(AlignItems::Stretch);
+        self
+    }
+
     /// Pack children toward the main-axis start.
     pub fn justify_start(mut self) -> Self {
         self.justify_content = JustifyContent::Start;

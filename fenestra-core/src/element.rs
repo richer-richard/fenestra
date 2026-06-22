@@ -1041,6 +1041,34 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// hugging its content at the cross-axis start instead of stretching.
+    pub fn self_start(mut self) -> Self {
+        self.style = self.style.self_start();
+        self
+    }
+
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// centering it on the cross axis.
+    pub fn self_center(mut self) -> Self {
+        self.style = self.style.self_center();
+        self
+    }
+
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// packing it toward the cross-axis end.
+    pub fn self_end(mut self) -> Self {
+        self.style = self.style.self_end();
+        self
+    }
+
+    /// Override the parent's cross-axis alignment for this element alone,
+    /// stretching it to fill the cross axis.
+    pub fn self_stretch(mut self) -> Self {
+        self.style = self.style.self_stretch();
+        self
+    }
+
     /// Pack children toward the main-axis start.
     pub fn justify_start(mut self) -> Self {
         self.style = self.style.justify_start();
