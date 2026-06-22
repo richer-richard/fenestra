@@ -1358,15 +1358,43 @@ impl Frame {
         if node.style.display == Display::None {
             return;
         }
-        // Press-scale: paint the control (and its children) into a child scene,
-        // then append it scaled about the control's center, so the shrink is a
-        // pure paint transform that never disturbs layout or hit-testing.
-        if (node.style.scale - 1.0).abs() > 1e-4 {
+        // Paint-time transform (translate / rotate / skew / scale, about the
+        // element center): paint the subtree into a child scene, then append it
+        // under one Affine, so the transform never disturbs layout or
+        // hit-testing. Press-scale is the common case (uniform scale only).
+        let s = &node.style;
+        let has_transform = (s.scale - 1.0).abs() > 1e-4
+            || s.translate.0.abs() > 1e-4
+            || s.translate.1.abs() > 1e-4
+            || s.rotate.abs() > 1e-4
+            || s.skew.0.abs() > 1e-4
+            || s.skew.1.abs() > 1e-4;
+        if has_transform {
             let mut sub = Scene::new();
             self.paint_node_unscaled(&mut sub, fonts, state, node);
-            let transform =
-                kurbo::Affine::scale_about(f64::from(node.style.scale), node.rect.center());
-            scene.append(&sub, Some(transform));
+            let c = node.rect.center();
+            // origin = center: T(translate) · T(c) · R · Skew · S · T(-c)
+            let mut a =
+                kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
+                    * kurbo::Affine::translate((c.x, c.y));
+            if s.rotate.abs() > 1e-4 {
+                a *= kurbo::Affine::rotate(f64::from(s.rotate).to_radians());
+            }
+            if s.skew.0.abs() > 1e-4 || s.skew.1.abs() > 1e-4 {
+                a *= kurbo::Affine::new([
+                    1.0,
+                    f64::from(s.skew.1).to_radians().tan(),
+                    f64::from(s.skew.0).to_radians().tan(),
+                    1.0,
+                    0.0,
+                    0.0,
+                ]);
+            }
+            if (s.scale - 1.0).abs() > 1e-4 {
+                a *= kurbo::Affine::scale(f64::from(s.scale));
+            }
+            a *= kurbo::Affine::translate((-c.x, -c.y));
+            scene.append(&sub, Some(a));
             return;
         }
         self.paint_node_unscaled(scene, fonts, state, node);

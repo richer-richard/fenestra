@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use fenestra_core::{App, Element, Key, KeyInput, Semantics, Theme, by, col, div};
+use fenestra_core::{App, Element, Key, KeyInput, Semantics, Theme, by, col, div, row};
 use fenestra_kit::{
     Status, checkbox, kbd, kbd_raised, radio_group, segmented, skeleton, skeleton_circle,
     skeleton_text, status, tabs, wavy_progress,
@@ -255,6 +255,41 @@ fn per_corner_radius_golden() {
     ));
     let image = render_element(scene, &theme, (120, 104));
     assert_png_snapshot(snapshot_dir(), "per_corner_radius", &image);
+}
+
+// ---------------------------------------------------------------- transforms
+
+#[test]
+fn transforms_golden() {
+    // rotate / translate / skew as paint-time transforms (no layout shift).
+    let theme = Theme::light();
+    let scene = row::<()>()
+        .p(14.0)
+        .gap(18.0)
+        .items_center()
+        .bg(theme.bg)
+        .children((
+            div::<()>()
+                .w(44.0)
+                .h(44.0)
+                .rounded(8.0)
+                .rotate(30.0)
+                .themed(|t: &Theme, s| s.bg(t.accent)),
+            div::<()>()
+                .w(44.0)
+                .h(44.0)
+                .rounded(8.0)
+                .translate(0.0, 10.0)
+                .themed(|t: &Theme, s| s.bg(t.accent)),
+            div::<()>()
+                .w(44.0)
+                .h(44.0)
+                .rounded(8.0)
+                .skew(18.0, 0.0)
+                .themed(|t: &Theme, s| s.bg(t.accent)),
+        ));
+    let image = render_element(scene, &theme, (210, 78));
+    assert_png_snapshot(snapshot_dir(), "transforms", &image);
 }
 
 // ---------------------------------------------------------------- kbd

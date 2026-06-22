@@ -152,6 +152,17 @@ fn lerp_style(a: &Style, b: &Style, t: f32, transition: Transition) -> Style {
     // Press-scale is geometry: it rides any transition (the default press
     // transition animates color, not lengths) and may overshoot on springs.
     out.scale = lerp_f32(a.scale, b.scale, t);
+    // General paint transforms ride alongside scale (geometry; no-op when the
+    // endpoints match, so static transforms never animate spuriously).
+    out.translate = (
+        lerp_f32(a.translate.0, b.translate.0, t),
+        lerp_f32(a.translate.1, b.translate.1, t),
+    );
+    out.rotate = lerp_f32(a.rotate, b.rotate, t);
+    out.skew = (
+        lerp_f32(a.skew.0, b.skew.0, t),
+        lerp_f32(a.skew.1, b.skew.1, t),
+    );
     if transition.colors {
         out.fill = match (&a.fill, &b.fill) {
             (Some(Paint::Solid(ca)), Some(Paint::Solid(cb))) => {

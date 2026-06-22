@@ -700,6 +700,13 @@ pub struct Style {
     /// it never affects layout or hit-testing, and it animates. Spring
     /// transitions may carry it past the target for a tactile overshoot.
     pub scale: f32,
+    /// Paint-time translation in logical px `(x, y)` — never affects layout or
+    /// hit-testing; animatable.
+    pub translate: (f32, f32),
+    /// Paint-time rotation in degrees about the element center; animatable.
+    pub rotate: f32,
+    /// Paint-time skew in degrees `(x, y)` about the element center; animatable.
+    pub skew: (f32, f32),
     /// Clip children to the (rounded) bounds.
     pub clip: bool,
     /// Draw progress of path elements, 0.0..=1.0 (animatable; this is how
@@ -751,6 +758,9 @@ impl Default for Style {
             highlight_top: None,
             opacity: 1.0,
             scale: 1.0,
+            translate: (0.0, 0.0),
+            rotate: 0.0,
+            skew: (0.0, 0.0),
             clip: false,
             path_trim: 1.0,
             text: TextStyle::default(),
@@ -1362,6 +1372,24 @@ impl Style {
     /// for press feedback; never disturbs layout.
     pub fn scale(mut self, v: f32) -> Self {
         self.scale = v;
+        self
+    }
+
+    /// Paint-time translation in logical px (never affects layout). Animatable.
+    pub fn translate(mut self, x: f32, y: f32) -> Self {
+        self.translate = (x, y);
+        self
+    }
+
+    /// Paint-time rotation in degrees about the element center. Animatable.
+    pub fn rotate(mut self, degrees: f32) -> Self {
+        self.rotate = degrees;
+        self
+    }
+
+    /// Paint-time skew in degrees `(x, y)` about the element center. Animatable.
+    pub fn skew(mut self, x_degrees: f32, y_degrees: f32) -> Self {
+        self.skew = (x_degrees, y_degrees);
         self
     }
 

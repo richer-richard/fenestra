@@ -1214,6 +1214,24 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Paint-time translation in logical px (never affects layout). Animatable.
+    pub fn translate(mut self, x: f32, y: f32) -> Self {
+        self.style = self.style.translate(x, y);
+        self
+    }
+
+    /// Paint-time rotation in degrees about the element center. Animatable.
+    pub fn rotate(mut self, degrees: f32) -> Self {
+        self.style = self.style.rotate(degrees);
+        self
+    }
+
+    /// Paint-time skew in degrees `(x, y)` about the element center. Animatable.
+    pub fn skew(mut self, x_degrees: f32, y_degrees: f32) -> Self {
+        self.style = self.style.skew(x_degrees, y_degrees);
+        self
+    }
+
     /// Continuous-curvature corner smoothing, `0.0..=1.0` (see
     /// [`Style::corner_smoothing`](crate::Style::corner_smoothing)). `0.0`
     /// (default) keeps exact circular arcs; higher values blend toward a
