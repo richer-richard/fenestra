@@ -42,7 +42,10 @@ pub use display::{
     table, tabs, wavy_progress,
 };
 pub use kbd::{kbd, kbd_raised};
-pub use menu::{Menubar, context_menu, dropdown_menu, menu, menubar, popover};
+pub use menu::{
+    MenuItem, Menubar, context_menu, dropdown_menu, menu, menu_item, menu_items, menu_separator,
+    menubar, popover,
+};
 pub use navigation::{
     Breadcrumbs, Crumb, Pagination, Stepper, breadcrumbs, crumb, pagination, stepper,
 };

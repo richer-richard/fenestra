@@ -17,7 +17,7 @@
 
 use fenestra_core::{
     Cursor, Element, Overlay, SP1, SP2, SP3, Semantics, Surface, TextSize, Theme, Transition,
-    Weight, col, row, text,
+    Weight, col, div, row, spacer, text,
 };
 
 /// The styled panel of menu items (no overlay attached): rows that emit
@@ -50,6 +50,143 @@ pub fn menu<Msg: Clone + 'static>(
                 .state_layer(|t| t.text)
                 .children([text(label).size(TextSize::Sm)])
         }))
+}
+
+/// One entry of a rich [`menu_items`] panel: an action (with an optional
+/// leading icon, trailing shortcut hint, and disabled state) or a separator.
+pub struct MenuItem<Msg> {
+    label: String,
+    icon: Option<Element<Msg>>,
+    shortcut: Option<String>,
+    disabled: bool,
+    separator: bool,
+    on_select: Option<Msg>,
+}
+
+/// An actionable menu entry with the given label.
+pub fn menu_item<Msg>(label: impl Into<String>) -> MenuItem<Msg> {
+    MenuItem {
+        label: label.into(),
+        icon: None,
+        shortcut: None,
+        disabled: false,
+        separator: false,
+        on_select: None,
+    }
+}
+
+/// A horizontal separator rule between menu groups.
+pub fn menu_separator<Msg>() -> MenuItem<Msg> {
+    MenuItem {
+        label: String::new(),
+        icon: None,
+        shortcut: None,
+        disabled: false,
+        separator: true,
+        on_select: None,
+    }
+}
+
+impl<Msg> MenuItem<Msg> {
+    /// A leading icon, inked to the menu's muted role.
+    #[must_use]
+    pub fn icon(mut self, icon: impl Into<Element<Msg>>) -> Self {
+        self.icon = Some(icon.into());
+        self
+    }
+
+    /// A trailing keyboard-shortcut hint (e.g. `"⌘K"`), shown muted.
+    #[must_use]
+    pub fn shortcut(mut self, shortcut: impl Into<String>) -> Self {
+        self.shortcut = Some(shortcut.into());
+        self
+    }
+
+    /// Dim and disable the item: not activatable and skipped from focus.
+    #[must_use]
+    pub fn disabled(mut self, disabled: bool) -> Self {
+        self.disabled = disabled;
+        self
+    }
+
+    /// The message emitted when the item is chosen.
+    #[must_use]
+    pub fn on_select(mut self, msg: Msg) -> Self {
+        self.on_select = Some(msg);
+        self
+    }
+}
+
+/// Renders one rich menu entry into a row (or a separator rule).
+fn menu_row<Msg: Clone + 'static>(it: MenuItem<Msg>) -> Element<Msg> {
+    if it.separator {
+        return row().py(4.0).children([div()
+            .h(1.0)
+            .w_full()
+            .themed(|t: &Theme, s| s.bg(t.border_subtle))]);
+    }
+    let disabled = it.disabled;
+    let label_text = it.label.clone();
+    let mut kids: Vec<Element<Msg>> = Vec::new();
+    if let Some(icon) = it.icon {
+        kids.push(icon.w(16.0).h(16.0).shrink0().themed(move |t: &Theme, s| {
+            s.color(if disabled {
+                t.text_disabled
+            } else {
+                t.text_muted
+            })
+        }));
+    }
+    kids.push(
+        text(it.label)
+            .size(TextSize::Sm)
+            .themed(move |t: &Theme, s| s.color(if disabled { t.text_disabled } else { t.text })),
+    );
+    kids.push(spacer());
+    if let Some(sc) = it.shortcut {
+        kids.push(text(sc).size(TextSize::Xs).themed(move |t: &Theme, s| {
+            s.color(if disabled {
+                t.text_disabled
+            } else {
+                t.text_muted
+            })
+        }));
+    }
+    let mut row_el = row()
+        .items_center()
+        .gap(SP2)
+        .px(SP2)
+        .h(30.0)
+        .themed(|t: &Theme, s| s.rounded((t.radius.lg - SP1).max(0.0)))
+        .shrink0()
+        .semantics(Semantics::Button)
+        .label(label_text)
+        .children(kids);
+    if !disabled {
+        row_el = row_el
+            .cursor(Cursor::Pointer)
+            .transition(Transition::colors())
+            .state_layer(|t| t.text);
+        if let Some(msg) = it.on_select {
+            row_el = row_el.on_click(msg);
+        }
+    }
+    row_el
+}
+
+/// A rich menu panel (no overlay attached) built from [`menu_item`]s and
+/// [`menu_separator`]s: leading icons, trailing shortcut hints, disabled rows,
+/// and separator rules. Attach an overlay (e.g. `.overlay(Overlay::menu())`) to
+/// float it. The simpler [`menu`] takes `(label, message)` tuples.
+pub fn menu_items<Msg: Clone + 'static>(
+    items: impl IntoIterator<Item = MenuItem<Msg>>,
+) -> Element<Msg> {
+    col()
+        .p(SP1)
+        .gap(2.0)
+        .min_w(200.0)
+        .surface(Surface::Menu)
+        .children(items.into_iter().map(menu_row))
 }
 
 /// A dropdown menu: place it as a child of a clickable anchor — clicking
