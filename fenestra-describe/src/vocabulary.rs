@@ -121,6 +121,16 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Horizontal step indicator. `bind` a root `state` number key for the active step (0-based).",
         r#"{"steps":["Account","Shipping","Payment"],"current":1}"#,
     ),
+    (
+        "toolbar",
+        "Surface-framed bar grouping action controls (`children`). `vertical:true` stacks them.",
+        r#"{"children":[{"button":{"label":"Bold"}},{"button":{"label":"Italic"}}]}"#,
+    ),
+    (
+        "menubar",
+        "Application menu bar: top-level `menus`, each with a `title` and dropdown `items` (label + optional on_select intent).",
+        r#"{"menus":[{"title":"File","items":[{"label":"New"},{"label":"Open"}]}]}"#,
+    ),
     // ── Display / feedback ─────────────────────────────────────────────────
     (
         "badge",
@@ -192,6 +202,11 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "tooltip",
         "Hover tooltip wrapping a `target` node.",
         r#"{"label":"Helpful info","target":{"text":{"content":"Hover me"}}}"#,
+    ),
+    (
+        "drawer",
+        "Edge-anchored drawer / sheet with a backdrop. `side`: left (default) | right | top | bottom; `children` are the panel content; `on_close` intent on Esc/scrim.",
+        r#"{"title":"Filters","side":"left","children":[{"text":{"content":"Body"}}]}"#,
     ),
     // ── Decoration ────────────────────────────────────────────────────────
     ("divider", "Themed hairline rule.", r#"{}"#),

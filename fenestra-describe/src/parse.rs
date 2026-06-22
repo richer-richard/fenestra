@@ -12,24 +12,25 @@
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
 use fenestra_core::{
-    Element, ShadowToken, TextAlign, Theme, Weight, col, div, divider, linear_gradient, row,
-    spacer, stack, text,
+    DrawerSide, Element, ShadowToken, TextAlign, Theme, Weight, col, div, divider, linear_gradient,
+    row, spacer, stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, accordion, accordion_item, avatar, badge, breadcrumbs,
-    button, callout, card, checkbox, crumb, kbd, kbd_raised, meter, modal, pagination, progress,
-    progress_indeterminate, radio, segmented, select, skeleton, skeleton_circle, skeleton_text,
-    slider, spin_button, spinner, stat_card, status as kit_status, stepper, switch, tabs,
-    text_area, text_input, tooltip,
+    button, callout, card, checkbox, crumb, drawer, kbd, kbd_raised, menubar, meter, modal,
+    pagination, progress, progress_indeterminate, radio, segmented, select, skeleton,
+    skeleton_circle, skeleton_text, slider, spin_button, spinner, stat_card, status as kit_status,
+    stepper, switch, tabs, text_area, text_input, toolbar, tooltip,
 };
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
     AccordionNode, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container, Description,
-    IconNode, InputNode, KbdNode, Leaf, MeterNode, ModalNode, Node, PaginationNode, ProgressNode,
-    RadioNode, SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode, SpinButtonNode, StatCardNode,
-    StatusNode, StepperNode, Style, TabsNode, TextNode, TooltipNode,
+    DrawerNode, IconNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode, ModalNode, Node,
+    PaginationNode, ProgressNode, RadioNode, SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode,
+    SpinButtonNode, StatCardNode, StatusNode, StepperNode, Style, TabsNode, TextNode, ToolbarNode,
+    TooltipNode,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -259,6 +260,8 @@ fn node_to_element(
         Node::Breadcrumbs(b) => breadcrumbs_node(b),
         Node::Pagination(p) => pagination_node(p, state),
         Node::Stepper(s) => stepper_node(s, state),
+        Node::Toolbar(t) => toolbar_node(t, theme, state, path, errors),
+        Node::Menubar(m) => menubar_node(m),
         // ── Display / feedback ─────────────────────────────────────────────────
         Node::Badge(b) => badge_node(b, path, errors),
         Node::Callout(c) => callout_node(c, path, errors),
@@ -275,6 +278,7 @@ fn node_to_element(
         // ── Overlays ──────────────────────────────────────────────────────────
         Node::Modal(m) => modal_node(m, theme, state, path, errors),
         Node::Tooltip(t) => tooltip_node(t, theme, state, path, errors),
+        Node::Drawer(d) => drawer_node(d, theme, state, path, errors),
         // ── Decoration ────────────────────────────────────────────────────────
         Node::Divider(l) => leaf(divider(), l, theme, path, errors),
         Node::Spacer(l) => leaf(spacer(), l, theme, path, errors),
@@ -449,6 +453,85 @@ fn stepper_node(s: &StepperNode, state: &StateMap) -> Element<Action> {
     }
     let el: Element<Action> = w.on_select(index_handler(&s.bind, &s.on_change)).into();
     if let Some(id) = &s.id { el.id(id) } else { el }
+}
+
+fn toolbar_node(
+    t: &ToolbarNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let mut w = toolbar();
+    if t.vertical {
+        w = w.vertical();
+    }
+    if let Some(label) = &t.label {
+        w = w.label(label.clone());
+    }
+    for (i, child) in t.children.iter().enumerate() {
+        let c = node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors);
+        w = w.item(c);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &t.id { el.id(id) } else { el }
+}
+
+fn menubar_node(m: &MenubarNode) -> Element<Action> {
+    let mut w = menubar();
+    for menu in &m.menus {
+        let items: Vec<(String, Action)> = menu
+            .items
+            .iter()
+            .map(|it| {
+                let action = it.on_select.as_ref().map_or_else(
+                    || Action::Intent(String::new()),
+                    |s| Action::Intent(s.clone()),
+                );
+                (it.label.clone(), action)
+            })
+            .collect();
+        w = w.menu(menu.title.clone(), items);
+    }
+    w.into()
+}
+
+fn drawer_node(
+    d: &DrawerNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let side = match d.side.as_str() {
+        "right" => DrawerSide::Right,
+        "top" => DrawerSide::Top,
+        "bottom" => DrawerSide::Bottom,
+        "left" => DrawerSide::Left,
+        other => {
+            errors.push(DescribeError::new(
+                format!("{path}/side"),
+                format!("unknown drawer side {other:?}; expected left|right|top|bottom"),
+            ));
+            DrawerSide::Left
+        }
+    };
+    let mut w = drawer(side);
+    if let Some(title) = &d.title {
+        w = w.title(title.clone());
+    }
+    if let Some(size) = d.size {
+        w = w.size(size);
+    }
+    if let Some(intent) = &d.on_close {
+        w = w.on_close(Action::Intent(intent.clone()));
+    }
+    for (i, child) in d.children.iter().enumerate() {
+        let c = node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors);
+        w = w.child(c);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &d.id { el.id(id) } else { el }
 }
 
 fn spin_button_node(s: &SpinButtonNode) -> Element<Action> {

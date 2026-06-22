@@ -68,6 +68,8 @@ fn vocabulary_covers_every_node_variant() {
         "breadcrumbs",
         "pagination",
         "stepper",
+        "toolbar",
+        "menubar",
         // Display / feedback
         "badge",
         "callout",
@@ -84,6 +86,7 @@ fn vocabulary_covers_every_node_variant() {
         // Overlays
         "modal",
         "tooltip",
+        "drawer",
         // Decoration
         "divider",
         "spacer",
@@ -122,6 +125,8 @@ fn tag_of(n: &Node) -> &'static str {
         Node::Breadcrumbs(_) => "breadcrumbs",
         Node::Pagination(_) => "pagination",
         Node::Stepper(_) => "stepper",
+        Node::Toolbar(_) => "toolbar",
+        Node::Menubar(_) => "menubar",
         // Display / feedback
         Node::Badge(_) => "badge",
         Node::Callout(_) => "callout",
@@ -138,6 +143,7 @@ fn tag_of(n: &Node) -> &'static str {
         // Overlays
         Node::Modal(_) => "modal",
         Node::Tooltip(_) => "tooltip",
+        Node::Drawer(_) => "drawer",
         // Decoration
         Node::Divider(_) => "divider",
         Node::Spacer(_) => "spacer",

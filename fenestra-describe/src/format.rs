@@ -94,6 +94,10 @@ pub enum Node {
     Pagination(PaginationNode),
     /// A horizontal step indicator. `bind` a root `state` number key for the step.
     Stepper(StepperNode),
+    /// A surface-framed bar grouping action controls (its `children`).
+    Toolbar(ToolbarNode),
+    /// An application menu bar: top-level `menus`, each a dropdown of items.
+    Menubar(MenubarNode),
     // ── Display / feedback ─────────────────────────────────────────────────
     /// A status pill. `status`: accent (default) | danger | warning | success.
     Badge(BadgeNode),
@@ -126,6 +130,8 @@ pub enum Node {
     Modal(ModalNode),
     /// A hover tooltip wrapping a `target` node.
     Tooltip(TooltipNode),
+    /// An edge-anchored drawer / sheet panel with a backdrop and `children`.
+    Drawer(DrawerNode),
     // ── Decoration ────────────────────────────────────────────────────────
     /// A themed hairline rule.
     Divider(Leaf),
@@ -951,9 +957,96 @@ pub struct Border {
     pub color: ColorSpec,
 }
 
+/// A surface-framed toolbar grouping action controls.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ToolbarNode {
+    /// The controls, in order.
+    #[serde(default)]
+    pub children: Vec<Node>,
+    /// Stack vertically instead of in a row.
+    #[serde(default)]
+    pub vertical: bool,
+    /// Accessible name for the bar.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// One item of a menubar dropdown.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MenuItemDto {
+    /// The item label.
+    pub label: String,
+    /// Intent emitted when the item is chosen.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_select: Option<String>,
+}
+
+/// One top-level menu of a menubar.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MenubarMenuDto {
+    /// The trigger title.
+    pub title: String,
+    /// The dropdown items.
+    #[serde(default)]
+    pub items: Vec<MenuItemDto>,
+}
+
+/// An application menu bar.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MenubarNode {
+    /// The top-level menus, in order.
+    #[serde(default)]
+    pub menus: Vec<MenubarMenuDto>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// An edge-anchored drawer / sheet panel.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DrawerNode {
+    /// Optional heading shown at the top of the panel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    /// The panel content, in order.
+    #[serde(default)]
+    pub children: Vec<Node>,
+    /// Anchored edge: `left` (default) | `right` | `top` | `bottom`.
+    #[serde(default = "default_left")]
+    pub side: String,
+    /// Panel thickness (width for left/right, height for top/bottom).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f32>,
+    /// Intent emitted on Esc / scrim click / close button.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_close: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
 /// Default value for `status`/`delta_status` fields (serde `default` attribute).
 pub fn default_status() -> String {
     "accent".to_string()
+}
+
+/// Default `"left"` for the drawer's `side` (serde `default` attribute).
+pub fn default_left() -> String {
+    "left".to_string()
 }
 
 /// Default `true` for boolean fields that default on (serde `default` attribute).

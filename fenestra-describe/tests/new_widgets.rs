@@ -219,6 +219,54 @@ fn accordion_bind_reads_state() {
     assert!(to_element(&desc, &Theme::light()).is_ok());
 }
 
+// ── Toolbar ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn toolbar_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"toolbar":{"label":"Format","children":[{"button":{"label":"Bold"}},{"button":{"label":"Italic"}}]}}}"#,
+    );
+    let yaml = light_yaml(&el);
+    assert!(
+        yaml.contains("Bold") && yaml.contains("Italic"),
+        "yaml: {yaml}"
+    );
+}
+
+// ── Menubar ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn menubar_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"menubar":{"menus":[{"title":"File","items":[{"label":"New"},{"label":"Open"}]},{"title":"Edit","items":[{"label":"Undo"}]}]}}}"#,
+    );
+    let yaml = light_yaml(&el);
+    assert!(
+        yaml.contains("File") && yaml.contains("Edit"),
+        "yaml: {yaml}"
+    );
+}
+
+// ── Drawer ──────────────────────────────────────────────────────────────────────
+
+#[test]
+fn drawer_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"drawer":{"title":"Filters","side":"right","children":[{"text":{"content":"Body content"}}]}}}"#,
+    );
+    // Drawer is an overlay; just confirm it builds + renders without panic.
+    let _ = light_yaml(&el);
+}
+
+#[test]
+fn drawer_rejects_unknown_side() {
+    // An unknown side degrades to left and records an error (clamp over panic).
+    let json = r#"{"schema":"fenestra/1","root":{"drawer":{"side":"diagonal","children":[]}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    let (_, errors) = to_element_lenient(&desc, &Theme::light());
+    assert!(!errors.is_empty(), "expected an error for the unknown side");
+}
+
 // ── Badge ─────────────────────────────────────────────────────────────────────
 
 #[test]
