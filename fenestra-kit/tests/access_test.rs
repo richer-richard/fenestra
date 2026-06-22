@@ -34,7 +34,7 @@ fn widgets_expose_semantics() {
 
     assert!(
         find(&tree, &|n| {
-            matches!(n.semantics, Some(Semantics::Checkbox { checked: true }))
+            matches!(n.semantics, Some(Semantics::Checkbox { checked: true, .. }))
                 && n.label.as_deref() == Some("Notify")
         })
         .is_some(),

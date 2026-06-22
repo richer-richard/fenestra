@@ -236,7 +236,7 @@ fn node_to_dto(node: &AccessNode, path: &[usize]) -> AccessNodeDto {
         .map_or("generic", Semantics::aria_role)
         .to_string();
     let (checked, selected) = match &node.semantics {
-        Some(Semantics::Checkbox { checked }) => (Some(*checked), None),
+        Some(Semantics::Checkbox { checked, .. }) => (Some(*checked), None),
         Some(Semantics::Switch { on }) => (Some(*on), None),
         Some(Semantics::Radio { selected }) | Some(Semantics::Tab { selected }) => {
             (None, Some(*selected))
@@ -569,7 +569,10 @@ fn hex(c: Color) -> String {
 fn role_from_str(role: &str) -> Result<Semantics, String> {
     Ok(match role {
         "button" => Semantics::Button,
-        "checkbox" => Semantics::Checkbox { checked: false },
+        "checkbox" => Semantics::Checkbox {
+            checked: false,
+            mixed: false,
+        },
         "switch" => Semantics::Switch { on: false },
         "radio" => Semantics::Radio { selected: false },
         "slider" => Semantics::Slider {

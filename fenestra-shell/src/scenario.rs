@@ -152,7 +152,10 @@ impl QuerySpec {
 fn role_from_str(role: &str) -> Result<Semantics, String> {
     Ok(match role {
         "button" => Semantics::Button,
-        "checkbox" => Semantics::Checkbox { checked: false },
+        "checkbox" => Semantics::Checkbox {
+            checked: false,
+            mixed: false,
+        },
         "switch" => Semantics::Switch { on: false },
         "radio" => Semantics::Radio { selected: false },
         "slider" => Semantics::Slider {

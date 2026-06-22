@@ -308,7 +308,8 @@ impl Frame {
         fn attrs(node: &AccessNode) -> String {
             let mut out = String::new();
             match node.semantics {
-                Some(Semantics::Checkbox { checked: true }) => out.push_str(" [checked]"),
+                Some(Semantics::Checkbox { mixed: true, .. }) => out.push_str(" [mixed]"),
+                Some(Semantics::Checkbox { checked: true, .. }) => out.push_str(" [checked]"),
                 Some(Semantics::Switch { on: true }) => out.push_str(" [on]"),
                 Some(Semantics::Radio { selected: true })
                 | Some(Semantics::Tab { selected: true }) => out.push_str(" [selected]"),

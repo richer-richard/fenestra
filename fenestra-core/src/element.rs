@@ -253,10 +253,13 @@ impl Overlay {
 pub enum Semantics {
     /// An activatable button.
     Button,
-    /// A two-state checkbox.
+    /// A checkbox: two-state, or tri-state when `mixed`.
     Checkbox {
         /// Whether it is checked.
         checked: bool,
+        /// Whether it is in the indeterminate (mixed) state — projects
+        /// `aria-checked="mixed"`.
+        mixed: bool,
     },
     /// An on/off switch.
     Switch {

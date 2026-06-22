@@ -2,12 +2,18 @@
 //! selection + ARIA payload, kbd glyph mapping + accessible chord name, status
 //! labels, and skeleton totality over edge inputs.
 
+use std::path::PathBuf;
+
 use fenestra_core::{App, Element, Key, KeyInput, Semantics, Theme, by, col};
 use fenestra_kit::{
-    Status, kbd, kbd_raised, radio_group, segmented, skeleton, skeleton_circle, skeleton_text,
-    status, tabs, wavy_progress,
+    Status, checkbox, kbd, kbd_raised, radio_group, segmented, skeleton, skeleton_circle,
+    skeleton_text, status, tabs, wavy_progress,
 };
-use fenestra_shell::Harness;
+use fenestra_shell::{Harness, render_element, testing::assert_png_snapshot};
+
+fn snapshot_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/snapshots")
+}
 
 /// A harness over a single static (inert) element.
 struct Static(fn() -> Element<()>);
@@ -181,6 +187,52 @@ fn segmented_arrow_keys_move_the_active_segment() {
     assert_eq!(h.app().active, 0, "Home jumps to the first segment");
     h.key(KeyInput::plain(Key::End));
     assert_eq!(h.app().active, 2, "End jumps to the last segment");
+}
+
+// ---------------------------------------------------------------- checkbox
+
+#[test]
+fn checkbox_indeterminate_projects_mixed() {
+    let h = show(|| {
+        checkbox(false)
+            .indeterminate(true)
+            .label("Select all")
+            .into()
+    });
+    let node = h
+        .query(
+            &by::role(Semantics::Checkbox {
+                checked: false,
+                mixed: false,
+            })
+            .name("Select all"),
+        )
+        .expect("indeterminate checkbox present");
+    assert_eq!(
+        node.semantics,
+        Some(Semantics::Checkbox {
+            checked: false,
+            mixed: true
+        })
+    );
+}
+
+#[test]
+fn checkbox_states_golden() {
+    // Off / on / indeterminate (the dash) — the new tri-state visual.
+    let theme = Theme::light();
+    let scene = col::<()>()
+        .p(8.0)
+        .gap(8.0)
+        .items_start()
+        .bg(theme.bg)
+        .children((
+            checkbox(false).label("Off"),
+            checkbox(true).label("On"),
+            checkbox(false).indeterminate(true).label("Mixed"),
+        ));
+    let image = render_element(scene, &theme, (160, 110));
+    assert_png_snapshot(snapshot_dir(), "checkbox_states", &image);
 }
 
 // ---------------------------------------------------------------- kbd

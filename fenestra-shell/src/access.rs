@@ -41,7 +41,11 @@ fn push_node(nodes: &mut Vec<(NodeId, Node)>, an: &AccessNode, is_root: bool, sc
         node.set_live(accesskit::Live::Polite);
     }
     match an.semantics {
-        Some(Semantics::Checkbox { checked }) => node.set_toggled(toggled(checked)),
+        Some(Semantics::Checkbox { checked, mixed }) => node.set_toggled(if mixed {
+            accesskit::Toggled::Mixed
+        } else {
+            toggled(checked)
+        }),
         Some(Semantics::Switch { on }) => node.set_toggled(toggled(on)),
         Some(Semantics::Radio { selected }) => node.set_toggled(toggled(selected)),
         Some(Semantics::Tab { selected }) => node.set_selected(selected),
