@@ -1,8 +1,15 @@
-//! Markdown for fenestra: CommonMark rendered as native elements —
+//! Markdown for fenestra: CommonMark + GFM rendered as native elements —
 //! headings, paragraphs with inline styling, code blocks, lists,
-//! blockquotes, links, and rules. Built on `fenestra-core`'s public API
-//! only (rich text spans do the inline work), theme-token colors
+//! blockquotes, links, rules, **tables**, **task lists**, **images** (alt
+//! text fallback), **footnotes**, and autolinks. Built on `fenestra-core`'s
+//! public API only (rich text spans do the inline work), theme-token colors
 //! throughout, no panics on hostile input.
+//!
+//! Enabled GFM flags: TABLES, TASKLISTS, FOOTNOTES, STRIKETHROUGH, GFM.
+//! Bare-URL autolinks are not yet supported by pulldown-cmark 0.13.4's
+//! ENABLE_GFM (only blockquote admonitions); standard angle-bracket
+//! autolinks (`<https://…>`) render as clickable links via CommonMark.
+//! Code-block syntax highlighting is deferred (no syntax-highlighting dep).
 //!
 //! ```
 //! use fenestra_markdown::markdown;
@@ -12,10 +19,10 @@
 //! ```
 
 use fenestra_core::{
-    Element, FamilyRole, MEASURE_CH, Semantics, Span, TextSize, Theme, Weight, col, div, divider,
-    rich_text, row, span, text,
+    Element, FamilyRole, MEASURE_CH, Semantics, Span, TextAlign, TextSize, Theme, Track, Weight,
+    col, div, divider, rich_text, row, span, text,
 };
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 /// Shared URL-to-message mapping for link clicks.
 type LinkFn<Msg> = std::rc::Rc<dyn Fn(&str) -> Msg>;
@@ -26,10 +33,9 @@ pub struct Markdown<Msg> {
     on_link: Option<LinkFn<Msg>>,
 }
 
-/// Renders CommonMark (plus strikethrough) as native elements. Inline
-/// emphasis/strong/code become rich-text spans; links are clickable
-/// when [`Markdown::on_link`] is wired (they emit the URL — the app
-/// decides what opening means).
+/// Renders CommonMark + GFM as native elements. Inline emphasis/strong/code
+/// become rich-text spans; links are clickable when [`Markdown::on_link`] is
+/// wired (they emit the URL — the app decides what opening means).
 pub fn markdown<Msg>(source: impl Into<String>) -> Markdown<Msg> {
     Markdown {
         source: source.into(),
@@ -53,6 +59,8 @@ struct Inline {
     code: bool,
     strikethrough: bool,
     link: bool,
+    /// Footnote reference marker — rendered slightly smaller.
+    footnote_ref: bool,
 }
 
 /// One flushable block being accumulated.
@@ -99,15 +107,43 @@ fn build_spans(specs: &[SpanSpec]) -> Vec<Span> {
             if s.inline.strikethrough {
                 sp = sp.color(fenestra_core::Color::from_rgba8(128, 128, 128, 255));
             }
+            // Footnote references read smaller (superscript-ish).
+            if s.inline.footnote_ref {
+                sp = sp.size_px(9.0);
+            }
             sp
         })
         .collect()
+}
+
+/// Build spans that are semibold (for table header cells).
+fn header_spans(specs: &[SpanSpec]) -> Vec<Span> {
+    build_spans(specs)
+        .into_iter()
+        .map(|s| s.weight(Weight::Semibold))
+        .collect()
+}
+
+/// Convert a pulldown-cmark column [`Alignment`] to a fenestra [`TextAlign`].
+fn column_text_align(alignment: Alignment) -> TextAlign {
+    match alignment {
+        Alignment::Center => TextAlign::Center,
+        Alignment::Right => TextAlign::End,
+        Alignment::Left | Alignment::None => TextAlign::Start,
+    }
 }
 
 impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
     fn from(md: Markdown<Msg>) -> Self {
         let mut options = Options::empty();
         options.insert(Options::ENABLE_STRIKETHROUGH);
+        options.insert(Options::ENABLE_TABLES);
+        options.insert(Options::ENABLE_TASKLISTS);
+        options.insert(Options::ENABLE_FOOTNOTES);
+        // ENABLE_GFM: GFM blockquote admonitions ([!NOTE] etc.) and future
+        // GFM features. Bare-URL autolinks are NOT yet behind this flag in
+        // pulldown-cmark 0.13.4; standard <url> autolinks work via CommonMark.
+        options.insert(Options::ENABLE_GFM);
         let parser = Parser::new_ext(&md.source, options);
 
         let mut blocks: Vec<Element<Msg>> = Vec::new();
@@ -118,6 +154,26 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
         let mut quote_depth = 0usize;
         let mut code: Option<String> = None;
         let mut heading: Option<HeadingLevel> = None;
+
+        // Table state
+        let mut table_alignments: Vec<Alignment> = Vec::new();
+        let mut in_table = false;
+        let mut in_table_head = false;
+        let mut current_table_row: Vec<Vec<SpanSpec>> = Vec::new();
+        let mut table_head_row: Vec<Vec<SpanSpec>> = Vec::new();
+        let mut table_body_rows: Vec<Vec<Vec<SpanSpec>>> = Vec::new();
+
+        // Image alt-text accumulator: (dest_url, alt_text)
+        let mut image_state: Option<(String, String)> = None;
+
+        // Footnote state
+        let mut in_footnote_def: Option<String> = None;
+        let mut footnote_defs: Vec<(String, Vec<SpanSpec>)> = Vec::new();
+        let mut footnote_def_seen: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
+        let mut footnote_refs: std::collections::HashMap<String, usize> =
+            std::collections::HashMap::new();
+        let mut footnote_ref_counter = 0usize;
 
         let flush_block = |current: &mut BlockBuilder,
                            blocks: &mut Vec<Element<Msg>>,
@@ -233,27 +289,46 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
             match event {
                 Event::Start(Tag::Heading { level, .. }) => heading = Some(level),
                 Event::End(TagEnd::Heading(_)) => {
-                    flush_block(
-                        &mut current,
-                        &mut blocks,
-                        heading.take(),
-                        list_stack.len(),
-                        None,
-                        quote_depth,
-                        &md.on_link,
-                    );
+                    if in_footnote_def.is_none() {
+                        flush_block(
+                            &mut current,
+                            &mut blocks,
+                            heading.take(),
+                            list_stack.len(),
+                            None,
+                            quote_depth,
+                            &md.on_link,
+                        );
+                    } else {
+                        heading = None;
+                        // spans stay; collected when FootnoteDefinition ends
+                    }
                 }
                 Event::Start(Tag::Paragraph) => {}
                 Event::End(TagEnd::Paragraph) => {
-                    flush_block(
-                        &mut current,
-                        &mut blocks,
-                        None,
-                        list_stack.len(),
-                        pending_marker.take(),
-                        quote_depth,
-                        &md.on_link,
-                    );
+                    if in_table {
+                        // Paragraph inside table cell: spans stay for cell collection.
+                    } else if in_footnote_def.is_some() {
+                        // Paragraph inside footnote: separate with a space;
+                        // spans are collected when FootnoteDefinition ends.
+                        if !current.spans.is_empty() {
+                            current.spans.push(SpanSpec {
+                                text: " ".to_owned(),
+                                inline,
+                                link: None,
+                            });
+                        }
+                    } else {
+                        flush_block(
+                            &mut current,
+                            &mut blocks,
+                            None,
+                            list_stack.len(),
+                            pending_marker.take(),
+                            quote_depth,
+                            &md.on_link,
+                        );
+                    }
                 }
                 Event::Start(Tag::BlockQuote(_)) => quote_depth += 1,
                 Event::End(TagEnd::BlockQuote(_)) => quote_depth = quote_depth.saturating_sub(1),
@@ -273,19 +348,23 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                             *n += 1;
                             marker
                         }
-                        _ => "•".to_owned(),
+                        _ => "\u{2022}".to_owned(), // •
                     });
                 }
                 Event::End(TagEnd::Item) => {
-                    flush_block(
-                        &mut current,
-                        &mut blocks,
-                        None,
-                        list_stack.len(),
-                        pending_marker.take(),
-                        quote_depth,
-                        &md.on_link,
-                    );
+                    if in_footnote_def.is_none() {
+                        flush_block(
+                            &mut current,
+                            &mut blocks,
+                            None,
+                            list_stack.len(),
+                            pending_marker.take(),
+                            quote_depth,
+                            &md.on_link,
+                        );
+                    } else {
+                        pending_marker = None;
+                    }
                 }
                 Event::Start(Tag::CodeBlock(_)) => code = Some(String::new()),
                 Event::End(TagEnd::CodeBlock) => {
@@ -322,14 +401,165 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                     inline.link = false;
                     link_target = None;
                 }
-                Event::Text(t) => match &mut code {
-                    Some(body) => body.push_str(&t),
-                    None => current.spans.push(SpanSpec {
-                        text: t.to_string(),
-                        inline,
+                // Images: cannot load URLs headlessly, so fall back to alt text
+                // in a styled placeholder box.
+                Event::Start(Tag::Image { dest_url, .. }) => {
+                    image_state = Some((dest_url.to_string(), String::new()));
+                }
+                Event::End(TagEnd::Image) => {
+                    if let Some((url, alt)) = image_state.take() {
+                        let label = if alt.is_empty() { url } else { alt };
+                        blocks.push(
+                            div()
+                                .px(8.0)
+                                .py(4.0)
+                                .themed(|t: &Theme, s| {
+                                    s.border(1.0, t.border_subtle).rounded(t.radius.sm)
+                                })
+                                .child(
+                                    text(format!("[img: {label}]"))
+                                        .themed(|t: &Theme, s| s.color(t.text_muted)),
+                                ),
+                        );
+                    }
+                }
+                // Tables
+                Event::Start(Tag::Table(aligns)) => {
+                    table_alignments = aligns;
+                    table_head_row.clear();
+                    table_body_rows.clear();
+                    in_table = true;
+                }
+                Event::End(TagEnd::Table) => {
+                    in_table = false;
+                    let n_cols = table_alignments.len().max(1);
+                    let mut all_cells: Vec<Element<Msg>> = Vec::new();
+
+                    // Header row: semibold text + elevated background + bottom rule.
+                    for (i, cell_specs) in table_head_row.iter().enumerate() {
+                        let ta = column_text_align(
+                            table_alignments.get(i).copied().unwrap_or(Alignment::None),
+                        );
+                        let spans = header_spans(cell_specs);
+                        let cell = div()
+                            .px(8.0)
+                            .py(6.0)
+                            .themed(|t: &Theme, s| {
+                                s.bg(t.elevated_surface(1))
+                                    .border_bottom(1.0, t.border_subtle)
+                            })
+                            .child(rich_text(spans).text_align(ta).selectable());
+                        all_cells.push(cell);
+                    }
+
+                    // Body rows.
+                    for row_cells in &table_body_rows {
+                        for (i, cell_specs) in row_cells.iter().enumerate() {
+                            let ta = column_text_align(
+                                table_alignments.get(i).copied().unwrap_or(Alignment::None),
+                            );
+                            let spans = build_spans(cell_specs);
+                            let cell = div()
+                                .px(8.0)
+                                .py(4.0)
+                                .themed(|t: &Theme, s| s.border_bottom(1.0, t.border_subtle))
+                                .child(rich_text(spans).text_align(ta).selectable());
+                            all_cells.push(cell);
+                        }
+                    }
+
+                    blocks.push(
+                        div()
+                            .w_full()
+                            .grid_cols(std::iter::repeat_n(Track::Fr(1.0), n_cols))
+                            .themed(|t: &Theme, s| {
+                                s.border(1.0, t.border_subtle).rounded(t.radius.sm)
+                            })
+                            .children(all_cells),
+                    );
+                    table_alignments.clear();
+                }
+                Event::Start(Tag::TableHead) => {
+                    in_table_head = true;
+                    table_head_row.clear();
+                }
+                Event::End(TagEnd::TableHead) => {
+                    // The head row is now complete (cells were collected
+                    // directly into table_head_row without a TableRow wrapper).
+                    in_table_head = false;
+                }
+                // TableRow is emitted only for body rows; the header row's
+                // cells are collected directly inside TableHead (no TableRow).
+                Event::Start(Tag::TableRow) => {
+                    current_table_row.clear();
+                }
+                Event::End(TagEnd::TableRow) => {
+                    table_body_rows.push(std::mem::take(&mut current_table_row));
+                }
+                Event::Start(Tag::TableCell) => {}
+                Event::End(TagEnd::TableCell) => {
+                    let cell_spans = std::mem::take(&mut current.spans);
+                    if in_table_head {
+                        // Header cells go directly into table_head_row.
+                        table_head_row.push(cell_spans);
+                    } else {
+                        // Body cells accumulate in the current row buffer.
+                        current_table_row.push(cell_spans);
+                    }
+                }
+                // Task list checkboxes: override the bullet with a glyph.
+                Event::TaskListMarker(checked) => {
+                    pending_marker = Some(if checked { "\u{2611}" } else { "\u{2610}" }.to_owned()); // ☑ / ☐
+                }
+                // Footnote references: inline [N] marker.
+                Event::FootnoteReference(label) => {
+                    let label_str = label.to_string();
+                    let next = footnote_ref_counter + 1;
+                    let n = *footnote_refs.entry(label_str).or_insert(next);
+                    if n == next {
+                        footnote_ref_counter = next;
+                    }
+                    current.spans.push(SpanSpec {
+                        text: format!("[{n}]"),
+                        inline: Inline {
+                            footnote_ref: true,
+                            ..inline
+                        },
                         link: link_target.clone(),
-                    }),
-                },
+                    });
+                }
+                // Footnote definitions: collect spans, render at document end.
+                Event::Start(Tag::FootnoteDefinition(label)) => {
+                    in_footnote_def = Some(label.to_string());
+                }
+                Event::End(TagEnd::FootnoteDefinition) => {
+                    if let Some(label) = in_footnote_def.take() {
+                        if !footnote_def_seen.contains(&label) {
+                            footnote_def_seen.insert(label.clone());
+                            // Trim trailing separator space added between paragraphs.
+                            let mut spans = std::mem::take(&mut current.spans);
+                            if spans.last().is_some_and(|s| s.text == " ") {
+                                spans.pop();
+                            }
+                            footnote_defs.push((label, spans));
+                        } else {
+                            current.spans.clear();
+                        }
+                    }
+                }
+                Event::Text(t) => {
+                    if let Some(body) = &mut code {
+                        body.push_str(&t);
+                    } else if let Some((_, alt)) = &mut image_state {
+                        alt.push_str(&t);
+                    } else {
+                        current.spans.push(SpanSpec {
+                            text: t.to_string(),
+                            inline,
+                            link: link_target.clone(),
+                        });
+                    }
+                }
                 Event::Code(t) => current.spans.push(SpanSpec {
                     text: t.to_string(),
                     inline: Inline {
@@ -343,7 +573,7 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                     inline,
                     link: link_target.clone(),
                 }),
-                Event::HardBreak => {
+                Event::HardBreak if !in_table && in_footnote_def.is_none() => {
                     flush_block(
                         &mut current,
                         &mut blocks,
@@ -368,6 +598,33 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
             quote_depth,
             &md.on_link,
         );
+
+        // Footnote definitions section: a rule + numbered list at the end.
+        if !footnote_defs.is_empty() {
+            blocks.push(divider());
+            let mut footnote_els: Vec<Element<Msg>> = Vec::new();
+            for (label, def_spans) in &footnote_defs {
+                let n = footnote_refs.get(label.as_str()).copied().unwrap_or(0);
+                let marker = format!("{n}.");
+                let body = if def_spans.is_empty() {
+                    // Definition was referenced but has no body text.
+                    text(String::new()).themed(|t: &Theme, s| s.color(t.text_muted))
+                } else {
+                    text(
+                        def_spans
+                            .iter()
+                            .map(|s| s.text.as_str())
+                            .collect::<String>(),
+                    )
+                    .themed(|t: &Theme, s| s.color(t.text_muted))
+                };
+                footnote_els.push(row().gap(6.0).items_start().children((
+                    text(marker).themed(|t: &Theme, s| s.color(t.text_muted)),
+                    body,
+                )));
+            }
+            blocks.push(col().gap(4.0).items_start().children(footnote_els));
+        }
 
         // Cap the document at the default reading measure (~66ch), resolved
         // against the body text size: a long paragraph wraps at the reading
