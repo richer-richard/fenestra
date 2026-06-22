@@ -31,16 +31,17 @@ pub use combobox::{Combobox, combobox};
 pub use data_table::{DataTable, data_table};
 pub use date_picker::{Date, DatePicker, date_picker};
 pub use display::{
-    StatCard, Status, StatusIndicator, avatar, badge, badge_dot, callout, card, progress,
-    progress_indeterminate, reading_column, spinner, stat_card, status, table, tabs, wavy_progress,
+    StatCard, Status, StatusIndicator, WavyProgress, avatar, badge, badge_dot, callout, card,
+    progress, progress_indeterminate, reading_column, spinner, stat_card, status, table, tabs,
+    wavy_progress,
 };
-pub use kbd::kbd;
+pub use kbd::{kbd, kbd_raised};
 pub use menu::{context_menu, dropdown_menu, menu, popover};
 pub use overlay_widgets::{Modal, modal, tooltip};
 pub use palette::{CommandPalette, command_palette};
 pub use panes::{SplitPane, split_pane};
 pub use radio::{Radio, radio};
-pub use segmented::segmented;
+pub use segmented::{Segmented, segmented};
 pub use select::{Select, select};
 pub use skeleton::{skeleton, skeleton_circle, skeleton_text};
 pub use slider::{Slider, slider};

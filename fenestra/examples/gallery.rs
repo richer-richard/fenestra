@@ -23,7 +23,7 @@ fn main() {
             .save(out.join(format!("display_{suffix}.png")))
             .expect("write display");
 
-        let feedback = render_element(fenestra::kit::gallery_feedback(&theme), &theme, (688, 710));
+        let feedback = render_element(fenestra::kit::gallery_feedback(&theme), &theme, (688, 820));
         feedback
             .save(out.join(format!("feedback_{suffix}.png")))
             .expect("write feedback");

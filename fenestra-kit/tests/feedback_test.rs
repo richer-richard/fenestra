@@ -4,7 +4,8 @@
 
 use fenestra_core::{App, Element, Semantics, Theme, by, col};
 use fenestra_kit::{
-    Status, kbd, segmented, skeleton, skeleton_circle, skeleton_text, status, wavy_progress,
+    Status, kbd, kbd_raised, segmented, skeleton, skeleton_circle, skeleton_text, status,
+    wavy_progress,
 };
 use fenestra_shell::Harness;
 
@@ -125,15 +126,51 @@ fn skeletons_are_total_over_edge_inputs() {
 }
 
 #[test]
+fn kbd_raised_exposes_the_same_chord_label() {
+    let h = show(|| kbd_raised(["esc"]));
+    assert!(h.query(&by::role(Semantics::Image).name("Esc")).is_some());
+}
+
+#[derive(Default)]
+struct SegDisabled {
+    picks: usize,
+}
+
+impl App for SegDisabled {
+    type Msg = ();
+    fn update(&mut self, (): ()) {
+        self.picks += 1;
+    }
+    fn view(&self) -> Element<()> {
+        col()
+            .p(8.0)
+            .children([segmented(0, ["On", "Off"], |_| ()).disabled(true)])
+    }
+}
+
+#[test]
+fn disabled_segmented_is_present_but_not_clickable() {
+    let mut h = Harness::new(SegDisabled::default(), Theme::light(), (300, 100));
+    // The segment still exposes Tab semantics for assistive tech...
+    assert!(
+        h.query(&by::role(Semantics::Tab { selected: false }).name("Off"))
+            .is_some()
+    );
+    // ...but a disabled control carries no click handler, so nothing fires.
+    h.click(&by::role(Semantics::Tab { selected: false }).name("Off"));
+    assert_eq!(h.app().picks, 0);
+}
+
+#[test]
 fn wavy_progress_clamps_and_is_total() {
     // Fractions clamp to 0..=1 and a zero width is floored, so a hostile value
     // never panics the sine-path build.
     let builds: [fn() -> Element<()>; 5] = [
-        || wavy_progress(0.0, 240.0),
-        || wavy_progress(1.0, 240.0),
-        || wavy_progress(-1.0, 240.0),
-        || wavy_progress(2.0, 240.0),
-        || wavy_progress(0.5, 0.0),
+        || wavy_progress(0.0, 240.0).into(),
+        || wavy_progress(1.0, 240.0).into(),
+        || wavy_progress(-1.0, 240.0).into(),
+        || wavy_progress(2.0, 240.0).into(),
+        || wavy_progress(0.5, 0.0).into(),
     ];
     for build in builds {
         let mut h = show(build);

@@ -48,14 +48,14 @@ fn gallery_display_dark() {
 #[test]
 fn gallery_feedback_light() {
     let theme = Theme::light();
-    let image = render_element(gallery_feedback(&theme), &theme, (688, 710));
+    let image = render_element(gallery_feedback(&theme), &theme, (688, 820));
     assert_png_snapshot(snapshot_dir(), "gallery_feedback_light", &image);
 }
 
 #[test]
 fn gallery_feedback_dark() {
     let theme = Theme::dark();
-    let image = render_element(gallery_feedback(&theme), &theme, (688, 710));
+    let image = render_element(gallery_feedback(&theme), &theme, (688, 820));
     assert_png_snapshot(snapshot_dir(), "gallery_feedback_dark", &image);
 }
 

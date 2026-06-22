@@ -1939,3 +1939,46 @@ widgets and a new `gallery_feedback` golden scene (light + dark) were added.
   number stepper, pagination, OTP, and hover-card — are real gaps logged for
   future releases. Linear's "moving specular glass" and FLIP layout animation are
   larger, single-purpose efforts (each its own release).
+
+## 0.33: the craft pass (advanced widget internals)
+
+The 0.32 widgets shipped as MVPs; 0.33 deepens each to the form the research
+actually specified, working within two hard constraints of the renderer: layout
+insets are pixel-only (no percentage or translate on `left`/`top`), and `Style`
+exposes no translate — only `scale`. So anything that *moves* horizontally is
+done by animating an absolutely-positioned element's pixel `left`, the way the
+switch travels its knob.
+
+- **The segmented thumb slides on known pixels.** Because insets are px-only, a
+  sliding thumb needs known segment positions — so segments are *equal width*
+  (the standard segmented-control shape anyway): total width is the longest
+  label's estimate × n (or a pinned `.width`), and one absolutely-positioned
+  thumb animates its `left` to `pad + active·seg_w` on a spatial spring
+  (`with_spring(380, 30)`). A single stable id (child 0 of the track) keeps the
+  travel continuous across rebuilds. This is the slide `tabs` could not do for
+  variable-width tabs; equal width is what unlocks it.
+- **Skeleton shimmer is a clipped, swept band.** With no translate, the highlight
+  is an absolutely-positioned band whose pixel `left` is keyframed across the
+  block (clipped by `overflow_hidden`); it exits fully off the right edge and
+  wraps, so the loop is seamless. Headless forces reduced motion (stop 0 pinned),
+  so the first stop sits near the left edge with its bright centre on-screen — a
+  frozen frame shows the sheen, not a flat block. The highlight step is chosen
+  per mode (the ramps invert), lighter than the base. Text lines keep the opacity
+  pulse (they have no definite pixel width to sweep).
+- **Wavy amplitude is a function of two things.** Per-sample amplitude =
+  base · edge-taper(x) · completion-taper(fraction): the edge taper eases the
+  last wavelength into the gap (skipped on short bars so they keep full waves),
+  and the completion taper flattens the whole wave over the final ~12% so 100%
+  reads as a line. There is no phase scroll — a static path cannot translate — so
+  the wave is still, which keeps it deterministic.
+- **A raised keycap is a thick bottom border.** `kbd_raised` uses per-side borders
+  (square corners suit a near-square key): a hairline top/sides and a 2.5px
+  `border_strong` bottom that reads as the key's front lip, over a `surface_raised`
+  fill. The flat `kbd` chip is unchanged.
+- **The status glow is the ring's resting frame.** Rather than add a
+  layout-enlarging glow element, the live sonar ring's first (reduced-motion) stop
+  is a visible halo (scale 1.7, alpha 0.3) instead of hidden behind the dot, so
+  the glow shows in a static frame and blooms outward live.
+- **API note.** `segmented` and `wavy_progress` now return builders (`Segmented` /
+  `WavyProgress`) to carry their new options; inside `children([..])` they coerce
+  through `Into<Element>`, so most call sites are unchanged.

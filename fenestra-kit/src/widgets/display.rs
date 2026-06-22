@@ -227,8 +227,8 @@ impl<Msg> From<StatusIndicator<Msg>> for Element<Msg> {
                             x2: 0.36,
                             y2: 1.0,
                         })
-                        .stop(0.0, |st| st.opacity(0.7).scale(1.0))
-                        .stop(0.7, |st| st.opacity(0.15).scale(2.6))
+                        .stop(0.0, |st| st.opacity(0.30).scale(1.7))
+                        .stop(0.7, |st| st.opacity(0.12).scale(2.6))
                         .stop(1.0, |st| st.opacity(0.0).scale(3.0)),
                 );
             let dot = div::<Msg>()
@@ -299,51 +299,103 @@ pub fn progress<Msg>(fraction: f32) -> Element<Msg> {
             .themed(|t: &Theme, s| s.bg(t.accent))])
 }
 
-/// A determinate progress bar whose filled portion is drawn as a sine wave —
-/// the Material 3 Expressive "wavy" indicator. `fraction` (0..=1) of `width`
-/// logical px renders as an accent-stroked wave; the remainder is a flat
-/// neutral track. The wave is static, so headless renders are deterministic;
-/// for an indeterminate sweep use [`progress_indeterminate`].
+/// A determinate progress bar drawn the Material 3 Expressive way: the filled
+/// portion is an accent **sine wave** that flattens into the track at its
+/// leading edge and as it nears completion, separated from the remaining
+/// neutral track by a small gap. The wave is static, so headless renders are
+/// deterministic; for an indeterminate sweep use [`progress_indeterminate`].
 ///
 /// ```
 /// use fenestra_kit::wavy_progress;
 ///
-/// let el: fenestra_core::Element<()> = wavy_progress(0.6, 240.0);
+/// let el: fenestra_core::Element<()> = wavy_progress(0.6, 240.0).into();
 /// ```
-pub fn wavy_progress<Msg>(fraction: f32, width: f32) -> Element<Msg> {
-    let fraction = fraction.clamp(0.0, 1.0);
-    let width = width.max(1.0);
-    let amp = 2.5_f64;
-    let wavelength = 16.0_f64;
-    let stroke = 3.0_f64;
-    let w = f64::from(width);
-    let h = amp * 2.0 + stroke + 1.0;
-    let cy = h / 2.0;
-    let active_w = f64::from(fraction) * w;
-    let h_px = h as f32;
+pub fn wavy_progress<Msg>(fraction: f32, width: f32) -> WavyProgress<Msg> {
+    WavyProgress {
+        fraction,
+        width,
+        amplitude: 2.5,
+        wavelength: 16.0,
+        _msg: std::marker::PhantomData,
+    }
+}
 
-    // The flat track spans the full width behind the wave.
-    let mut track = BezPath::new();
-    track.move_to((0.0, cy));
-    track.line_to((w, cy));
+/// A wavy progress bar under construction; converts into an [`Element`].
+pub struct WavyProgress<Msg> {
+    fraction: f32,
+    width: f32,
+    amplitude: f32,
+    wavelength: f32,
+    _msg: std::marker::PhantomData<Msg>,
+}
 
-    // The active portion is a sine wave sampled as a dense polyline; round
-    // joins (the painter's default) smooth it.
-    let mut wave = BezPath::new();
-    if active_w > 0.0 {
-        wave.move_to((0.0, cy));
-        let mut x = 0.0_f64;
-        while x < active_w {
-            x = (x + 1.5).min(active_w);
-            let y = cy + amp * (std::f64::consts::TAU * x / wavelength).sin();
-            wave.line_to((x, y));
-        }
+impl<Msg> WavyProgress<Msg> {
+    /// Sets the wave amplitude (peak deflection from the centerline, px).
+    pub fn amplitude(mut self, amplitude: f32) -> Self {
+        self.amplitude = amplitude.max(0.0);
+        self
     }
 
-    stack().w(width).h(h_px).children([
-        path(track, (w, h), Some(stroke)).themed(|t: &Theme, s| s.color(t.neutrals.step(4))),
-        path(wave, (w, h), Some(stroke)).themed(|t: &Theme, s| s.color(t.accent)),
-    ])
+    /// Sets the wavelength (logical px per cycle).
+    pub fn wavelength(mut self, wavelength: f32) -> Self {
+        self.wavelength = wavelength.max(4.0);
+        self
+    }
+}
+
+impl<Msg> From<WavyProgress<Msg>> for Element<Msg> {
+    fn from(p: WavyProgress<Msg>) -> Self {
+        let fraction = p.fraction.clamp(0.0, 1.0);
+        let width = p.width.max(1.0);
+        let amp = f64::from(p.amplitude);
+        let wavelength = f64::from(p.wavelength);
+        let stroke = 3.0_f64;
+        let gap = 5.0_f64;
+        let w = f64::from(width);
+        let h = amp * 2.0 + stroke + 2.0;
+        let cy = h / 2.0;
+        let h_px = h as f32;
+        let active_w = f64::from(fraction) * w;
+        // Flatten the whole wave over the final stretch so a near-complete bar
+        // reads as a smooth line (M3's amplitude-to-zero at completion).
+        let completion = ((1.0 - f64::from(fraction)) / 0.12).clamp(0.0, 1.0);
+
+        // The active wave, sampled as a dense polyline (round joins smooth it).
+        // On a long enough bar the amplitude tapers to zero over the last
+        // wavelength so the wave eases into the gap rather than stopping
+        // mid-swing; short bars keep full amplitude.
+        let mut wave = BezPath::new();
+        if active_w > 0.5 {
+            wave.move_to((0.0, cy));
+            let mut x = 0.0_f64;
+            while x < active_w {
+                x = (x + 1.5).min(active_w);
+                let edge = if active_w > 2.0 * wavelength {
+                    ((active_w - x) / wavelength).clamp(0.0, 1.0)
+                } else {
+                    1.0
+                };
+                let a = amp * edge * completion;
+                let y = cy + a * (std::f64::consts::TAU * x / wavelength).sin();
+                wave.line_to((x, y));
+            }
+        }
+
+        // The remaining track: a flat line after the gap (full width at 0%).
+        let track_start = if active_w > 0.5 {
+            (active_w + gap).min(w)
+        } else {
+            0.0
+        };
+        let mut track = BezPath::new();
+        track.move_to((track_start, cy));
+        track.line_to((w, cy));
+
+        stack().w(width).h(h_px).children([
+            path(track, (w, h), Some(stroke)).themed(|t: &Theme, s| s.color(t.neutrals.step(4))),
+            path(wave, (w, h), Some(stroke)).themed(|t: &Theme, s| s.color(t.accent)),
+        ])
+    }
 }
 
 /// A rotating arc spinner (800ms per turn; static under reduced motion).

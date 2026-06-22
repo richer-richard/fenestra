@@ -7,8 +7,8 @@ use fenestra_core::{
 
 use crate::{
     ButtonVariant, ControlSize, Status, avatar, badge, button, callout, card, checkbox, icons, kbd,
-    progress, radio, segmented, select, skeleton, skeleton_circle, skeleton_text, slider, spinner,
-    stat_card, status, switch, table, tabs, text_area, text_input, wavy_progress,
+    kbd_raised, progress, radio, segmented, select, skeleton, skeleton_circle, skeleton_text,
+    slider, spinner, stat_card, status, switch, table, tabs, text_area, text_input, wavy_progress,
 };
 
 fn section<Msg>(title: &str, content: Element<Msg>) -> Element<Msg> {
@@ -172,15 +172,22 @@ fn svec<const N: usize>(items: [&str; N]) -> Vec<String> {
     items.iter().map(|s| (*s).to_owned()).collect()
 }
 
-/// The feedback & vocabulary additions: a segmented control, live status
-/// indicators, skeleton loaders, and keyboard hints — every state in one frame.
+/// The feedback & vocabulary additions, every state in one frame: a segmented
+/// control (sliding thumb, sizes, disabled), live status indicators with a
+/// glow, shimmering skeletons, flat and raised keyboard caps, and the wavy
+/// progress bar at several fills (note how it flattens toward completion).
 pub fn gallery_feedback(theme: &Theme) -> Element<()> {
     col().p(SP6).gap(SP6).bg(theme.bg).children([
         section(
             "SEGMENTED CONTROL",
             col().gap(SP3).items_start().children([
-                segmented(0, ["List", "Board", "Calendar"], |_| ()),
-                segmented(1, ["Day", "Week", "Month"], |_| ()),
+                Element::from(segmented(0, ["List", "Board", "Calendar"], |_| ())),
+                row().gap(SP4).items_center().children([
+                    Element::from(
+                        segmented(1, ["Day", "Week", "Month"], |_| ()).size(ControlSize::Sm),
+                    ),
+                    Element::from(segmented(0, ["On", "Off"], |_| ()).disabled(true)),
+                ]),
             ]),
         ),
         section(
@@ -214,6 +221,11 @@ pub fn gallery_feedback(theme: &Theme) -> Element<()> {
                     kbd(["enter"]),
                     kbd(["esc"]),
                 ]),
+                row().gap(SP3).items_center().children([
+                    kbd_raised(["esc"]),
+                    kbd_raised(["space"]),
+                    kbd_raised(["enter"]),
+                ]),
                 // A command-palette-style row with a right-aligned shortcut column.
                 row()
                     .w(360.0)
@@ -237,10 +249,11 @@ pub fn gallery_feedback(theme: &Theme) -> Element<()> {
         ),
         section(
             "WAVY PROGRESS",
-            col()
-                .gap(SP4)
-                .items_start()
-                .children([wavy_progress(0.35, 280.0), wavy_progress(0.7, 280.0)]),
+            col().gap(SP4).items_start().children([
+                Element::from(wavy_progress(0.35, 280.0)),
+                Element::from(wavy_progress(0.7, 280.0)),
+                Element::from(wavy_progress(0.96, 280.0)),
+            ]),
         ),
     ])
 }

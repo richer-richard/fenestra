@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.33.0 — 2026-06-22
+
+A craft pass that deepens the 0.32 vocabulary widgets from first-cut MVPs into
+their full, advanced forms. The pre-existing widget goldens are byte-identical;
+only the new widgets' own behavior and the feedback showcase changed.
+
+### Changed
+
+- **The segmented control now slides.** The active thumb is a single
+  absolutely-positioned element that *travels* to the selected segment on a
+  spatial spring (it cross-faded before). Segments are equal width — sized to the
+  longest label, or pin the total with `.width` — and the builder gains `.size`
+  (Sm/Md/Lg) and `.disabled`. `segmented(..)` now returns a `Segmented` builder
+  (call `.into()` where an `Element` is needed directly).
+- **Skeletons shimmer.** Blocks and circles run a left-to-right highlight sweep
+  (a translucent band gliding across the neutral base, clipped to the shape)
+  instead of a flat pulse; text lines keep the quieter opacity pulse. Both stay
+  deterministic under reduced motion.
+- **Wavy progress is the real Material 3 indicator.** The wave's amplitude tapers
+  to flat at its leading edge and as it nears completion, with a small gap before
+  the remaining track; `.amplitude` and `.wavelength` are tunable.
+  `wavy_progress(..)` now returns a `WavyProgress` builder.
+- **Live status indicators glow.** The pulsing ring reads as a soft halo around
+  the dot for realtime / online states, visible even in a static frame.
+
+### Added
+
+- **`kbd_raised`** — a chunky 3D keycap variant (a raised surface with a thick
+  bottom lip) alongside the flat-chip `kbd`, for documentation and onboarding.
+
 ## 0.32.0 — 2026-06-22
 
 Adds the universal modern primitives that premium apps ship — chosen from a
