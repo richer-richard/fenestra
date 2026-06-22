@@ -36,6 +36,19 @@ pub fn chevron_right<Msg>() -> Element<Msg> {
     path(p, VIEWBOX, Some(STROKE))
 }
 
+/// A house outline (stroked): a roof chevron over open body walls.
+pub fn home<Msg>() -> Element<Msg> {
+    let mut p = BezPath::new();
+    p.move_to((2.5, 8.0));
+    p.line_to((8.0, 3.0));
+    p.line_to((13.5, 8.0));
+    p.move_to((4.0, 7.5));
+    p.line_to((4.0, 13.0));
+    p.line_to((12.0, 13.0));
+    p.line_to((12.0, 7.5));
+    path(p, VIEWBOX, Some(STROKE))
+}
+
 /// A close cross (stroked).
 pub fn x<Msg>() -> Element<Msg> {
     let mut p = BezPath::new();
