@@ -16,8 +16,8 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Overlay, SP1, SP2, Semantics, Surface, TextSize, Theme, Transition, col, row,
-    text,
+    Cursor, Element, Overlay, SP1, SP2, SP3, Semantics, Surface, TextSize, Theme, Transition,
+    Weight, col, row, text,
 };
 
 /// The styled panel of menu items (no overlay attached): rows that emit
@@ -80,4 +80,80 @@ pub fn popover<Msg: 'static>(content: impl Into<Element<Msg>>) -> Element<Msg> {
         .surface(Surface::Popover)
         .child(content)
         .overlay(Overlay::menu())
+}
+
+/// A menu bar under construction; converts into an [`Element`].
+pub struct Menubar<Msg> {
+    triggers: Vec<Element<Msg>>,
+}
+
+/// An application menu bar: a full-width strip of top-level triggers, each of
+/// which toggles its own [`dropdown_menu`] on click. Chain [`Menubar::menu`]
+/// once per top-level menu.
+///
+/// ```
+/// use fenestra_kit::menubar;
+///
+/// #[derive(Clone)]
+/// enum Msg {
+///     New,
+///     Open,
+///     Undo,
+/// }
+///
+/// let el: fenestra_core::Element<Msg> = menubar()
+///     .menu("File", [("New", Msg::New), ("Open", Msg::Open)])
+///     .menu("Edit", [("Undo", Msg::Undo)])
+///     .into();
+/// ```
+pub fn menubar<Msg>() -> Menubar<Msg> {
+    Menubar {
+        triggers: Vec::new(),
+    }
+}
+
+impl<Msg: Clone + 'static> Menubar<Msg> {
+    /// Appends a top-level menu: a labelled trigger that toggles a dropdown of
+    /// `(label, message)` items on click.
+    #[must_use]
+    pub fn menu(
+        mut self,
+        title: impl Into<String>,
+        items: impl IntoIterator<Item = (impl Into<String>, Msg)>,
+    ) -> Self {
+        let title = title.into();
+        let trigger = row()
+            .items_center()
+            .px(SP3)
+            .h(32.0)
+            .shrink0()
+            .themed(|t: &Theme, s| s.rounded(t.radius.md))
+            .transition(Transition::colors())
+            .state_layer(|t| t.text)
+            .focusable(true)
+            .cursor(Cursor::Pointer)
+            .semantics(Semantics::Button)
+            .label(title.clone())
+            .children([text(title)
+                .size(TextSize::Sm)
+                .weight(Weight::Medium)
+                .themed(|t: &Theme, s| s.color(t.text))])
+            // The dropdown anchors to (and toggles from) this trigger.
+            .child(dropdown_menu(items));
+        self.triggers.push(trigger);
+        self
+    }
+}
+
+impl<Msg> From<Menubar<Msg>> for Element<Msg> {
+    fn from(mb: Menubar<Msg>) -> Self {
+        row()
+            .items_center()
+            .gap(2.0)
+            .px(SP2)
+            .h(40.0)
+            .w_full()
+            .themed(|t: &Theme, s| s.bg(t.surface_raised).border_bottom(1.0, t.border))
+            .children(mb.triggers)
+    }
 }
