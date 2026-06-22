@@ -7,6 +7,7 @@ mod checkbox;
 mod combobox;
 mod data_table;
 mod date_picker;
+mod disclosure;
 mod display;
 mod kbd;
 mod menu;
@@ -31,6 +32,7 @@ pub use checkbox::{Checkbox, checkbox};
 pub use combobox::{Combobox, combobox};
 pub use data_table::{DataTable, data_table};
 pub use date_picker::{Date, DatePicker, date_picker, date_range_picker};
+pub use disclosure::{Accordion, AccordionItem, accordion, accordion_item};
 pub use display::{
     StatCard, Status, StatusIndicator, WavyProgress, avatar, badge, badge_dot, callout, card,
     progress, progress_indeterminate, reading_column, spinner, stat_card, status, table, tabs,
