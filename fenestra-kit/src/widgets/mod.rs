@@ -45,8 +45,8 @@ pub use display::{
 pub use field::{Field, field};
 pub use kbd::{kbd, kbd_raised};
 pub use menu::{
-    MenuItem, Menubar, context_menu, dropdown_menu, menu, menu_item, menu_items, menu_separator,
-    menubar, popover,
+    Menu, MenuItem, Menubar, context_menu, dropdown_menu, menu, menu_item, menu_items,
+    menu_separator, menubar, popover,
 };
 pub use navigation::{
     Breadcrumbs, Crumb, Pagination, Stepper, breadcrumbs, crumb, pagination, stepper,
