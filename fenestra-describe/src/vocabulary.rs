@@ -163,6 +163,11 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         r#"{"value":62,"min":0,"max":100,"label":"Storage"}"#,
     ),
     (
+        "accordion",
+        "Stack of expandable disclosure sections. `open` (or `bind` a state number) selects the expanded item by index.",
+        r#"{"items":[{"title":"Shipping","body":{"text":{"content":"Ships in two days."}}}],"open":0}"#,
+    ),
+    (
         "spinner",
         "Rotating arc activity indicator (no parameters).",
         r#"{}"#,

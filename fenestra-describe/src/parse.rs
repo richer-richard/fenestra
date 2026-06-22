@@ -16,20 +16,20 @@ use fenestra_core::{
     spacer, stack, text,
 };
 use fenestra_kit::{
-    ButtonVariant, Status as KitStatus, avatar, badge, breadcrumbs, button, callout, card,
-    checkbox, crumb, kbd, kbd_raised, meter, modal, pagination, progress, progress_indeterminate,
-    radio, segmented, select, skeleton, skeleton_circle, skeleton_text, slider, spin_button,
-    spinner, stat_card, status as kit_status, stepper, switch, tabs, text_area, text_input,
-    tooltip,
+    ButtonVariant, Status as KitStatus, accordion, accordion_item, avatar, badge, breadcrumbs,
+    button, callout, card, checkbox, crumb, kbd, kbd_raised, meter, modal, pagination, progress,
+    progress_indeterminate, radio, segmented, select, skeleton, skeleton_circle, skeleton_text,
+    slider, spin_button, spinner, stat_card, status as kit_status, stepper, switch, tabs,
+    text_area, text_input, tooltip,
 };
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
-    AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container, Description, IconNode,
-    InputNode, KbdNode, Leaf, MeterNode, ModalNode, Node, PaginationNode, ProgressNode, RadioNode,
-    SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode, SpinButtonNode, StatCardNode, StatusNode,
-    StepperNode, Style, TabsNode, TextNode, TooltipNode,
+    AccordionNode, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container, Description,
+    IconNode, InputNode, KbdNode, Leaf, MeterNode, ModalNode, Node, PaginationNode, ProgressNode,
+    RadioNode, SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode, SpinButtonNode, StatCardNode,
+    StatusNode, StepperNode, Style, TabsNode, TextNode, TooltipNode,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -268,6 +268,7 @@ fn node_to_element(
         Node::Kbd(k) => kbd_node(k),
         Node::Progress(p) => progress_node(p),
         Node::Meter(m) => meter_node(m, state),
+        Node::Accordion(a) => accordion_node(a, theme, state, path, errors),
         Node::Spinner(l) => leaf(spinner(), l, theme, path, errors),
         Node::Skeleton(k) => skeleton_node(k),
         Node::Icon(i) => icon_node(i, path, errors),
@@ -490,6 +491,37 @@ fn meter_node(m: &MeterNode, state: &StateMap) -> Element<Action> {
     }
     let el: Element<Action> = w.into();
     if let Some(id) = &m.id { el.id(id) } else { el }
+}
+
+fn accordion_node(
+    a: &AccordionNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let open = match &a.bind {
+        Some(_) => Some(bound_index(state, &a.bind, a.open.unwrap_or(0))),
+        None => a.open,
+    };
+    let handler = index_handler(&a.bind, &a.on_change);
+    let mut built = Vec::with_capacity(a.items.len());
+    for (i, item) in a.items.iter().enumerate() {
+        let body = node_to_element(
+            item.body.as_ref(),
+            theme,
+            state,
+            &format!("{path}/items/{i}/body"),
+            errors,
+        );
+        let mut it = accordion_item(item.title.clone(), body);
+        if Some(i) == open {
+            it = it.open(true);
+        }
+        built.push(it.on_toggle(handler(i)));
+    }
+    let el: Element<Action> = accordion(built).into();
+    if let Some(id) = &a.id { el.id(id) } else { el }
 }
 
 fn badge_node(b: &BadgeNode, path: &str, errors: &mut Vec<DescribeError>) -> Element<Action> {

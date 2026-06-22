@@ -112,6 +112,9 @@ pub enum Node {
     /// A measurement meter, `value` within `min`..=`max`, with optional
     /// low/high/optimum zones (success/warning/danger).
     Meter(MeterNode),
+    /// A stack of expandable disclosure sections. `open` (or `bind`) selects the
+    /// expanded item by index.
+    Accordion(AccordionNode),
     /// A rotating arc activity indicator (no parameters).
     Spinner(Leaf),
     /// A loading placeholder. `kind`: rect (default) | circle | text.
@@ -528,6 +531,39 @@ pub struct MeterNode {
     /// Bind the value to a `state` number key (read-only display).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bind: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// One section of an accordion: a header title and nested body content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccordionItemDto {
+    /// The header title.
+    pub title: String,
+    /// The collapsible body content (any node).
+    pub body: Box<Node>,
+}
+
+/// A stack of expandable disclosure sections.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AccordionNode {
+    /// The sections, in order.
+    pub items: Vec<AccordionItemDto>,
+    /// Index of the expanded section (none expanded if unset).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub open: Option<usize>,
+    /// Bind the expanded index to a `state` number key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Intent emitted when a section header is toggled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
     /// Stable key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,

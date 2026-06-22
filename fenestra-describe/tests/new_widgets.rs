@@ -197,6 +197,28 @@ fn meter_zones_and_bind() {
     assert!(to_element(&desc, &Theme::light()).is_ok());
 }
 
+// ── Accordion ───────────────────────────────────────────────────────────────────
+
+#[test]
+fn accordion_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"accordion":{"items":[{"title":"Shipping","body":{"text":{"content":"Ships in two days."}}},{"title":"Returns","body":{"text":{"content":"Thirty-day returns."}}}],"open":0}}}"#,
+    );
+    let yaml = light_yaml(&el);
+    // The open section reveals its body; both titles render.
+    assert!(
+        yaml.contains("Shipping") && yaml.contains("Ships in two days"),
+        "yaml: {yaml}"
+    );
+}
+
+#[test]
+fn accordion_bind_reads_state() {
+    let json = r#"{"schema":"fenestra/1","state":{"sec":1},"root":{"accordion":{"items":[{"title":"A","body":{"text":{"content":"a"}}},{"title":"B","body":{"text":{"content":"b"}}}],"bind":"sec"}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    assert!(to_element(&desc, &Theme::light()).is_ok());
+}
+
 // ── Badge ─────────────────────────────────────────────────────────────────────
 
 #[test]
