@@ -44,7 +44,7 @@ pub use menu::{context_menu, dropdown_menu, menu, popover};
 pub use navigation::{
     Breadcrumbs, Crumb, Pagination, Stepper, breadcrumbs, crumb, pagination, stepper,
 };
-pub use overlay_widgets::{Modal, modal, tooltip};
+pub use overlay_widgets::{Drawer, Modal, drawer, modal, tooltip};
 pub use palette::{CommandPalette, command_palette};
 pub use panes::{SplitPane, split_pane};
 pub use radio::{Radio, radio, radio_group};

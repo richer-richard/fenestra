@@ -8,7 +8,9 @@ use serde::Serialize;
 use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use vello::Scene;
 
-use crate::element::{Element, Kind, Overlay, OverlayMode, OverlayPlacement, PathData, Semantics};
+use crate::element::{
+    DrawerSide, Element, Kind, Overlay, OverlayMode, OverlayPlacement, PathData, Semantics,
+};
 use crate::frame_state::FrameState;
 use crate::id::WidgetId;
 use crate::input::{EditorState, InputPaint};
@@ -1218,6 +1220,17 @@ pub fn build_frame<Msg>(
                         canvas.x0 + (canvas.width() - w) * 0.5,
                         canvas.y0 + (canvas.height() - h) * 0.5 + dy,
                     )
+                }
+                OverlayPlacement::Edge { side } => {
+                    // Slide in from off-canvas: fully off the edge at progress 0,
+                    // flush at progress 1.
+                    let hidden = 1.0 - f64::from(progress);
+                    match side {
+                        DrawerSide::Left => Point::new(canvas.x0 - w * hidden, canvas.y0),
+                        DrawerSide::Right => Point::new(canvas.x1 - w + w * hidden, canvas.y0),
+                        DrawerSide::Top => Point::new(canvas.x0, canvas.y0 - h * hidden),
+                        DrawerSide::Bottom => Point::new(canvas.x0, canvas.y1 - h + h * hidden),
+                    }
                 }
             };
 

@@ -144,6 +144,19 @@ pub enum OverlayMode {
     },
 }
 
+/// Which screen edge a drawer/sheet overlay is anchored to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DrawerSide {
+    /// The left edge, filling the full canvas height.
+    Left,
+    /// The right edge, filling the full canvas height.
+    Right,
+    /// The top edge, filling the full canvas width.
+    Top,
+    /// The bottom edge, filling the full canvas width — a bottom sheet.
+    Bottom,
+}
+
 /// Where an overlay is positioned.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum OverlayPlacement {
@@ -170,6 +183,12 @@ pub enum OverlayPlacement {
     Pointer {
         /// Offset from the pointer in logical px.
         gap: f32,
+    },
+    /// Flush against a screen edge, filling that edge's full span (drawers and
+    /// sheets); slides in from off-canvas as it opens.
+    Edge {
+        /// Which edge to anchor to.
+        side: DrawerSide,
     },
 }
 
@@ -241,6 +260,18 @@ impl Overlay {
             placement: OverlayPlacement::TopRight { margin: 16.0 },
             backdrop: false,
             trap_focus: false,
+        }
+    }
+
+    /// An app-driven drawer/sheet flush to a screen `side`, with a backdrop and
+    /// focus trap; it slides in from that edge. Render it only while open;
+    /// `on_close` fires on Esc and an outside (scrim) click.
+    pub fn drawer(side: DrawerSide) -> Self {
+        Self {
+            mode: OverlayMode::Open,
+            placement: OverlayPlacement::Edge { side },
+            backdrop: true,
+            trap_focus: true,
         }
     }
 }
