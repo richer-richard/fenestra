@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use fenestra_core::{Element, SP4, SP6, Theme, col};
-use fenestra_kit::{breadcrumbs, crumb, icons};
+use fenestra_kit::{breadcrumbs, crumb, icons, pagination};
 use fenestra_shell::{render_element, testing::assert_png_snapshot};
 
 fn snapshot_dir() -> PathBuf {
@@ -51,4 +51,28 @@ fn breadcrumbs_dark() {
     let theme = Theme::dark();
     let image = render_element(view(&theme), &theme, SIZE);
     assert_png_snapshot(snapshot_dir(), "breadcrumbs_dark", &image);
+}
+
+const PAGINATION_SIZE: (u32, u32) = (560, 160);
+
+fn pagination_view(theme: &Theme) -> Element<()> {
+    // A short strip with every page shown, above a long one collapsed to
+    // ellipses around the current page.
+    let short: Element<()> = pagination(3, 5).on_select(|_| ()).into();
+    let long: Element<()> = pagination(6, 20).on_select(|_| ()).into();
+    col().p(SP6).gap(SP4).bg(theme.bg).children([short, long])
+}
+
+#[test]
+fn pagination_light() {
+    let theme = Theme::light();
+    let image = render_element(pagination_view(&theme), &theme, PAGINATION_SIZE);
+    assert_png_snapshot(snapshot_dir(), "pagination_light", &image);
+}
+
+#[test]
+fn pagination_dark() {
+    let theme = Theme::dark();
+    let image = render_element(pagination_view(&theme), &theme, PAGINATION_SIZE);
+    assert_png_snapshot(snapshot_dir(), "pagination_dark", &image);
 }

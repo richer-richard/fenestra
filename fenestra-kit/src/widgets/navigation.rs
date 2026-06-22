@@ -1,24 +1,28 @@
 //! Navigation widgets: [`breadcrumbs`] (a trail of links to ancestor pages with
-//! a current-page marker and overflow collapse).
+//! a current-page marker and overflow collapse) and [`pagination`] (a numbered
+//! page strip with prev/next arrows and ellipsis overflow).
 //!
 //! ```
-//! use fenestra_kit::{breadcrumbs, crumb};
+//! use fenestra_kit::{breadcrumbs, crumb, pagination};
 //!
 //! #[derive(Clone)]
 //! enum Msg {
 //!     Go(usize),
+//!     Page(usize),
 //! }
 //!
-//! let el: fenestra_core::Element<Msg> = breadcrumbs([
+//! let trail: fenestra_core::Element<Msg> = breadcrumbs([
 //!     crumb("Home").on_select(Msg::Go(0)),
 //!     crumb("Library").on_select(Msg::Go(1)),
 //!     crumb("Charts"), // the last crumb is always the current page
 //! ])
 //! .into();
+//!
+//! let pages: fenestra_core::Element<Msg> = pagination(6, 20).on_select(Msg::Page).into();
 //! ```
 
 use fenestra_core::{
-    Color, Cursor, Element, SP1, Semantics, TextSize, Theme, Transition, Weight, row, text,
+    Color, Cursor, Element, SP1, SP2, Semantics, TextSize, Theme, Transition, Weight, row, text,
 };
 
 use crate::icons;
@@ -208,5 +212,179 @@ impl<Msg> From<Breadcrumbs<Msg>> for Element<Msg> {
             }
         }
         row().items_center().gap(SP1).children(woven)
+    }
+}
+
+/// A 36×36 page cell: the current page is a solid accent chip; the rest are
+/// ghost cells with a state-layer hover that emit their message on activation.
+fn page_cell<Msg>(n: usize, current: bool, msg: Option<Msg>) -> Element<Msg> {
+    let label = n.to_string();
+    let mut cell = row()
+        .items_center()
+        .justify_center()
+        .min_w(36.0)
+        .h(36.0)
+        .px(SP2)
+        .shrink0()
+        .themed(|t: &Theme, s| s.rounded(t.radius.md))
+        .transition(Transition::colors())
+        .focusable(true)
+        .cursor(Cursor::Pointer)
+        .semantics(Semantics::Button)
+        .label(if current {
+            format!("Page {label}, current")
+        } else {
+            format!("Go to page {label}")
+        })
+        .children([text(label)
+            .size(TextSize::Sm)
+            .weight(if current {
+                Weight::Medium
+            } else {
+                Weight::Regular
+            })
+            .themed(move |t: &Theme, s| s.color(if current { t.on_accent } else { t.text }))]);
+    if current {
+        cell = cell.themed(|t: &Theme, s| s.bg(t.accent));
+    } else {
+        cell = cell.press_scale().state_layer(|t| t.text);
+        if let Some(msg) = msg {
+            cell = cell.on_click(msg);
+        }
+    }
+    cell
+}
+
+/// A prev/next arrow cell; dimmed and inert at the boundary.
+fn arrow_cell<Msg>(
+    icon: Element<Msg>,
+    label: &str,
+    enabled: bool,
+    msg: Option<Msg>,
+) -> Element<Msg> {
+    let mut cell = row()
+        .items_center()
+        .justify_center()
+        .w(36.0)
+        .h(36.0)
+        .shrink0()
+        .themed(|t: &Theme, s| s.rounded(t.radius.md))
+        .transition(Transition::colors())
+        .semantics(Semantics::Button)
+        .label(label.to_owned())
+        .children([icon
+            .w(16.0)
+            .h(16.0)
+            .themed(move |t: &Theme, s| s.color(if enabled { t.text } else { t.text_disabled }))]);
+    if enabled {
+        cell = cell
+            .press_scale()
+            .state_layer(|t| t.text)
+            .focusable(true)
+            .cursor(Cursor::Pointer);
+        if let Some(msg) = msg {
+            cell = cell.on_click(msg);
+        }
+    } else {
+        cell = cell.disabled(true);
+    }
+    cell
+}
+
+/// A muted ellipsis cell standing in for a run of hidden pages.
+fn gap_cell<Msg>() -> Element<Msg> {
+    row()
+        .items_center()
+        .justify_center()
+        .min_w(36.0)
+        .h(36.0)
+        .shrink0()
+        .children([text("…")
+            .size(TextSize::Sm)
+            .themed(|t: &Theme, s| s.color(t.text_muted))])
+}
+
+/// A pagination strip under construction; converts into an [`Element`].
+pub struct Pagination<Msg> {
+    page: usize,
+    count: usize,
+    siblings: usize,
+    on_select: Option<std::rc::Rc<dyn Fn(usize) -> Msg>>,
+}
+
+/// A numbered pagination strip for `count` pages with `page` (1-based) current.
+/// Always shows the first and last page plus a window of [`Pagination::siblings`]
+/// pages on each side of the current one; runs hidden between those collapse to
+/// an ellipsis. Prev/next arrows flank the numbers and disable at the ends. Wire
+/// [`Pagination::on_select`] to receive the chosen page.
+pub fn pagination<Msg>(page: usize, count: usize) -> Pagination<Msg> {
+    Pagination {
+        page,
+        count,
+        siblings: 1,
+        on_select: None,
+    }
+}
+
+impl<Msg> Pagination<Msg> {
+    /// Page numbers kept on each side of the current page before collapsing to
+    /// an ellipsis (default 1).
+    #[must_use]
+    pub fn siblings(mut self, n: usize) -> Self {
+        self.siblings = n;
+        self
+    }
+
+    /// Emits `f(page)` when a page number or arrow is activated (pages are
+    /// 1-based; the arrows resolve to current ∓ 1).
+    #[must_use]
+    pub fn on_select(mut self, f: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.on_select = Some(std::rc::Rc::new(f));
+        self
+    }
+}
+
+impl<Msg> From<Pagination<Msg>> for Element<Msg> {
+    fn from(p: Pagination<Msg>) -> Self {
+        let count = p.count.max(1);
+        let page = p.page.clamp(1, count);
+        let f = p.on_select;
+        let emit = |n: usize| f.as_ref().map(|f| f(n));
+
+        // The visible page numbers: first, last, and a window around current.
+        let lo = page.saturating_sub(p.siblings).max(1);
+        let hi = (page + p.siblings).min(count);
+        let mut shown: Vec<usize> = vec![1, count];
+        shown.extend(lo..=hi);
+        shown.sort_unstable();
+        shown.dedup();
+
+        let prev_msg = if page > 1 { emit(page - 1) } else { None };
+        let next_msg = if page < count { emit(page + 1) } else { None };
+
+        let mut cells: Vec<Element<Msg>> = Vec::new();
+        cells.push(arrow_cell(
+            icons::chevron_left(),
+            "Previous page",
+            page > 1,
+            prev_msg,
+        ));
+        let mut prev_n = 0usize;
+        for n in shown {
+            if prev_n != 0 && n > prev_n + 1 {
+                cells.push(gap_cell());
+            }
+            let current = n == page;
+            cells.push(page_cell(n, current, if current { None } else { emit(n) }));
+            prev_n = n;
+        }
+        cells.push(arrow_cell(
+            icons::chevron_right(),
+            "Next page",
+            page < count,
+            next_msg,
+        ));
+
+        row().items_center().gap(SP1).children(cells)
     }
 }
