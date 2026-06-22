@@ -101,6 +101,21 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Compact single-select view switcher. `bind` a root `state` number key for the active index.",
         r#"{"labels":["List","Board"],"active":0}"#,
     ),
+    (
+        "breadcrumbs",
+        "Breadcrumb trail; the last item is the current page. `bind`/`on_change` fire with the selected ancestor index.",
+        r#"{"items":["Home","Library","Charts"]}"#,
+    ),
+    (
+        "pagination",
+        "Numbered pagination strip. `bind` a root `state` number key for the current page (1-based).",
+        r#"{"count":10,"page":3}"#,
+    ),
+    (
+        "stepper",
+        "Horizontal step indicator. `bind` a root `state` number key for the active step (0-based).",
+        r#"{"steps":["Account","Shipping","Payment"],"current":1}"#,
+    ),
     // ── Display / feedback ─────────────────────────────────────────────────
     (
         "badge",

@@ -16,18 +16,19 @@ use fenestra_core::{
     spacer, stack, text,
 };
 use fenestra_kit::{
-    ButtonVariant, Status as KitStatus, avatar, badge, button, callout, card, checkbox, kbd,
-    kbd_raised, modal, progress, progress_indeterminate, radio, segmented, select, skeleton,
-    skeleton_circle, skeleton_text, slider, spinner, stat_card, status as kit_status, switch, tabs,
-    text_area, text_input, tooltip,
+    ButtonVariant, Status as KitStatus, avatar, badge, breadcrumbs, button, callout, card,
+    checkbox, crumb, kbd, kbd_raised, modal, pagination, progress, progress_indeterminate, radio,
+    segmented, select, skeleton, skeleton_circle, skeleton_text, slider, spinner, stat_card,
+    status as kit_status, stepper, switch, tabs, text_area, text_input, tooltip,
 };
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
-    AvatarNode, BadgeNode, CalloutNode, Container, Description, IconNode, InputNode, KbdNode, Leaf,
-    ModalNode, Node, ProgressNode, RadioNode, SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode,
-    StatCardNode, StatusNode, Style, TabsNode, TextNode, TooltipNode,
+    AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container, Description, IconNode,
+    InputNode, KbdNode, Leaf, ModalNode, Node, PaginationNode, ProgressNode, RadioNode, SCHEMA_V1,
+    SegmentedNode, SelectNode, SkeletonNode, StatCardNode, StatusNode, StepperNode, Style,
+    TabsNode, TextNode, TooltipNode,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -253,6 +254,9 @@ fn node_to_element(
         // ── Navigation ────────────────────────────────────────────────────────
         Node::Tabs(t) => tabs_node(t, state),
         Node::Segmented(s) => segmented_node(s, state),
+        Node::Breadcrumbs(b) => breadcrumbs_node(b),
+        Node::Pagination(p) => pagination_node(p, state),
+        Node::Stepper(s) => stepper_node(s, state),
         // ── Display / feedback ─────────────────────────────────────────────────
         Node::Badge(b) => badge_node(b, path, errors),
         Node::Callout(c) => callout_node(c, path, errors),
@@ -350,49 +354,96 @@ fn select_node(
 
 // ── Navigation helpers ────────────────────────────────────────────────────────
 
-fn tabs_node(t: &TabsNode, state: &StateMap) -> Element<Action> {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "tab index fits in usize on any platform fenestra supports"
-    )]
-    let active = if let Some(key) = &t.bind {
-        bound_number(state, key, t.active as f32).max(0.0) as usize
-    } else {
-        t.active
-    };
-    let on_select: Box<dyn Fn(usize) -> Action> = if let Some(key) = &t.bind {
+/// The selection handler shared by the index-based navigation widgets: a bound
+/// key projects a framework-owned number change, an unbound `on_change` fires an
+/// inert author intent, and a bare widget emits an empty intent.
+fn index_handler(
+    bind: &Option<String>,
+    on_change: &Option<String>,
+) -> Box<dyn Fn(usize) -> Action> {
+    if let Some(key) = bind {
         let key = key.clone();
         Box::new(move |i| Action::SetNumber(key.clone(), i as f32))
-    } else if let Some(intent) = &t.on_change {
+    } else if let Some(intent) = on_change {
         let intent = intent.clone();
         Box::new(move |_| Action::Intent(intent.clone()))
     } else {
         Box::new(|_| Action::Intent(String::new()))
-    };
-    tabs(active, t.labels.clone(), on_select)
+    }
+}
+
+/// Reads a bound 0-based index from state (clamped non-negative), else `default`.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "selection indices fit in usize on any platform fenestra supports"
+)]
+fn bound_index(state: &StateMap, bind: &Option<String>, default: usize) -> usize {
+    match bind {
+        Some(key) => bound_number(state, key, default as f32).max(0.0) as usize,
+        None => default,
+    }
+}
+
+fn tabs_node(t: &TabsNode, state: &StateMap) -> Element<Action> {
+    let active = bound_index(state, &t.bind, t.active);
+    tabs(
+        active,
+        t.labels.clone(),
+        index_handler(&t.bind, &t.on_change),
+    )
 }
 
 fn segmented_node(s: &SegmentedNode, state: &StateMap) -> Element<Action> {
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "segment index fits in usize on any platform fenestra supports"
-    )]
-    let active = if let Some(key) = &s.bind {
-        bound_number(state, key, s.active as f32).max(0.0) as usize
-    } else {
-        s.active
-    };
-    let on_select: Box<dyn Fn(usize) -> Action> = if let Some(key) = &s.bind {
-        let key = key.clone();
-        Box::new(move |i| Action::SetNumber(key.clone(), i as f32))
-    } else if let Some(intent) = &s.on_change {
-        let intent = intent.clone();
-        Box::new(move |_| Action::Intent(intent.clone()))
-    } else {
-        Box::new(|_| Action::Intent(String::new()))
-    };
-    let w = segmented(active, s.labels.clone(), on_select).disabled(s.disabled);
+    let active = bound_index(state, &s.bind, s.active);
+    let w = segmented(
+        active,
+        s.labels.clone(),
+        index_handler(&s.bind, &s.on_change),
+    )
+    .disabled(s.disabled);
     let el: Element<Action> = w.into();
+    if let Some(id) = &s.id { el.id(id) } else { el }
+}
+
+fn breadcrumbs_node(b: &BreadcrumbsNode) -> Element<Action> {
+    let handler = index_handler(&b.bind, &b.on_change);
+    let n = b.items.len();
+    let mut w = breadcrumbs(b.items.iter().enumerate().map(|(i, label)| {
+        let c = crumb(label.clone());
+        // The last crumb is the current page (non-link); earlier ones navigate.
+        if i + 1 < n {
+            c.on_select(handler(i))
+        } else {
+            c
+        }
+    }));
+    if let Some(max) = b.max_items {
+        w = w.max_items(max);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &b.id { el.id(id) } else { el }
+}
+
+fn pagination_node(p: &PaginationNode, state: &StateMap) -> Element<Action> {
+    let page = bound_index(state, &p.bind, p.page);
+    let mut w = pagination(page, p.count);
+    if let Some(s) = p.siblings {
+        w = w.siblings(s);
+    }
+    let el: Element<Action> = w.on_select(index_handler(&p.bind, &p.on_change)).into();
+    if let Some(id) = &p.id { el.id(id) } else { el }
+}
+
+fn stepper_node(s: &StepperNode, state: &StateMap) -> Element<Action> {
+    let current = bound_index(state, &s.bind, s.current);
+    let mut w = stepper(current);
+    for (i, title) in s.steps.iter().enumerate() {
+        match s.descriptions.get(i) {
+            Some(desc) if !desc.is_empty() => w = w.step_with(title.clone(), desc.clone()),
+            _ => w = w.step(title.clone()),
+        }
+    }
+    let el: Element<Action> = w.on_select(index_handler(&s.bind, &s.on_change)).into();
     if let Some(id) = &s.id { el.id(id) } else { el }
 }
 

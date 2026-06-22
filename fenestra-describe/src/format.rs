@@ -85,6 +85,13 @@ pub enum Node {
     Tabs(TabsNode),
     /// A compact single-select view switcher. `bind` a root `state` number key.
     Segmented(SegmentedNode),
+    /// A breadcrumb trail; the last item is the current page. `bind`/`on_change`
+    /// fire with the selected ancestor's index.
+    Breadcrumbs(BreadcrumbsNode),
+    /// A numbered pagination strip. `bind` a root `state` number key for the page.
+    Pagination(PaginationNode),
+    /// A horizontal step indicator. `bind` a root `state` number key for the step.
+    Stepper(StepperNode),
     // ── Display / feedback ─────────────────────────────────────────────────
     /// A status pill. `status`: accent (default) | danger | warning | success.
     Badge(BadgeNode),
@@ -375,6 +382,82 @@ pub struct SegmentedNode {
     /// Whether the control is disabled.
     #[serde(default)]
     pub disabled: bool,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A breadcrumb trail of ancestor links ending in the current page.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BreadcrumbsNode {
+    /// The crumb labels in order; the last is the current (non-link) page.
+    pub items: Vec<String>,
+    /// Collapse trails longer than this to a single ellipsis (keeps the root
+    /// and the last `max_items - 1` crumbs).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_items: Option<usize>,
+    /// Bind the selected ancestor's index to a `state` number key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Intent string emitted when an ancestor crumb is selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A numbered pagination strip with prev/next arrows.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PaginationNode {
+    /// Total number of pages (must be at least 1).
+    pub count: usize,
+    /// The current page (1-based).
+    #[serde(default)]
+    pub page: usize,
+    /// Page numbers kept on each side of the current before collapsing.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub siblings: Option<usize>,
+    /// Bind the current page to a `state` number key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Intent string emitted on page change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A horizontal step indicator for a multi-step flow.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StepperNode {
+    /// The step titles in order.
+    pub steps: Vec<String>,
+    /// Optional one-line descriptions, paired by index with `steps`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub descriptions: Vec<String>,
+    /// The active step (0-based).
+    #[serde(default)]
+    pub current: usize,
+    /// Bind the active step to a `state` number key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Intent string emitted when a done/active step is selected.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
     /// Stable key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,

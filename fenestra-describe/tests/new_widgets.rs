@@ -104,6 +104,60 @@ fn segmented_disabled_renders() {
     let _ = light_yaml(&el);
 }
 
+// ── Breadcrumbs ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn breadcrumbs_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"breadcrumbs":{"items":["Home","Library","Charts"]}}}"#,
+    );
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("Library"), "yaml: {yaml}");
+}
+
+#[test]
+fn breadcrumbs_collapses_with_max_items() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"breadcrumbs":{"items":["A","B","C","D","E"],"max_items":3}}}"#,
+    );
+    // The middle collapses to an ellipsis; just check it builds.
+    let _ = light_yaml(&el);
+}
+
+// ── Pagination ──────────────────────────────────────────────────────────────────
+
+#[test]
+fn pagination_parses_and_renders() {
+    let el = build(r#"{"schema":"fenestra/1","root":{"pagination":{"count":10,"page":3}}}"#);
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("Page 3"), "yaml: {yaml}");
+}
+
+#[test]
+fn pagination_bind_reads_state() {
+    let json = r#"{"schema":"fenestra/1","state":{"pg":5},"root":{"pagination":{"count":20,"bind":"pg"}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    assert!(to_element(&desc, &Theme::light()).is_ok());
+}
+
+// ── Stepper ─────────────────────────────────────────────────────────────────────
+
+#[test]
+fn stepper_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"stepper":{"steps":["Account","Shipping","Payment"],"descriptions":["Your details","",""],"current":1}}}"#,
+    );
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("Shipping"), "yaml: {yaml}");
+}
+
+#[test]
+fn stepper_bind_reads_state() {
+    let json = r#"{"schema":"fenestra/1","state":{"step":2},"root":{"stepper":{"steps":["A","B","C"],"bind":"step"}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    assert!(to_element(&desc, &Theme::light()).is_ok());
+}
+
 // ── Badge ─────────────────────────────────────────────────────────────────────
 
 #[test]

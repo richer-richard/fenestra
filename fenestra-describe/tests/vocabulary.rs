@@ -64,6 +64,9 @@ fn vocabulary_covers_every_node_variant() {
         // Navigation
         "tabs",
         "segmented",
+        "breadcrumbs",
+        "pagination",
+        "stepper",
         // Display / feedback
         "badge",
         "callout",
@@ -112,6 +115,9 @@ fn tag_of(n: &Node) -> &'static str {
         // Navigation
         Node::Tabs(_) => "tabs",
         Node::Segmented(_) => "segmented",
+        Node::Breadcrumbs(_) => "breadcrumbs",
+        Node::Pagination(_) => "pagination",
+        Node::Stepper(_) => "stepper",
         // Display / feedback
         Node::Badge(_) => "badge",
         Node::Callout(_) => "callout",
