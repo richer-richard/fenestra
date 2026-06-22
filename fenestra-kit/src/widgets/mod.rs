@@ -29,7 +29,7 @@ pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
 pub use checkbox::{Checkbox, checkbox};
 pub use combobox::{Combobox, combobox};
 pub use data_table::{DataTable, data_table};
-pub use date_picker::{Date, DatePicker, date_picker};
+pub use date_picker::{Date, DatePicker, date_picker, date_range_picker};
 pub use display::{
     StatCard, Status, StatusIndicator, WavyProgress, avatar, badge, badge_dot, callout, card,
     progress, progress_indeterminate, reading_column, spinner, stat_card, status, table, tabs,
