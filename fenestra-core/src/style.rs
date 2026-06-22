@@ -214,6 +214,14 @@ pub enum Paint {
         /// Color stops, offsets 0.0..=1.0.
         stops: Vec<GradientStop>,
     },
+    /// A conic (sweep) gradient centered at `center` (unit coordinates within
+    /// the element rect), sweeping the stops once around the full circle.
+    ConicGradient {
+        /// Center in unit coordinates (0.5, 0.5 is the middle).
+        center: (f32, f32),
+        /// Color stops, offsets 0.0..=1.0 mapped around the sweep.
+        stops: Vec<GradientStop>,
+    },
 }
 
 impl From<Color> for Paint {
@@ -330,6 +338,20 @@ pub fn radial_gradient(
     degenerate_solid(&colors).unwrap_or_else(|| Paint::RadialGradient {
         center,
         radius,
+        stops: oklch_stops(&even_anchors(colors), crate::tokens::GRADIENT_STEPS),
+    })
+}
+
+/// A conic (sweep) [`Paint`] (see [`Paint::ConicGradient`]) centered at `center`
+/// (unit coordinates within the element rect), sweeping `colors` once around the
+/// full circle as a smooth OKLCH ramp ([`oklch_stops`] with
+/// [`GRADIENT_STEPS`](crate::GRADIENT_STEPS)). Fewer than two colors collapse to
+/// a solid fill. Reads from theme tokens — never a raw hex literal.
+#[must_use]
+pub fn conic_gradient(center: (f32, f32), colors: impl IntoIterator<Item = Color>) -> Paint {
+    let colors: Vec<Color> = colors.into_iter().collect();
+    degenerate_solid(&colors).unwrap_or_else(|| Paint::ConicGradient {
+        center,
         stops: oklch_stops(&even_anchors(colors), crate::tokens::GRADIENT_STEPS),
     })
 }

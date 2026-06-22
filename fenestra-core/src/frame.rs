@@ -1941,6 +1941,7 @@ impl NodeDump {
                 }
                 Paint::LinearGradient { .. } => "linear-gradient".to_owned(),
                 Paint::RadialGradient { .. } => "radial-gradient".to_owned(),
+                Paint::ConicGradient { .. } => "conic-gradient".to_owned(),
             }),
             scroll_offset: node.scroll.as_ref().map(|s| s.offset),
             children: node.children.iter().map(Self::from_node).collect(),

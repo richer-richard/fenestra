@@ -268,6 +268,15 @@ fn brush_for(paint: &Paint, rect: Rect) -> peniko::Brush {
                 .with_stops(color_stops(stops))
                 .into()
         }
+        Paint::ConicGradient { center, stops } => {
+            let c = Point::new(
+                rect.x0 + f64::from(center.0) * rect.width(),
+                rect.y0 + f64::from(center.1) * rect.height(),
+            );
+            Gradient::new_sweep(c, 0.0, std::f32::consts::TAU)
+                .with_stops(color_stops(stops))
+                .into()
+        }
     }
 }
 
