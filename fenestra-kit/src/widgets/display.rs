@@ -299,6 +299,158 @@ pub fn progress<Msg>(fraction: f32) -> Element<Msg> {
             .themed(|t: &Theme, s| s.bg(t.accent))])
 }
 
+/// Which semantic zone a [`meter`] value falls in, per the HTML `<meter>` model.
+#[derive(Clone, Copy)]
+enum MeterZone {
+    Good,
+    Suboptimal,
+    Poor,
+}
+
+/// A meter under construction; converts into an [`Element`].
+pub struct Meter {
+    value: f32,
+    min: f32,
+    max: f32,
+    low: Option<f32>,
+    high: Option<f32>,
+    optimum: Option<f32>,
+    label: Option<String>,
+}
+
+/// A scalar measurement within a known `min..=max` range — disk usage, a score,
+/// signal strength — distinct from [`progress`], which is task completion. Drawn
+/// as a filled bar; set any of [`Meter::low`] / [`Meter::high`] /
+/// [`Meter::optimum`] and the fill colours by the HTML `<meter>` zone model
+/// (success / warning / danger), otherwise it rests on the accent.
+pub fn meter(value: f32, min: f32, max: f32) -> Meter {
+    Meter {
+        value,
+        min,
+        max,
+        low: None,
+        high: None,
+        optimum: None,
+        label: None,
+    }
+}
+
+impl Meter {
+    /// The low-end threshold (defaults to `min`).
+    #[must_use]
+    pub fn low(mut self, low: f32) -> Self {
+        self.low = Some(low);
+        self
+    }
+
+    /// The high-end threshold (defaults to `max`).
+    #[must_use]
+    pub fn high(mut self, high: f32) -> Self {
+        self.high = Some(high);
+        self
+    }
+
+    /// The optimum end that marks "good" (defaults to `max` — higher is better).
+    /// Set it at or below `low` for lower-is-better measurements.
+    #[must_use]
+    pub fn optimum(mut self, optimum: f32) -> Self {
+        self.optimum = Some(optimum);
+        self
+    }
+
+    /// A caption shown above the bar, paired with the value as a percentage.
+    #[must_use]
+    pub fn label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// The colour zone for the current value, or `None` when no thresholds are
+    /// set (a neutral, accent-filled measurement).
+    fn zone(&self) -> Option<MeterZone> {
+        if self.low.is_none() && self.high.is_none() && self.optimum.is_none() {
+            return None;
+        }
+        let low = self.low.unwrap_or(self.min);
+        let high = self.high.unwrap_or(self.max);
+        let optimum = self.optimum.unwrap_or(self.max);
+        let v = self.value;
+        let zone = if optimum <= low {
+            // Lower is better.
+            if v <= low {
+                MeterZone::Good
+            } else if v <= high {
+                MeterZone::Suboptimal
+            } else {
+                MeterZone::Poor
+            }
+        } else if optimum >= high {
+            // Higher is better.
+            if v >= high {
+                MeterZone::Good
+            } else if v >= low {
+                MeterZone::Suboptimal
+            } else {
+                MeterZone::Poor
+            }
+        } else if v >= low && v <= high {
+            // A middle band is best.
+            MeterZone::Good
+        } else {
+            MeterZone::Suboptimal
+        };
+        Some(zone)
+    }
+}
+
+impl<Msg> From<Meter> for Element<Msg> {
+    fn from(m: Meter) -> Self {
+        let span = (m.max - m.min).abs().max(f32::EPSILON);
+        let frac = ((m.value - m.min) / span).clamp(0.0, 1.0);
+        let zone = m.zone();
+
+        let fill = div()
+            .h_full()
+            .rounded(R_FULL)
+            .w(Length::Pct(frac * 100.0))
+            .transition(
+                Transition::colors()
+                    .lengths(true)
+                    .duration(MotionDuration::Base),
+            )
+            .themed(move |t: &Theme, s| {
+                let c = match zone {
+                    None => t.accent,
+                    Some(MeterZone::Good) => t.success.solid,
+                    Some(MeterZone::Suboptimal) => t.warning.solid,
+                    Some(MeterZone::Poor) => t.danger.solid,
+                };
+                s.bg(c)
+            });
+        let track = div()
+            .w_full()
+            .h(8.0)
+            .rounded(R_FULL)
+            .themed(|t: &Theme, s| s.bg(t.neutrals.step(4)))
+            .children([fill]);
+
+        match m.label {
+            Some(label) => {
+                let caption = row().items_center().justify_between().children([
+                    text(label)
+                        .size(TextSize::Sm)
+                        .themed(|t: &Theme, s| s.color(t.text)),
+                    text(format!("{:.0}%", frac * 100.0))
+                        .size(TextSize::Sm)
+                        .themed(|t: &Theme, s| s.color(t.text_muted)),
+                ]);
+                col().w_full().gap(SP1).children([caption, track])
+            }
+            None => track,
+        }
+    }
+}
+
 /// A determinate progress bar drawn the Material 3 Expressive way: the filled
 /// portion is an accent **sine wave** that flattens into the track at its
 /// leading edge and as it nears completion, separated from the remaining

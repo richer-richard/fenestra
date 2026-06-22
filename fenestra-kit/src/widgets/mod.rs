@@ -35,9 +35,9 @@ pub use data_table::{DataTable, data_table};
 pub use date_picker::{Date, DatePicker, date_picker, date_range_picker};
 pub use disclosure::{Accordion, AccordionItem, accordion, accordion_item};
 pub use display::{
-    StatCard, Status, StatusIndicator, WavyProgress, avatar, badge, badge_dot, callout, card,
-    progress, progress_indeterminate, reading_column, spinner, stat_card, status, table, tabs,
-    wavy_progress,
+    Meter, StatCard, Status, StatusIndicator, WavyProgress, avatar, badge, badge_dot, callout,
+    card, meter, progress, progress_indeterminate, reading_column, spinner, stat_card, status,
+    table, tabs, wavy_progress,
 };
 pub use kbd::{kbd, kbd_raised};
 pub use menu::{Menubar, context_menu, dropdown_menu, menu, menubar, popover};
