@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use fenestra_core::{App, Element, Key, KeyInput, Semantics, Theme, by, col};
+use fenestra_core::{App, Element, Key, KeyInput, Semantics, Theme, by, col, div};
 use fenestra_kit::{
     Status, checkbox, kbd, kbd_raised, radio_group, segmented, skeleton, skeleton_circle,
     skeleton_text, status, tabs, wavy_progress,
@@ -233,6 +233,28 @@ fn checkbox_states_golden() {
         ));
     let image = render_element(scene, &theme, (160, 110));
     assert_png_snapshot(snapshot_dir(), "checkbox_states", &image);
+}
+
+// ---------------------------------------------------------------- per-corner radius
+
+#[test]
+fn per_corner_radius_golden() {
+    // Top-only rounding (tabs/sheets), and an explicit four-corner set.
+    let theme = Theme::light();
+    let scene = col::<()>().p(8.0).gap(8.0).bg(theme.bg).children((
+        div::<()>()
+            .w(88.0)
+            .h(36.0)
+            .rounded_t(16.0)
+            .themed(|t: &Theme, s| s.bg(t.accent)),
+        div::<()>()
+            .w(88.0)
+            .h(36.0)
+            .corners(2.0, 16.0, 2.0, 16.0)
+            .themed(|t: &Theme, s| s.bg(t.accent)),
+    ));
+    let image = render_element(scene, &theme, (120, 104));
+    assert_png_snapshot(snapshot_dir(), "per_corner_radius", &image);
 }
 
 // ---------------------------------------------------------------- kbd

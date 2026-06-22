@@ -1296,6 +1296,41 @@ impl Style {
         self
     }
 
+    /// Rounds the top two corners, leaving the others unchanged.
+    pub fn rounded_t(mut self, r: f32) -> Self {
+        self.corner_radius.tl = r;
+        self.corner_radius.tr = r;
+        self
+    }
+
+    /// Rounds the bottom two corners, leaving the others unchanged.
+    pub fn rounded_b(mut self, r: f32) -> Self {
+        self.corner_radius.br = r;
+        self.corner_radius.bl = r;
+        self
+    }
+
+    /// Rounds the left two corners, leaving the others unchanged.
+    pub fn rounded_l(mut self, r: f32) -> Self {
+        self.corner_radius.tl = r;
+        self.corner_radius.bl = r;
+        self
+    }
+
+    /// Rounds the right two corners, leaving the others unchanged.
+    pub fn rounded_r(mut self, r: f32) -> Self {
+        self.corner_radius.tr = r;
+        self.corner_radius.br = r;
+        self
+    }
+
+    /// Sets each corner radius independently: top-left, top-right,
+    /// bottom-right, bottom-left (clockwise from the top-left).
+    pub fn corners(mut self, tl: f32, tr: f32, br: f32, bl: f32) -> Self {
+        self.corner_radius = CornerRadius { tl, tr, br, bl };
+        self
+    }
+
     /// Continuous-curvature corner smoothing, `0.0..=1.0` (see
     /// [`Style::corner_smoothing`]). `0.0` keeps exact circular arcs; higher
     /// values blend toward a fuller squircle. Clamped to `0.0..=1.0`.

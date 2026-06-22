@@ -1183,6 +1183,37 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Rounds the top two corners only.
+    pub fn rounded_t(mut self, r: f32) -> Self {
+        self.style = self.style.rounded_t(r);
+        self
+    }
+
+    /// Rounds the bottom two corners only.
+    pub fn rounded_b(mut self, r: f32) -> Self {
+        self.style = self.style.rounded_b(r);
+        self
+    }
+
+    /// Rounds the left two corners only.
+    pub fn rounded_l(mut self, r: f32) -> Self {
+        self.style = self.style.rounded_l(r);
+        self
+    }
+
+    /// Rounds the right two corners only.
+    pub fn rounded_r(mut self, r: f32) -> Self {
+        self.style = self.style.rounded_r(r);
+        self
+    }
+
+    /// Sets each corner radius independently (top-left, top-right,
+    /// bottom-right, bottom-left).
+    pub fn corners(mut self, tl: f32, tr: f32, br: f32, bl: f32) -> Self {
+        self.style = self.style.corners(tl, tr, br, bl);
+        self
+    }
+
     /// Continuous-curvature corner smoothing, `0.0..=1.0` (see
     /// [`Style::corner_smoothing`](crate::Style::corner_smoothing)). `0.0`
     /// (default) keeps exact circular arcs; higher values blend toward a
