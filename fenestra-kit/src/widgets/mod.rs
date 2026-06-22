@@ -40,7 +40,9 @@ pub use display::{
 };
 pub use kbd::{kbd, kbd_raised};
 pub use menu::{context_menu, dropdown_menu, menu, popover};
-pub use navigation::{Breadcrumbs, Crumb, Pagination, breadcrumbs, crumb, pagination};
+pub use navigation::{
+    Breadcrumbs, Crumb, Pagination, Stepper, breadcrumbs, crumb, pagination, stepper,
+};
 pub use overlay_widgets::{Modal, modal, tooltip};
 pub use palette::{CommandPalette, command_palette};
 pub use panes::{SplitPane, split_pane};

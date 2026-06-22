@@ -22,7 +22,8 @@
 //! ```
 
 use fenestra_core::{
-    Color, Cursor, Element, SP1, SP2, Semantics, TextSize, Theme, Transition, Weight, row, text,
+    Color, Cursor, Element, SP1, SP2, SP3, Semantics, TextSize, Theme, Transition, Weight, col,
+    div, row, text,
 };
 
 use crate::icons;
@@ -386,5 +387,198 @@ impl<Msg> From<Pagination<Msg>> for Element<Msg> {
         ));
 
         row().items_center().gap(SP1).children(cells)
+    }
+}
+
+/// Where a step sits relative to the current one.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum StepState {
+    Done,
+    Active,
+    Upcoming,
+}
+
+/// One step's definition: a title and an optional one-line description.
+struct StepDef {
+    title: String,
+    desc: Option<String>,
+    key: Option<String>,
+}
+
+/// The 28px status disc: an accent fill with a check (done) or number
+/// (active), or a bordered surface with a muted number (upcoming).
+fn step_disc<Msg>(state: StepState, number: usize) -> Element<Msg> {
+    let inner: Element<Msg> = if state == StepState::Done {
+        icons::check()
+            .w(16.0)
+            .h(16.0)
+            .themed(|t: &Theme, s| s.color(t.on_accent))
+    } else {
+        text(number.to_string())
+            .size(TextSize::Xs)
+            .weight(Weight::Medium)
+            .themed(move |t: &Theme, s| {
+                s.color(if state == StepState::Upcoming {
+                    t.text_muted
+                } else {
+                    t.on_accent
+                })
+            })
+    };
+    let disc = row()
+        .items_center()
+        .justify_center()
+        .w(28.0)
+        .h(28.0)
+        .shrink0()
+        .rounded(14.0)
+        .children([inner]);
+    match state {
+        StepState::Done | StepState::Active => disc.themed(|t: &Theme, s| s.bg(t.accent)),
+        StepState::Upcoming => {
+            disc.themed(|t: &Theme, s| s.bg(t.surface_raised).border(1.5, t.border))
+        }
+    }
+}
+
+/// The grow-to-fill rule between two discs: accent once the left step is done.
+fn step_connector<Msg>(done: bool) -> Element<Msg> {
+    div()
+        .h(2.0)
+        .grow()
+        .rounded(1.0)
+        .themed(move |t: &Theme, s| s.bg(if done { t.accent } else { t.border }))
+}
+
+/// A horizontal stepper under construction; converts into an [`Element`].
+pub struct Stepper<Msg> {
+    current: usize,
+    steps: Vec<StepDef>,
+    on_select: Option<std::rc::Rc<dyn Fn(usize) -> Msg>>,
+}
+
+/// A horizontal step indicator for a multi-step flow, with `current` the
+/// 0-based active step. Steps before it render done (accent disc + check),
+/// the active one shows its number in an accent disc with a bold label, and
+/// later steps are muted. Grow-to-fill connectors join the discs and turn
+/// accent as the flow advances. Add steps with [`Stepper::step`] /
+/// [`Stepper::step_with`]; wire [`Stepper::on_select`] to make done and active
+/// steps clickable.
+pub fn stepper<Msg>(current: usize) -> Stepper<Msg> {
+    Stepper {
+        current,
+        steps: Vec::new(),
+        on_select: None,
+    }
+}
+
+impl<Msg> Stepper<Msg> {
+    /// Appends a step with just a title.
+    #[must_use]
+    pub fn step(mut self, title: impl Into<String>) -> Self {
+        self.steps.push(StepDef {
+            title: title.into(),
+            desc: None,
+            key: None,
+        });
+        self
+    }
+
+    /// Appends a step with a title and a one-line description.
+    #[must_use]
+    pub fn step_with(mut self, title: impl Into<String>, desc: impl Into<String>) -> Self {
+        self.steps.push(StepDef {
+            title: title.into(),
+            desc: Some(desc.into()),
+            key: None,
+        });
+        self
+    }
+
+    /// Sets a stable identity key on the most recently added step.
+    #[must_use]
+    pub fn step_id(mut self, key: &str) -> Self {
+        if let Some(last) = self.steps.last_mut() {
+            last.key = Some(key.to_owned());
+        }
+        self
+    }
+
+    /// Emits `f(index)` (0-based) when a done or active step is activated.
+    #[must_use]
+    pub fn on_select(mut self, f: impl Fn(usize) -> Msg + 'static) -> Self {
+        self.on_select = Some(std::rc::Rc::new(f));
+        self
+    }
+}
+
+impl<Msg> From<Stepper<Msg>> for Element<Msg> {
+    fn from(s: Stepper<Msg>) -> Self {
+        let current = s.current;
+        let total = s.steps.len();
+        let f = s.on_select;
+
+        let mut band: Vec<Element<Msg>> = Vec::with_capacity(total.saturating_mul(2));
+        for (i, def) in s.steps.into_iter().enumerate() {
+            let state = match i.cmp(&current) {
+                std::cmp::Ordering::Less => StepState::Done,
+                std::cmp::Ordering::Equal => StepState::Active,
+                std::cmp::Ordering::Greater => StepState::Upcoming,
+            };
+
+            let title_color: fn(&Theme) -> Color = if state == StepState::Upcoming {
+                |t| t.text_muted
+            } else {
+                |t| t.text
+            };
+            let title = text(def.title.clone())
+                .size(TextSize::Sm)
+                .weight(if state == StepState::Active {
+                    Weight::Medium
+                } else {
+                    Weight::Regular
+                })
+                .themed(move |t: &Theme, s| s.color(title_color(t)));
+            let mut label_kids: Vec<Element<Msg>> = vec![title];
+            if let Some(desc) = def.desc {
+                label_kids.push(
+                    text(desc)
+                        .size(TextSize::Xs)
+                        .themed(|t: &Theme, s| s.color(t.text_muted)),
+                );
+            }
+            let label = col().gap(1.0).children(label_kids);
+
+            let mut group = row()
+                .items_center()
+                .gap(SP2)
+                .shrink0()
+                .px(SP2)
+                .py(SP1)
+                .children([step_disc(state, i + 1), label])
+                .label(def.title);
+            // Done/active steps are navigable when a handler is wired.
+            if state != StepState::Upcoming
+                && let Some(f) = &f
+            {
+                group = group
+                    .themed(|t: &Theme, s| s.rounded(t.radius.md))
+                    .state_layer(|t| t.text)
+                    .transition(Transition::colors())
+                    .focusable(true)
+                    .cursor(Cursor::Pointer)
+                    .semantics(Semantics::Button)
+                    .on_click(f(i));
+                if let Some(key) = &def.key {
+                    group = group.id(key);
+                }
+            }
+            band.push(group);
+            if i + 1 < total {
+                band.push(step_connector(i < current));
+            }
+        }
+
+        row().items_center().gap(SP3).w_full().children(band)
     }
 }

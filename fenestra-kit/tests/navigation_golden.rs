@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 
 use fenestra_core::{Element, SP4, SP6, Theme, col};
-use fenestra_kit::{breadcrumbs, crumb, icons, pagination};
+use fenestra_kit::{breadcrumbs, crumb, icons, pagination, stepper};
 use fenestra_shell::{render_element, testing::assert_png_snapshot};
 
 fn snapshot_dir() -> PathBuf {
@@ -75,4 +75,31 @@ fn pagination_dark() {
     let theme = Theme::dark();
     let image = render_element(pagination_view(&theme), &theme, PAGINATION_SIZE);
     assert_png_snapshot(snapshot_dir(), "pagination_dark", &image);
+}
+
+const STEPPER_SIZE: (u32, u32) = (660, 116);
+
+fn stepper_view(theme: &Theme) -> Element<()> {
+    // Step 0 done, step 1 active, step 2 upcoming — the canonical three states.
+    let steps: Element<()> = stepper(1)
+        .step_with("Account", "Your details")
+        .step_with("Shipping", "Where to send")
+        .step_with("Payment", "Card or PayPal")
+        .on_select(|_| ())
+        .into();
+    col().p(SP6).bg(theme.bg).children([steps])
+}
+
+#[test]
+fn stepper_light() {
+    let theme = Theme::light();
+    let image = render_element(stepper_view(&theme), &theme, STEPPER_SIZE);
+    assert_png_snapshot(snapshot_dir(), "stepper_light", &image);
+}
+
+#[test]
+fn stepper_dark() {
+    let theme = Theme::dark();
+    let image = render_element(stepper_view(&theme), &theme, STEPPER_SIZE);
+    assert_png_snapshot(snapshot_dir(), "stepper_dark", &image);
 }
