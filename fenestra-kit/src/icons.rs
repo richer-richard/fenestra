@@ -58,6 +58,24 @@ pub fn home<Msg>() -> Element<Msg> {
     path(p, VIEWBOX, Some(STROKE))
 }
 
+/// A plus sign (stroked).
+pub fn plus<Msg>() -> Element<Msg> {
+    let mut p = BezPath::new();
+    p.move_to((8.0, 3.5));
+    p.line_to((8.0, 12.5));
+    p.move_to((3.5, 8.0));
+    p.line_to((12.5, 8.0));
+    path(p, VIEWBOX, Some(STROKE))
+}
+
+/// A minus sign (stroked).
+pub fn minus<Msg>() -> Element<Msg> {
+    let mut p = BezPath::new();
+    p.move_to((3.5, 8.0));
+    p.line_to((12.5, 8.0));
+    path(p, VIEWBOX, Some(STROKE))
+}
+
 /// A close cross (stroked).
 pub fn x<Msg>() -> Element<Msg> {
     let mut p = BezPath::new();
