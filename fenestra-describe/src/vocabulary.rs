@@ -90,6 +90,11 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Drop-down selector. `bind` a root `state` number key for the selected index.",
         r#"{"options":["One","Two"],"selected":0}"#,
     ),
+    (
+        "spin_button",
+        "Compact number stepper (value between − / + buttons). `on_decrement`/`on_increment` fire intents; `can_decrement`/`can_increment` gate the ends.",
+        r#"{"value":"3"}"#,
+    ),
     // ── Navigation ────────────────────────────────────────────────────────
     (
         "tabs",
@@ -151,6 +156,11 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "progress",
         "4px progress bar, `value` 0..=1. `indeterminate:true` for the sweep animation.",
         r#"{"value":0.5}"#,
+    ),
+    (
+        "meter",
+        "Measurement bar within `min`..=`max`. With `low`/`high`/`optimum` set, the fill colours by zone (success/warning/danger). `bind` a state number for the value.",
+        r#"{"value":62,"min":0,"max":100,"label":"Storage"}"#,
     ),
     (
         "spinner",

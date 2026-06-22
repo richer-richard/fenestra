@@ -158,6 +158,45 @@ fn stepper_bind_reads_state() {
     assert!(to_element(&desc, &Theme::light()).is_ok());
 }
 
+// ── Spin button ─────────────────────────────────────────────────────────────────
+
+#[test]
+fn spin_button_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"spin_button":{"value":"3","label":"Quantity","on_increment":"more"}}}"#,
+    );
+    let yaml = light_yaml(&el);
+    // The − / + buttons carry accessible names.
+    assert!(yaml.contains("Decrease"), "yaml: {yaml}");
+}
+
+#[test]
+fn spin_button_gates_at_bounds() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"spin_button":{"value":"0","can_decrement":false}}}"#,
+    );
+    // The − button is disabled at the minimum; just check it builds.
+    let _ = light_yaml(&el);
+}
+
+// ── Meter ───────────────────────────────────────────────────────────────────────
+
+#[test]
+fn meter_parses_and_renders() {
+    let el = build(
+        r#"{"schema":"fenestra/1","root":{"meter":{"value":62,"min":0,"max":100,"label":"Storage"}}}"#,
+    );
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("Storage"), "yaml: {yaml}");
+}
+
+#[test]
+fn meter_zones_and_bind() {
+    let json = r#"{"schema":"fenestra/1","state":{"v":85},"root":{"meter":{"value":50,"min":0,"max":100,"low":30,"high":70,"bind":"v"}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    assert!(to_element(&desc, &Theme::light()).is_ok());
+}
+
 // ── Badge ─────────────────────────────────────────────────────────────────────
 
 #[test]

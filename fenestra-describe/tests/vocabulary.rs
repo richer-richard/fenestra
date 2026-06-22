@@ -61,6 +61,7 @@ fn vocabulary_covers_every_node_variant() {
         "text_input",
         "text_area",
         "select",
+        "spin_button",
         // Navigation
         "tabs",
         "segmented",
@@ -75,6 +76,7 @@ fn vocabulary_covers_every_node_variant() {
         "status",
         "kbd",
         "progress",
+        "meter",
         "spinner",
         "skeleton",
         "icon",
@@ -112,6 +114,7 @@ fn tag_of(n: &Node) -> &'static str {
         Node::TextInput(_) => "text_input",
         Node::TextArea(_) => "text_area",
         Node::Select(_) => "select",
+        Node::SpinButton(_) => "spin_button",
         // Navigation
         Node::Tabs(_) => "tabs",
         Node::Segmented(_) => "segmented",
@@ -126,6 +129,7 @@ fn tag_of(n: &Node) -> &'static str {
         Node::Status(_) => "status",
         Node::Kbd(_) => "kbd",
         Node::Progress(_) => "progress",
+        Node::Meter(_) => "meter",
         Node::Spinner(_) => "spinner",
         Node::Skeleton(_) => "skeleton",
         Node::Icon(_) => "icon",

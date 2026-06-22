@@ -80,6 +80,8 @@ pub enum Node {
     TextArea(InputNode),
     /// A drop-down selector. `bind` a root `state` number key for the selected index.
     Select(SelectNode),
+    /// A compact number stepper: a value flanked by − / + step buttons.
+    SpinButton(SpinButtonNode),
     // ── Navigation ────────────────────────────────────────────────────────
     /// An underline tab strip. `bind` a root `state` number key for the active index.
     Tabs(TabsNode),
@@ -107,6 +109,9 @@ pub enum Node {
     Kbd(KbdNode),
     /// A 4px progress bar, `value` 0..=1. `indeterminate:true` for sweep animation.
     Progress(ProgressNode),
+    /// A measurement meter, `value` within `min`..=`max`, with optional
+    /// low/high/optimum zones (success/warning/danger).
+    Meter(MeterNode),
     /// A rotating arc activity indicator (no parameters).
     Spinner(Leaf),
     /// A loading placeholder. `kind`: rect (default) | circle | text.
@@ -458,6 +463,71 @@ pub struct StepperNode {
     /// Intent string emitted when a done/active step is selected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_change: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A compact number stepper (a value flanked by − / + step buttons).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SpinButtonNode {
+    /// The displayed value, app-formatted (`"3"`, `"$5.00"`, `"2.5×"`).
+    pub value: String,
+    /// Accessible name for the stepper (e.g. "Quantity").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Intent emitted when the − button is pressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_decrement: Option<String>,
+    /// Intent emitted when the + button is pressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_increment: Option<String>,
+    /// Whether the − button is enabled (default true; gate off at the minimum).
+    #[serde(default = "default_true")]
+    pub can_decrement: bool,
+    /// Whether the + button is enabled (default true; gate off at the maximum).
+    #[serde(default = "default_true")]
+    pub can_increment: bool,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A measurement meter within a known range, with optional semantic zones.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeterNode {
+    /// The measured value.
+    pub value: f32,
+    /// Range minimum (default 0).
+    #[serde(default)]
+    pub min: f32,
+    /// Range maximum (default 1).
+    #[serde(default = "default_one")]
+    pub max: f32,
+    /// Low-end threshold; with any threshold set, the fill colours by zone.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low: Option<f32>,
+    /// High-end threshold.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high: Option<f32>,
+    /// Optimum end marking "good" (default max — higher is better; set at or
+    /// below `low` for lower-is-better).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub optimum: Option<f32>,
+    /// Caption shown above the bar, paired with the value percentage.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Bind the value to a `state` number key (read-only display).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
     /// Stable key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -848,4 +918,14 @@ pub struct Border {
 /// Default value for `status`/`delta_status` fields (serde `default` attribute).
 pub fn default_status() -> String {
     "accent".to_string()
+}
+
+/// Default `true` for boolean fields that default on (serde `default` attribute).
+pub fn default_true() -> bool {
+    true
+}
+
+/// Default `1.0` for the meter's `max` (serde `default` attribute).
+pub fn default_one() -> f32 {
+    1.0
 }

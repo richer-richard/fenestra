@@ -17,18 +17,19 @@ use fenestra_core::{
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, avatar, badge, breadcrumbs, button, callout, card,
-    checkbox, crumb, kbd, kbd_raised, modal, pagination, progress, progress_indeterminate, radio,
-    segmented, select, skeleton, skeleton_circle, skeleton_text, slider, spinner, stat_card,
-    status as kit_status, stepper, switch, tabs, text_area, text_input, tooltip,
+    checkbox, crumb, kbd, kbd_raised, meter, modal, pagination, progress, progress_indeterminate,
+    radio, segmented, select, skeleton, skeleton_circle, skeleton_text, slider, spin_button,
+    spinner, stat_card, status as kit_status, stepper, switch, tabs, text_area, text_input,
+    tooltip,
 };
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
     AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container, Description, IconNode,
-    InputNode, KbdNode, Leaf, ModalNode, Node, PaginationNode, ProgressNode, RadioNode, SCHEMA_V1,
-    SegmentedNode, SelectNode, SkeletonNode, StatCardNode, StatusNode, StepperNode, Style,
-    TabsNode, TextNode, TooltipNode,
+    InputNode, KbdNode, Leaf, MeterNode, ModalNode, Node, PaginationNode, ProgressNode, RadioNode,
+    SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode, SpinButtonNode, StatCardNode, StatusNode,
+    StepperNode, Style, TabsNode, TextNode, TooltipNode,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -251,6 +252,7 @@ fn node_to_element(
             w.into()
         }
         Node::Select(s) => select_node(s, state, path, errors),
+        Node::SpinButton(s) => spin_button_node(s),
         // ── Navigation ────────────────────────────────────────────────────────
         Node::Tabs(t) => tabs_node(t, state),
         Node::Segmented(s) => segmented_node(s, state),
@@ -265,6 +267,7 @@ fn node_to_element(
         Node::Status(s) => status_node(s, path, errors),
         Node::Kbd(k) => kbd_node(k),
         Node::Progress(p) => progress_node(p),
+        Node::Meter(m) => meter_node(m, state),
         Node::Spinner(l) => leaf(spinner(), l, theme, path, errors),
         Node::Skeleton(k) => skeleton_node(k),
         Node::Icon(i) => icon_node(i, path, errors),
@@ -447,7 +450,47 @@ fn stepper_node(s: &StepperNode, state: &StateMap) -> Element<Action> {
     if let Some(id) = &s.id { el.id(id) } else { el }
 }
 
+fn spin_button_node(s: &SpinButtonNode) -> Element<Action> {
+    let mut w = spin_button(s.value.clone());
+    if let Some(label) = &s.label {
+        w = w.label(label.clone());
+    }
+    if let Some(intent) = &s.on_decrement {
+        w = w.on_decrement(Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &s.on_increment {
+        w = w.on_increment(Action::Intent(intent.clone()));
+    }
+    let w = w
+        .can_decrement(s.can_decrement)
+        .can_increment(s.can_increment);
+    let el: Element<Action> = w.into();
+    if let Some(id) = &s.id { el.id(id) } else { el }
+}
+
 // ── Display / feedback helpers ────────────────────────────────────────────────
+
+fn meter_node(m: &MeterNode, state: &StateMap) -> Element<Action> {
+    let value = match &m.bind {
+        Some(key) => bound_number(state, key, m.value),
+        None => m.value,
+    };
+    let mut w = meter(value, m.min, m.max);
+    if let Some(low) = m.low {
+        w = w.low(low);
+    }
+    if let Some(high) = m.high {
+        w = w.high(high);
+    }
+    if let Some(opt) = m.optimum {
+        w = w.optimum(opt);
+    }
+    if let Some(label) = &m.label {
+        w = w.label(label.clone());
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &m.id { el.id(id) } else { el }
+}
 
 fn badge_node(b: &BadgeNode, path: &str, errors: &mut Vec<DescribeError>) -> Element<Action> {
     let status = kit_status_from_str(&b.status, path, "status", errors);
