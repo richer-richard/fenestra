@@ -60,6 +60,7 @@ pub struct MenuItem<Msg> {
     shortcut: Option<String>,
     disabled: bool,
     separator: bool,
+    submenu: Option<Vec<MenuItem<Msg>>>,
     on_select: Option<Msg>,
 }
 
@@ -71,6 +72,7 @@ pub fn menu_item<Msg>(label: impl Into<String>) -> MenuItem<Msg> {
         shortcut: None,
         disabled: false,
         separator: false,
+        submenu: None,
         on_select: None,
     }
 }
@@ -83,6 +85,7 @@ pub fn menu_separator<Msg>() -> MenuItem<Msg> {
         shortcut: None,
         disabled: false,
         separator: true,
+        submenu: None,
         on_select: None,
     }
 }
@@ -113,6 +116,15 @@ impl<Msg> MenuItem<Msg> {
     #[must_use]
     pub fn on_select(mut self, msg: Msg) -> Self {
         self.on_select = Some(msg);
+        self
+    }
+
+    /// Nest a flyout submenu under this item: a trailing chevron marks it, and
+    /// clicking (or pressing Enter on) the row toggles the submenu to its right.
+    /// The item's own `on_select` is ignored — activating it opens the submenu.
+    #[must_use]
+    pub fn submenu(mut self, items: impl IntoIterator<Item = MenuItem<Msg>>) -> Self {
+        self.submenu = Some(items.into_iter().collect());
         self
     }
 }
@@ -147,7 +159,16 @@ fn menu_row<Msg: Clone + 'static>(it: MenuItem<Msg>, active: bool, roving: bool)
             .themed(move |t: &Theme, s| s.color(strong(t))),
     );
     kids.push(spacer());
-    if let Some(sc) = it.shortcut {
+    if it.submenu.is_some() {
+        // Submenu parents show a trailing right-chevron instead of a shortcut.
+        kids.push(
+            crate::icons::chevron_right()
+                .w(14.0)
+                .h(14.0)
+                .shrink0()
+                .themed(move |t: &Theme, s| s.color(muted(t))),
+        );
+    } else if let Some(sc) = it.shortcut {
         kids.push(
             text(sc)
                 .size(TextSize::Xs)
@@ -166,6 +187,17 @@ fn menu_row<Msg: Clone + 'static>(it: MenuItem<Msg>, active: bool, roving: bool)
         .children(kids);
     if active {
         row_el = row_el.themed(|t: &Theme, s| s.bg(t.accent_bg));
+    }
+    // A submenu parent anchors a click-toggled flyout to its right. It must stay
+    // focusable to receive the hit (and Enter) that toggles the flyout; its own
+    // on_select is ignored.
+    if let Some(sub) = it.submenu {
+        return row_el
+            .cursor(Cursor::Pointer)
+            .focusable(true)
+            .transition(Transition::colors())
+            .state_layer(|t| t.text)
+            .child(Element::from(menu_items(sub)).overlay(Overlay::submenu()));
     }
     if !disabled {
         row_el = row_el

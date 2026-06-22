@@ -190,6 +190,12 @@ pub enum OverlayPlacement {
         /// Which edge to anchor to.
         side: DrawerSide,
     },
+    /// To the right of the anchor with top edges aligned (submenu flyouts);
+    /// flips to the anchor's left when there is no room on the right.
+    RightStart {
+        /// Gap from the anchor's right (or left, when flipped) edge in px.
+        gap: f32,
+    },
 }
 
 /// Marks an element as an overlay child of its parent (the anchor):
@@ -272,6 +278,18 @@ impl Overlay {
             placement: OverlayPlacement::Edge { side },
             backdrop: true,
             trap_focus: true,
+        }
+    }
+
+    /// A click-toggled submenu flyout to the right of its anchoring menu item
+    /// (flipping left at the canvas edge). Clicking or pressing Enter on the
+    /// anchor opens/closes it; outside clicks and Escape close it.
+    pub fn submenu() -> Self {
+        Self {
+            mode: OverlayMode::Toggle,
+            placement: OverlayPlacement::RightStart { gap: 2.0 },
+            backdrop: false,
+            trap_focus: false,
         }
     }
 }

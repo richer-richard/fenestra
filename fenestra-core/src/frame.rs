@@ -1232,6 +1232,22 @@ pub fn build_frame<Msg>(
                         DrawerSide::Bottom => Point::new(canvas.x0, canvas.y1 - h + h * hidden),
                     }
                 }
+                OverlayPlacement::RightStart { gap } => {
+                    let gap = f64::from(gap);
+                    // To the right of the anchor, flipping to its left when the
+                    // flyout would overrun the canvas (and there is room left).
+                    let x = if anchor_rect.x1 + gap + w <= canvas.x1
+                        || anchor_rect.x0 - gap - w < canvas.x0
+                    {
+                        anchor_rect.x1 + gap
+                    } else {
+                        anchor_rect.x0 - gap - w
+                    };
+                    let y = anchor_rect
+                        .y0
+                        .clamp(canvas.y0, (canvas.y1 - h).max(canvas.y0));
+                    Point::new(x, y)
+                }
             };
 
             let mut orealize = Realize {
