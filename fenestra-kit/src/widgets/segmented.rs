@@ -163,7 +163,11 @@ impl<Msg: 'static> From<Segmented<Msg>> for Element<Msg> {
             if !disabled {
                 // Segments are pointer targets but NOT individual tab stops; the
                 // whole control is one tab stop (see the track's key handler).
-                seg = seg.cursor(Cursor::Pointer).on_click(seg_select(i));
+                // `on_click` auto-focuses, so opt back out.
+                seg = seg
+                    .cursor(Cursor::Pointer)
+                    .on_click(seg_select(i))
+                    .focusable(false);
             }
             seg
         }));

@@ -148,6 +148,9 @@ pub fn radio_group<Msg: 'static>(
             .shrink0()
             .cursor(Cursor::Pointer)
             .on_click(row_select(i))
+            // One tab stop for the group (see the group's key handler);
+            // `on_click` auto-focuses, so opt the rows back out.
+            .focusable(false)
             .semantics(Semantics::Radio { selected: is_sel })
             .label(label.clone())
             .children([radio_circle::<Msg>(is_sel), text(label).size(TextSize::Sm)])

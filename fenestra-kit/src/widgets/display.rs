@@ -478,6 +478,9 @@ pub fn tabs<Msg: Clone + 'static>(
                 .pt(SP1)
                 .cursor(fenestra_core::Cursor::Pointer)
                 .on_click(tab_select(i))
+                // One tab stop for the strip (see the strip's key handler);
+                // `on_click` auto-focuses, so opt the tabs back out.
+                .focusable(false)
                 .semantics(Semantics::Tab {
                     selected: is_active,
                 })
