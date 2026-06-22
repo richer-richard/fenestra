@@ -11,12 +11,24 @@
 //! resolve, or an alignment word it does not know, degrades to a default and
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
-use fenestra_core::{Element, Theme, Weight, col, div, divider, row, spacer, stack, text};
-use fenestra_kit::{ButtonVariant, button, checkbox, radio, slider, switch, text_area, text_input};
+use fenestra_core::{
+    Element, ShadowToken, TextAlign, Theme, Weight, col, div, divider, linear_gradient, row,
+    spacer, stack, text,
+};
+use fenestra_kit::{
+    ButtonVariant, Status as KitStatus, avatar, badge, button, callout, card, checkbox, kbd,
+    kbd_raised, modal, progress, progress_indeterminate, radio, segmented, select, skeleton,
+    skeleton_circle, skeleton_text, slider, spinner, stat_card, status as kit_status, switch, tabs,
+    text_area, text_input, tooltip,
+};
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
-use crate::format::{Container, Description, InputNode, Leaf, Node, SCHEMA_V1, Style, TextNode};
+use crate::format::{
+    AvatarNode, BadgeNode, CalloutNode, Container, Description, IconNode, InputNode, KbdNode, Leaf,
+    ModalNode, Node, ProgressNode, RadioNode, SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode,
+    StatCardNode, StatusNode, Style, TabsNode, TextNode, TooltipNode,
+};
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
 /// Parses `desc` into an element, or the accumulated problems, against the
@@ -88,13 +100,15 @@ fn node_to_element(
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     match node {
+        // ── Layout containers ─────────────────────────────────────────────────
         Node::Row(c) => container(row(), c, theme, state, path, errors),
         Node::Col(c) => container(col(), c, theme, state, path, errors),
         Node::Div(c) => container(div(), c, theme, state, path, errors),
         Node::Stack(c) => container(stack(), c, theme, state, path, errors),
+        Node::Card(c) => container(card(), c, theme, state, path, errors),
+        // ── Text ──────────────────────────────────────────────────────────────
         Node::Text(t) => text_node(t, theme, path, errors),
-        Node::Divider(l) => leaf(divider(), l, theme, path, errors),
-        Node::Spacer(l) => leaf(spacer(), l, theme, path, errors),
+        // ── Form controls ──────────────────────────────────────────────────────
         Node::Button(b) => {
             let mut w = button(b.label.clone());
             if let Some(name) = &b.variant {
@@ -105,7 +119,12 @@ fn node_to_element(
                     }
                 }
             }
-            if let Some(intent) = &b.on_click {
+            // `bind` takes priority: click toggles state[bind].
+            if let Some(key) = &b.bind {
+                let current = bound_bool(state, key, false);
+                let key = key.clone();
+                w = w.on_click(Action::SetBool(key, !current));
+            } else if let Some(intent) = &b.on_click {
                 w = w.on_click(Action::Intent(intent.clone()));
             }
             if b.disabled {
@@ -157,19 +176,7 @@ fn node_to_element(
             }
             w.into()
         }
-        Node::Radio(r) => {
-            let mut w = radio(r.selected);
-            if let Some(label) = &r.label {
-                w = w.label(label.clone());
-            }
-            if let Some(intent) = &r.on_change {
-                w = w.on_select(Action::Intent(intent.clone()));
-            }
-            if let Some(id) = &r.id {
-                w = w.id(id);
-            }
-            w.into()
-        }
+        Node::Radio(r) => radio_node(r, state),
         Node::Slider(s) => {
             let value = s
                 .bind
@@ -242,8 +249,31 @@ fn node_to_element(
             }
             w.into()
         }
+        Node::Select(s) => select_node(s, state, path, errors),
+        // ── Navigation ────────────────────────────────────────────────────────
+        Node::Tabs(t) => tabs_node(t, state),
+        Node::Segmented(s) => segmented_node(s, state),
+        // ── Display / feedback ─────────────────────────────────────────────────
+        Node::Badge(b) => badge_node(b, path, errors),
+        Node::Callout(c) => callout_node(c, path, errors),
+        Node::StatCard(s) => stat_card_node(s, path, errors),
+        Node::Avatar(a) => avatar_node(a),
+        Node::Status(s) => status_node(s, path, errors),
+        Node::Kbd(k) => kbd_node(k),
+        Node::Progress(p) => progress_node(p),
+        Node::Spinner(l) => leaf(spinner(), l, theme, path, errors),
+        Node::Skeleton(k) => skeleton_node(k),
+        Node::Icon(i) => icon_node(i, path, errors),
+        // ── Overlays ──────────────────────────────────────────────────────────
+        Node::Modal(m) => modal_node(m, theme, state, path, errors),
+        Node::Tooltip(t) => tooltip_node(t, theme, state, path, errors),
+        // ── Decoration ────────────────────────────────────────────────────────
+        Node::Divider(l) => leaf(divider(), l, theme, path, errors),
+        Node::Spacer(l) => leaf(spacer(), l, theme, path, errors),
     }
 }
+
+// ── Form control helpers ──────────────────────────────────────────────────────
 
 /// The displayed value of an input: the bound state value, else the literal.
 fn input_value(i: &InputNode, state: &StateMap) -> String {
@@ -252,7 +282,405 @@ fn input_value(i: &InputNode, state: &StateMap) -> String {
         .map_or_else(|| i.value.clone(), |k| bound_text(state, k, &i.value))
 }
 
-/// Builds a container element: style, id, then recursively-mapped children.
+fn radio_node(r: &RadioNode, state: &StateMap) -> Element<Action> {
+    // When group + value are set, derive selected from state[group] == value.
+    let selected = if let (Some(group), Some(value)) = (&r.group, &r.value) {
+        state
+            .get(group)
+            .and_then(|v| v.as_str())
+            .map_or(r.selected, |s| s == value.as_str())
+    } else {
+        r.selected
+    };
+    let mut w = radio(selected);
+    if let Some(label) = &r.label {
+        w = w.label(label.clone());
+    }
+    // When group binding: clicking emits SetText(group, value).
+    if let (Some(group), Some(value)) = (&r.group, &r.value) {
+        w = w.on_select(Action::SetText(group.clone(), value.clone()));
+    } else if let Some(intent) = &r.on_change {
+        w = w.on_select(Action::Intent(intent.clone()));
+    }
+    if let Some(id) = &r.id {
+        w = w.id(id);
+    }
+    w.into()
+}
+
+fn select_node(
+    s: &SelectNode,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if s.options.is_empty() {
+        errors.push(DescribeError::new(
+            format!("{path}/options"),
+            "select requires at least one option".to_string(),
+        ));
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "option index fits in usize on any platform fenestra supports"
+    )]
+    let active = if let Some(key) = &s.bind {
+        bound_number(state, key, s.selected as f32).max(0.0) as usize
+    } else {
+        s.selected
+    };
+    let mut w = select(active, s.options.clone());
+    match &s.bind {
+        Some(key) => {
+            let key = key.clone();
+            w = w.on_change(move |i| Action::SetNumber(key.clone(), i as f32));
+        }
+        None => {
+            if let Some(intent) = &s.on_change {
+                let intent = intent.clone();
+                w = w.on_change(move |_| Action::Intent(intent.clone()));
+            }
+        }
+    }
+    if let Some(id) = &s.id {
+        w = w.id(id);
+    }
+    w.into()
+}
+
+// ── Navigation helpers ────────────────────────────────────────────────────────
+
+fn tabs_node(t: &TabsNode, state: &StateMap) -> Element<Action> {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "tab index fits in usize on any platform fenestra supports"
+    )]
+    let active = if let Some(key) = &t.bind {
+        bound_number(state, key, t.active as f32).max(0.0) as usize
+    } else {
+        t.active
+    };
+    let on_select: Box<dyn Fn(usize) -> Action> = if let Some(key) = &t.bind {
+        let key = key.clone();
+        Box::new(move |i| Action::SetNumber(key.clone(), i as f32))
+    } else if let Some(intent) = &t.on_change {
+        let intent = intent.clone();
+        Box::new(move |_| Action::Intent(intent.clone()))
+    } else {
+        Box::new(|_| Action::Intent(String::new()))
+    };
+    tabs(active, t.labels.clone(), on_select)
+}
+
+fn segmented_node(s: &SegmentedNode, state: &StateMap) -> Element<Action> {
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "segment index fits in usize on any platform fenestra supports"
+    )]
+    let active = if let Some(key) = &s.bind {
+        bound_number(state, key, s.active as f32).max(0.0) as usize
+    } else {
+        s.active
+    };
+    let on_select: Box<dyn Fn(usize) -> Action> = if let Some(key) = &s.bind {
+        let key = key.clone();
+        Box::new(move |i| Action::SetNumber(key.clone(), i as f32))
+    } else if let Some(intent) = &s.on_change {
+        let intent = intent.clone();
+        Box::new(move |_| Action::Intent(intent.clone()))
+    } else {
+        Box::new(|_| Action::Intent(String::new()))
+    };
+    let w = segmented(active, s.labels.clone(), on_select).disabled(s.disabled);
+    let el: Element<Action> = w.into();
+    if let Some(id) = &s.id { el.id(id) } else { el }
+}
+
+// ── Display / feedback helpers ────────────────────────────────────────────────
+
+fn badge_node(b: &BadgeNode, path: &str, errors: &mut Vec<DescribeError>) -> Element<Action> {
+    let status = kit_status_from_str(&b.status, path, "status", errors);
+    let mut el: Element<Action> = badge(b.label.clone(), status);
+    if let Some(id) = &b.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn callout_node(c: &CalloutNode, path: &str, errors: &mut Vec<DescribeError>) -> Element<Action> {
+    let status = kit_status_from_str(&c.status, path, "status", errors);
+    let mut el: Element<Action> = callout(status, c.message.clone());
+    if let Some(id) = &c.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn stat_card_node(
+    s: &StatCardNode,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let mut w = stat_card(s.label.clone(), s.value.clone());
+    if let Some(delta) = &s.delta {
+        let delta_status = kit_status_from_str(&s.delta_status, path, "delta_status", errors);
+        w = w.delta(delta.clone(), delta_status);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &s.id { el.id(id) } else { el }
+}
+
+fn avatar_node(a: &AvatarNode) -> Element<Action> {
+    let el: Element<Action> = avatar(a.initials.clone());
+    if let Some(id) = &a.id { el.id(id) } else { el }
+}
+
+fn status_node(s: &StatusNode, path: &str, errors: &mut Vec<DescribeError>) -> Element<Action> {
+    let kstatus = kit_status_from_str(&s.status, path, "status", errors);
+    let mut el: Element<Action> = kit_status(s.label.clone(), kstatus).live(s.live).into();
+    if let Some(id) = &s.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn kbd_node(k: &KbdNode) -> Element<Action> {
+    let el = if k.raised {
+        kbd_raised(k.keys.clone())
+    } else {
+        kbd(k.keys.clone())
+    };
+    if let Some(id) = &k.id { el.id(id) } else { el }
+}
+
+fn progress_node(p: &ProgressNode) -> Element<Action> {
+    let el = if p.indeterminate {
+        progress_indeterminate()
+    } else {
+        progress(p.value.clamp(0.0, 1.0))
+    };
+    if let Some(id) = &p.id { el.id(id) } else { el }
+}
+
+fn skeleton_node(k: &SkeletonNode) -> Element<Action> {
+    let el = match k.kind.as_deref().unwrap_or("rect") {
+        "text" => skeleton_text(k.lines.unwrap_or(3)),
+        "circle" => skeleton_circle(k.w.unwrap_or(32.0).max(1.0)),
+        _ => skeleton(k.w.unwrap_or(120.0).max(1.0), k.h.unwrap_or(16.0).max(1.0)),
+    };
+    if let Some(id) = &k.id { el.id(id) } else { el }
+}
+
+fn icon_node(i: &IconNode, path: &str, errors: &mut Vec<DescribeError>) -> Element<Action> {
+    match named_icon(&i.name) {
+        Some(el) => {
+            if let Some(id) = &i.id {
+                el.id(id)
+            } else {
+                el
+            }
+        }
+        None => {
+            errors.push(DescribeError::new(
+                format!("{path}/name"),
+                format!(
+                    "unknown icon {:?}; known names: {}",
+                    i.name,
+                    ICON_NAMES.join(", ")
+                ),
+            ));
+            spacer()
+        }
+    }
+}
+
+// ── Overlay helpers ───────────────────────────────────────────────────────────
+
+fn modal_node(
+    m: &ModalNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let children: Vec<Element<Action>> = m
+        .children
+        .iter()
+        .enumerate()
+        .map(|(i, child)| {
+            node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors)
+        })
+        .collect();
+    // Wrap all children into a single col for the modal body.
+    let body = col().children(children);
+    let mut w = modal(m.title.clone()).child(body);
+    if let Some(on_close) = &m.on_close {
+        w = w.on_close(Action::Intent(on_close.clone()));
+    }
+    if let Some(mw) = m.max_width
+        && mw.is_finite()
+        && mw > 0.0
+    {
+        w = w.max_width(mw);
+    } else if let Some(mw) = m.max_width {
+        errors.push(DescribeError::new(
+            format!("{path}/max_width"),
+            format!("max_width must be a finite positive number; got {mw}"),
+        ));
+    }
+    let mut el: Element<Action> = w.into();
+    if let Some(id) = &m.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn tooltip_node(
+    t: &TooltipNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let target_el = node_to_element(&t.target, theme, state, &format!("{path}/target"), errors);
+    let el: Element<Action> = tooltip(target_el, t.label.clone());
+    if let Some(id) = &t.id { el.id(id) } else { el }
+}
+
+// ── Icon registry ─────────────────────────────────────────────────────────────
+
+/// The kebab-case names of every supported Lucide icon, for error messages.
+const ICON_NAMES: &[&str] = &[
+    "alert-triangle",
+    "arrow-left",
+    "arrow-right",
+    "bell",
+    "calendar",
+    "check",
+    "chevron-down",
+    "chevron-left",
+    "chevron-right",
+    "chevron-up",
+    "clock",
+    "copy",
+    "download",
+    "external-link",
+    "eye",
+    "file",
+    "folder",
+    "home",
+    "info",
+    "link",
+    "lock",
+    "log-out",
+    "mail",
+    "menu",
+    "minus",
+    "moon",
+    "pencil",
+    "plus",
+    "refresh-cw",
+    "save",
+    "search",
+    "settings",
+    "star",
+    "sun",
+    "trash",
+    "upload",
+    "user",
+    "x",
+];
+
+/// Maps a kebab-case icon name to a Lucide element, or `None` for unknown names.
+fn named_icon(name: &str) -> Option<Element<Action>> {
+    use fenestra_kit::icons::lucide;
+    Some(match name {
+        "alert-triangle" => lucide::alert_triangle(),
+        "arrow-left" => lucide::arrow_left(),
+        "arrow-right" => lucide::arrow_right(),
+        "bell" => lucide::bell(),
+        "calendar" => lucide::calendar(),
+        "check" => lucide::check(),
+        "chevron-down" => lucide::chevron_down(),
+        "chevron-left" => lucide::chevron_left(),
+        "chevron-right" => lucide::chevron_right(),
+        "chevron-up" => lucide::chevron_up(),
+        "clock" => lucide::clock(),
+        "copy" => lucide::copy(),
+        "download" => lucide::download(),
+        "external-link" => lucide::external_link(),
+        "eye" => lucide::eye(),
+        "file" => lucide::file(),
+        "folder" => lucide::folder(),
+        "home" => lucide::home(),
+        "info" => lucide::info(),
+        "link" => lucide::link(),
+        "lock" => lucide::lock(),
+        "log-out" => lucide::log_out(),
+        "mail" => lucide::mail(),
+        "menu" => lucide::menu(),
+        "minus" => lucide::minus(),
+        "moon" => lucide::moon(),
+        "pencil" => lucide::pencil(),
+        "plus" => lucide::plus(),
+        "refresh-cw" => lucide::refresh_cw(),
+        "save" => lucide::save(),
+        "search" => lucide::search(),
+        "settings" => lucide::settings(),
+        "star" => lucide::star(),
+        "sun" => lucide::sun(),
+        "trash" => lucide::trash(),
+        "upload" => lucide::upload(),
+        "user" => lucide::user(),
+        "x" => lucide::x(),
+        _ => return None,
+    })
+}
+
+// ── Status helper ─────────────────────────────────────────────────────────────
+
+/// Maps a status string to a [`KitStatus`]. Unknown values degrade to
+/// `KitStatus::Accent` and record a path-pointed error.
+fn kit_status_from_str(
+    s: &str,
+    path: &str,
+    field: &str,
+    errors: &mut Vec<DescribeError>,
+) -> KitStatus {
+    match s {
+        "accent" => KitStatus::Accent,
+        "danger" => KitStatus::Danger,
+        "warning" => KitStatus::Warning,
+        "success" => KitStatus::Success,
+        other => {
+            errors.push(DescribeError::new(
+                format!("{path}/{field}"),
+                format!("unknown status {other:?}; expected accent|danger|warning|success"),
+            ));
+            KitStatus::Accent
+        }
+    }
+}
+
+// ── Shadow helper ─────────────────────────────────────────────────────────────
+
+/// Maps a shadow token name to a [`ShadowToken`].
+fn shadow_token(name: &str) -> Result<ShadowToken, String> {
+    match name {
+        "xs" => Ok(ShadowToken::Xs),
+        "sm" => Ok(ShadowToken::Sm),
+        "md" => Ok(ShadowToken::Md),
+        "lg" => Ok(ShadowToken::Lg),
+        "xl" => Ok(ShadowToken::Xl),
+        other => Err(format!(
+            "unknown shadow token {other:?}; expected xs|sm|md|lg|xl"
+        )),
+    }
+}
+
+// ── Container / text / leaf builders ─────────────────────────────────────────
+
+/// Builds a container element: style, on_click, id, then recursively-mapped children.
 fn container(
     base: Element<Action>,
     c: &Container,
@@ -262,6 +690,9 @@ fn container(
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let mut el = apply_style(base, &c.style, theme, path, errors);
+    if let Some(intent) = &c.on_click {
+        el = el.on_click(Action::Intent(intent.clone()));
+    }
     if let Some(id) = &c.id {
         el = el.id(id);
     }
@@ -276,7 +707,7 @@ fn container(
     el.children(children)
 }
 
-/// Builds a text element with its type styling.
+/// Builds a text element with its type styling and optional on_click.
 fn text_node(
     t: &TextNode,
     theme: &Theme,
@@ -284,13 +715,16 @@ fn text_node(
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let mut el = apply_style(text(t.content.clone()), &t.style, theme, path, errors);
+    if let Some(intent) = &t.on_click {
+        el = el.on_click(Action::Intent(intent.clone()));
+    }
     if let Some(id) = &t.id {
         el = el.id(id);
     }
     el
 }
 
-/// Builds a childless decorative element (divider, spacer).
+/// Builds a childless decorative element (divider, spacer, spinner).
 fn leaf(
     base: Element<Action>,
     l: &Leaf,
@@ -305,8 +739,10 @@ fn leaf(
     el
 }
 
-/// Applies a style block to an element. Unresolvable colors and unknown
-/// alignment words degrade to a default and record a path-pointed error.
+// ── Style application ─────────────────────────────────────────────────────────
+
+/// Applies a style block to an element. Unresolvable colors, unknown alignment
+/// words, and non-finite numeric props degrade to defaults and record errors.
 fn apply_style(
     mut el: Element<Action>,
     style: &Style,
@@ -314,6 +750,7 @@ fn apply_style(
     path: &str,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
+    // ── Padding (all → axes → per-side) ──────────────────────────────────────
     if let Some(v) = style.p
         && finite_num(v, path, "p", errors)
     {
@@ -329,6 +766,63 @@ fn apply_style(
     {
         el = el.py(v);
     }
+    if let Some(v) = style.pt
+        && finite_num(v, path, "pt", errors)
+    {
+        el = el.pt(v);
+    }
+    if let Some(v) = style.pb
+        && finite_num(v, path, "pb", errors)
+    {
+        el = el.pb(v);
+    }
+    if let Some(v) = style.pl
+        && finite_num(v, path, "pl", errors)
+    {
+        el = el.pl(v);
+    }
+    if let Some(v) = style.pr
+        && finite_num(v, path, "pr", errors)
+    {
+        el = el.pr(v);
+    }
+    // ── Margin (all → axes → per-side) ───────────────────────────────────────
+    if let Some(v) = style.m
+        && finite_num(v, path, "m", errors)
+    {
+        el = el.m(v);
+    }
+    if let Some(v) = style.mx
+        && finite_num(v, path, "mx", errors)
+    {
+        el = el.mx(v);
+    }
+    if let Some(v) = style.my
+        && finite_num(v, path, "my", errors)
+    {
+        el = el.my(v);
+    }
+    if let Some(v) = style.mt
+        && finite_num(v, path, "mt", errors)
+    {
+        el = el.mt(v);
+    }
+    if let Some(v) = style.mb
+        && finite_num(v, path, "mb", errors)
+    {
+        el = el.mb(v);
+    }
+    if let Some(v) = style.ml
+        && finite_num(v, path, "ml", errors)
+    {
+        el = el.ml(v);
+    }
+    if let Some(v) = style.mr
+        && finite_num(v, path, "mr", errors)
+    {
+        el = el.mr(v);
+    }
+    // ── Gap / dimensions ──────────────────────────────────────────────────────
     if let Some(v) = style.gap
         && finite_num(v, path, "gap", errors)
     {
@@ -344,17 +838,66 @@ fn apply_style(
     {
         el = el.h(v);
     }
+    if let Some(v) = style.min_w
+        && finite_num(v, path, "min_w", errors)
+    {
+        el = el.min_w(v);
+    }
+    if let Some(v) = style.max_w
+        && finite_num(v, path, "max_w", errors)
+    {
+        el = el.max_w(v);
+    }
+    if let Some(v) = style.min_h
+        && finite_num(v, path, "min_h", errors)
+    {
+        el = el.min_h(v);
+    }
+    if let Some(v) = style.max_h
+        && finite_num(v, path, "max_h", errors)
+    {
+        el = el.max_h(v);
+    }
+    // ── Corner radius ─────────────────────────────────────────────────────────
     if let Some(v) = style.rounded
         && finite_num(v, path, "rounded", errors)
     {
         el = el.rounded(v);
     }
+    // ── Background (solid, then gradient overrides if both set) ───────────────
     if let Some(spec) = &style.bg {
         match resolve_color(spec, theme) {
             Ok(c) => el = el.bg(c),
             Err(e) => errors.push(relocate(e, format!("{path}/style/bg"))),
         }
     }
+    if let Some(grad) = &style.gradient {
+        if grad.stops.len() < 2 {
+            errors.push(DescribeError::new(
+                format!("{path}/style/gradient"),
+                format!(
+                    "gradient requires at least 2 stops; got {}",
+                    grad.stops.len()
+                ),
+            ));
+        } else {
+            let mut colors = Vec::with_capacity(grad.stops.len());
+            let mut ok = true;
+            for (i, stop) in grad.stops.iter().enumerate() {
+                match resolve_color(stop, theme) {
+                    Ok(c) => colors.push(c),
+                    Err(e) => {
+                        errors.push(relocate(e, format!("{path}/style/gradient/stops/{i}")));
+                        ok = false;
+                    }
+                }
+            }
+            if ok {
+                el = el.bg(linear_gradient(grad.angle, colors));
+            }
+        }
+    }
+    // ── Border ────────────────────────────────────────────────────────────────
     if let Some(border) = &style.border {
         match resolve_color(&border.color, theme) {
             Ok(c) => {
@@ -365,6 +908,14 @@ fn apply_style(
             Err(e) => errors.push(relocate(e, format!("{path}/style/border/color"))),
         }
     }
+    // ── Shadow ────────────────────────────────────────────────────────────────
+    if let Some(shadow_name) = &style.shadow {
+        match shadow_token(shadow_name) {
+            Ok(token) => el = el.shadow(token),
+            Err(msg) => errors.push(DescribeError::new(format!("{path}/style/shadow"), msg)),
+        }
+    }
+    // ── Alignment ────────────────────────────────────────────────────────────
     if let Some(align) = &style.align {
         el = match align.as_str() {
             "start" => el.items_start(),
@@ -395,6 +946,7 @@ fn apply_style(
             }
         };
     }
+    // ── Typography ────────────────────────────────────────────────────────────
     if let Some(spec) = &style.color {
         match resolve_color(spec, theme) {
             Ok(c) => el = el.color(c),
@@ -414,16 +966,64 @@ fn apply_style(
     if let Some(w) = style.weight {
         el = el.weight(weight_from(w));
     }
+    if let Some(align) = &style.text_align {
+        el = match align.as_str() {
+            "start" => el.text_align(TextAlign::Start),
+            "center" => el.text_align(TextAlign::Center),
+            "end" => el.text_align(TextAlign::End),
+            other => {
+                errors.push(DescribeError::new(
+                    format!("{path}/style/text_align"),
+                    format!("unknown text_align {other:?}; expected start|center|end"),
+                ));
+                el
+            }
+        };
+    }
+    // ── Opacity ───────────────────────────────────────────────────────────────
+    if let Some(v) = style.opacity {
+        if v.is_finite() && (0.0..=1.0).contains(&v) {
+            el = el.opacity(v);
+        } else {
+            errors.push(DescribeError::new(
+                format!("{path}/style/opacity"),
+                format!("opacity must be a finite number in 0..=1; got {v}"),
+            ));
+        }
+    }
+    // ── Absolute positioning ──────────────────────────────────────────────────
+    if style.absolute.unwrap_or(false) {
+        el = el.absolute();
+    }
+    if let Some(v) = style.left
+        && finite_num(v, path, "left", errors)
+    {
+        el = el.left(v);
+    }
+    if let Some(v) = style.top
+        && finite_num(v, path, "top", errors)
+    {
+        el = el.top(v);
+    }
+    if let Some(v) = style.right
+        && finite_num(v, path, "right", errors)
+    {
+        el = el.right(v);
+    }
+    if let Some(v) = style.bottom
+        && finite_num(v, path, "bottom", errors)
+    {
+        el = el.bottom(v);
+    }
     el
 }
 
 /// Largest font size, in logical pixels, a description may request. A larger or
-/// non-finite size is an authoring error and would force the text layout into a
-/// pathological slow path, so the boundary rejects it rather than render it.
+/// non-finite size is an authoring error.
 const MAX_FONT_PX: f32 = 4096.0;
 
 /// Accepts a finite style length; a non-finite (`NaN`/`±∞`) value is an authoring
-/// error, so it records a path-pointed error and returns `false` (the caller then
+/// error, so it records a path-pointed error and returns `false` (the caller
 /// skips applying it, degrading rather than rendering nonsense).
 fn finite_num(v: f32, path: &str, field: &str, errors: &mut Vec<DescribeError>) -> bool {
     if v.is_finite() {

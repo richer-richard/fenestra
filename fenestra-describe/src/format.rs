@@ -48,6 +48,7 @@ pub struct Description {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Node {
+    // ── Layout containers ─────────────────────────────────────────────────
     /// A horizontal flex container.
     Row(Container),
     /// A vertical flex container.
@@ -56,22 +57,61 @@ pub enum Node {
     Div(Container),
     /// A z-stacked / grid container.
     Stack(Container),
-    /// A run of text.
+    /// A raised-surface content card (vertical flex, SP6 padding, rounded).
+    Card(Container),
+    // ── Text ──────────────────────────────────────────────────────────────
+    /// A run of text. Supports `on_click` for clickable labels.
     Text(TextNode),
-    /// An activatable button.
+    // ── Form controls ──────────────────────────────────────────────────────
+    /// An activatable button. `variant`: primary | secondary | ghost | danger.
+    /// `bind` a bool state key for toggle behavior.
     Button(ButtonNode),
-    /// A two-state checkbox.
+    /// A two-state checkbox. `bind` a root `state` key for a framework-owned toggle.
     Checkbox(CheckboxNode),
-    /// An on/off switch.
+    /// An on/off switch. `bind` a root `state` key for a framework-owned toggle.
     Switch(SwitchNode),
-    /// One option of a radio group.
+    /// One option of a radio group. Use `group` + `value` for group binding.
     Radio(RadioNode),
-    /// A numeric slider.
+    /// A numeric slider over 0.0..=1.0 with an optional `step`.
     Slider(SliderNode),
     /// A single-line editable text field.
     TextInput(InputNode),
     /// A multi-line editable text field.
     TextArea(InputNode),
+    /// A drop-down selector. `bind` a root `state` number key for the selected index.
+    Select(SelectNode),
+    // ── Navigation ────────────────────────────────────────────────────────
+    /// An underline tab strip. `bind` a root `state` number key for the active index.
+    Tabs(TabsNode),
+    /// A compact single-select view switcher. `bind` a root `state` number key.
+    Segmented(SegmentedNode),
+    // ── Display / feedback ─────────────────────────────────────────────────
+    /// A status pill. `status`: accent (default) | danger | warning | success.
+    Badge(BadgeNode),
+    /// A status callout: tinted background, status border, icon, and message.
+    Callout(CalloutNode),
+    /// A metric card with muted label, large value, and optional delta badge.
+    StatCard(StatCardNode),
+    /// A circular initials avatar in the accent tint.
+    Avatar(AvatarNode),
+    /// A status dot + label indicator. `live:true` adds a pulsing sonar ring.
+    Status(StatusNode),
+    /// A keyboard key-cap chord. `raised:true` for 3D keycap style.
+    Kbd(KbdNode),
+    /// A 4px progress bar, `value` 0..=1. `indeterminate:true` for sweep animation.
+    Progress(ProgressNode),
+    /// A rotating arc activity indicator (no parameters).
+    Spinner(Leaf),
+    /// A loading placeholder. `kind`: rect (default) | circle | text.
+    Skeleton(SkeletonNode),
+    /// A named Lucide icon (24×24, stroked).
+    Icon(IconNode),
+    // ── Overlays ──────────────────────────────────────────────────────────
+    /// A centered modal dialog with title, children, and optional `on_close` intent.
+    Modal(ModalNode),
+    /// A hover tooltip wrapping a `target` node.
+    Tooltip(TooltipNode),
+    // ── Decoration ────────────────────────────────────────────────────────
     /// A themed hairline rule.
     Divider(Leaf),
     /// Flexible empty space.
@@ -88,6 +128,9 @@ pub struct Container {
     /// Layout and appearance.
     #[serde(default)]
     pub style: Style,
+    /// Intent string emitted on click (makes the container an interactive region).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_click: Option<String>,
     /// Stable key (the query/test-id escape hatch).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -106,6 +149,9 @@ pub struct TextNode {
     /// Type and color styling (`color`, `size_px`, `weight`).
     #[serde(default)]
     pub style: Style,
+    /// Intent string emitted on click (makes the text interactive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_click: Option<String>,
     /// Stable key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -123,6 +169,9 @@ pub struct ButtonNode {
     /// Intent string emitted on click.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_click: Option<String>,
+    /// Bind a bool `state` key: click toggles `state[bind]` (takes priority over `on_click`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
     /// Visual emphasis: `primary` (default) | `secondary` | `ghost` | `danger`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variant: Option<String>,
@@ -189,13 +238,21 @@ pub struct SwitchNode {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RadioNode {
-    /// Selected state.
+    /// Selected state (ignored when `group` + `value` are set — derived from state).
     #[serde(default)]
     pub selected: bool,
     /// Accessible label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// Intent string emitted when chosen.
+    /// State key holding the currently-selected value in the group. When set,
+    /// `selected` is derived by comparing `state[group] == value`, and clicking
+    /// emits `SetText(group, value)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    /// This option's value within the group.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+    /// Intent string emitted when chosen (used only when `group` is absent).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_change: Option<String>,
     /// Stable key.
@@ -254,7 +311,281 @@ pub struct InputNode {
     pub fallback: Option<String>,
 }
 
-/// A childless decorative node (divider, spacer).
+/// A drop-down selector.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SelectNode {
+    /// The list of option labels (must be non-empty).
+    pub options: Vec<String>,
+    /// Currently selected index (0-based).
+    #[serde(default)]
+    pub selected: usize,
+    /// Bind the selected index to a `state` number key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Intent string emitted on selection change.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// An underline tab strip.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TabsNode {
+    /// The list of tab labels (must be non-empty).
+    pub labels: Vec<String>,
+    /// Currently active index (0-based).
+    #[serde(default)]
+    pub active: usize,
+    /// Bind the active index to a `state` number key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Intent string emitted on tab selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A compact single-select view switcher (segmented control).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SegmentedNode {
+    /// The list of segment labels (must be non-empty).
+    pub labels: Vec<String>,
+    /// Currently active index (0-based).
+    #[serde(default)]
+    pub active: usize,
+    /// Bind the active index to a `state` number key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Intent string emitted on segment selection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
+    /// Whether the control is disabled.
+    #[serde(default)]
+    pub disabled: bool,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A status pill badge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct BadgeNode {
+    /// The label text.
+    pub label: String,
+    /// Status color: `accent` (default) | `danger` | `warning` | `success`.
+    #[serde(default = "default_status")]
+    pub status: String,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A status callout: tinted background, left status border, icon, and message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CalloutNode {
+    /// Status: `accent` | `danger` | `warning` | `success`.
+    pub status: String,
+    /// The message body.
+    pub message: String,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A metric card with a muted label, large value, and optional delta badge.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StatCardNode {
+    /// Muted label (e.g. "Revenue").
+    pub label: String,
+    /// Prominent value (e.g. "$48k").
+    pub value: String,
+    /// Optional change indicator (e.g. "+12%").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub delta: Option<String>,
+    /// Status for the delta badge: `accent` | `danger` | `warning` | `success`.
+    #[serde(default = "default_status")]
+    pub delta_status: String,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A circular initials avatar in the accent tint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AvatarNode {
+    /// One or two initials to display (e.g. "JD").
+    pub initials: String,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A status dot + label indicator.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StatusNode {
+    /// The label text (e.g. "Operational").
+    pub label: String,
+    /// Status color: `accent` | `danger` | `warning` | `success`.
+    #[serde(default = "default_status")]
+    pub status: String,
+    /// When true, the status dot pulses with a sonar-ring animation.
+    #[serde(default)]
+    pub live: bool,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A keyboard key-cap chord.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct KbdNode {
+    /// The key(s) in the chord. Modifier names (`cmd`, `ctrl`, `opt`, `shift`,
+    /// `win`) are resolved to platform glyphs.
+    pub keys: Vec<String>,
+    /// Use the 3D keycap style instead of the flat badge style.
+    #[serde(default)]
+    pub raised: bool,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A 4px progress bar.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProgressNode {
+    /// Fill level, clamped to `0.0..=1.0`.
+    pub value: f32,
+    /// When true, renders the sweep indeterminate animation instead of the fill.
+    #[serde(default)]
+    pub indeterminate: bool,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A loading placeholder.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkeletonNode {
+    /// Shape variant: `rect` (default) | `circle` | `text`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+    /// Width in logical px (used by `rect` and `circle`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<f32>,
+    /// Height in logical px (used by `rect`; `circle` derives h from w).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<f32>,
+    /// Number of text lines (used by `text`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lines: Option<usize>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A named Lucide icon (24×24, stroked).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct IconNode {
+    /// The Lucide icon name (e.g. `"plus"`, `"check"`, `"settings"`). Unknown
+    /// names degrade to an invisible spacer and record a parse error.
+    pub name: String,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A centered modal dialog with title, children, and an optional close handler.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModalNode {
+    /// The dialog title shown in the header.
+    pub title: String,
+    /// Child nodes forming the dialog body.
+    #[serde(default)]
+    pub children: Vec<Node>,
+    /// Intent string emitted when the dialog close button is pressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_close: Option<String>,
+    /// Maximum width of the dialog in logical px.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_width: Option<f32>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A hover tooltip wrapping a target node.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TooltipNode {
+    /// The tooltip label shown on hover.
+    pub label: String,
+    /// The element to wrap. Boxed to prevent infinite type recursion.
+    pub target: Box<Node>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A childless decorative node (divider, spacer, spinner).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Leaf {
@@ -267,6 +598,16 @@ pub struct Leaf {
     /// Reserved fallback trace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
+}
+
+/// A linear gradient background.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct GradientSpec {
+    /// Gradient angle in degrees (0 = top→bottom, 90 = left→right).
+    pub angle: f32,
+    /// Color stops: at least two [`ColorSpec`]s. Evenly distributed if only two.
+    pub stops: Vec<ColorSpec>,
 }
 
 /// Layout and appearance props shared by containers, text, and leaves. Every
@@ -284,6 +625,39 @@ pub struct Style {
     /// Vertical padding.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub py: Option<f32>,
+    /// Top padding (overrides `p`/`py`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pt: Option<f32>,
+    /// Bottom padding (overrides `p`/`py`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pb: Option<f32>,
+    /// Left padding (overrides `p`/`px`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pl: Option<f32>,
+    /// Right padding (overrides `p`/`px`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pr: Option<f32>,
+    /// Margin on all sides.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub m: Option<f32>,
+    /// Horizontal margin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mx: Option<f32>,
+    /// Vertical margin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub my: Option<f32>,
+    /// Top margin (overrides `m`/`my`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mt: Option<f32>,
+    /// Bottom margin (overrides `m`/`my`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mb: Option<f32>,
+    /// Left margin (overrides `m`/`mx`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ml: Option<f32>,
+    /// Right margin (overrides `m`/`mx`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mr: Option<f32>,
     /// Gap between children.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gap: Option<f32>,
@@ -293,9 +667,27 @@ pub struct Style {
     /// Fixed height.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub h: Option<f32>,
+    /// Minimum width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_w: Option<f32>,
+    /// Maximum width.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_w: Option<f32>,
+    /// Minimum height.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_h: Option<f32>,
+    /// Maximum height.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_h: Option<f32>,
     /// Background fill.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bg: Option<ColorSpec>,
+    /// Linear gradient background (applied after `bg`; gradient wins).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub gradient: Option<GradientSpec>,
+    /// Shadow / elevation token: `sm` | `md` | `lg` | `xl`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<String>,
     /// Corner radius.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rounded: Option<f32>,
@@ -317,6 +709,27 @@ pub struct Style {
     /// Text weight 100–900 (text nodes only).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weight: Option<u16>,
+    /// Text alignment: `start` | `center` | `end` (text nodes only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_align: Option<String>,
+    /// Alpha opacity, `0.0..=1.0` (any node).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opacity: Option<f32>,
+    /// Remove from flow and position absolutely within the nearest positioned ancestor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub absolute: Option<bool>,
+    /// Left offset in logical px (only meaningful when `absolute: true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<f32>,
+    /// Top offset in logical px (only meaningful when `absolute: true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<f32>,
+    /// Right offset in logical px (only meaningful when `absolute: true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<f32>,
+    /// Bottom offset in logical px (only meaningful when `absolute: true`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<f32>,
 }
 
 /// A color reference: a theme role name, or an explicit OKLCH triple. A raw hex
@@ -347,4 +760,9 @@ pub struct Border {
     pub width: f32,
     /// Stroke color.
     pub color: ColorSpec,
+}
+
+/// Default value for `status`/`delta_status` fields (serde `default` attribute).
+pub fn default_status() -> String {
+    "accent".to_string()
 }

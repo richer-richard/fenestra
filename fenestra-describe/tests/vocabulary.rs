@@ -44,11 +44,15 @@ fn vocabulary_covers_every_node_variant() {
         .map(|n| n.tag)
         .collect();
     let expected: BTreeSet<String> = [
+        // Layout containers
         "row",
         "col",
         "div",
         "stack",
+        "card",
+        // Text
         "text",
+        // Form controls
         "button",
         "checkbox",
         "switch",
@@ -56,6 +60,25 @@ fn vocabulary_covers_every_node_variant() {
         "slider",
         "text_input",
         "text_area",
+        "select",
+        // Navigation
+        "tabs",
+        "segmented",
+        // Display / feedback
+        "badge",
+        "callout",
+        "stat_card",
+        "avatar",
+        "status",
+        "kbd",
+        "progress",
+        "spinner",
+        "skeleton",
+        "icon",
+        // Overlays
+        "modal",
+        "tooltip",
+        // Decoration
         "divider",
         "spacer",
     ]
@@ -69,11 +92,15 @@ fn vocabulary_covers_every_node_variant() {
 /// matching vocabulary entry and keeping the grammar honest.
 fn tag_of(n: &Node) -> &'static str {
     match n {
+        // Layout containers
         Node::Row(_) => "row",
         Node::Col(_) => "col",
         Node::Div(_) => "div",
         Node::Stack(_) => "stack",
+        Node::Card(_) => "card",
+        // Text
         Node::Text(_) => "text",
+        // Form controls
         Node::Button(_) => "button",
         Node::Checkbox(_) => "checkbox",
         Node::Switch(_) => "switch",
@@ -81,6 +108,25 @@ fn tag_of(n: &Node) -> &'static str {
         Node::Slider(_) => "slider",
         Node::TextInput(_) => "text_input",
         Node::TextArea(_) => "text_area",
+        Node::Select(_) => "select",
+        // Navigation
+        Node::Tabs(_) => "tabs",
+        Node::Segmented(_) => "segmented",
+        // Display / feedback
+        Node::Badge(_) => "badge",
+        Node::Callout(_) => "callout",
+        Node::StatCard(_) => "stat_card",
+        Node::Avatar(_) => "avatar",
+        Node::Status(_) => "status",
+        Node::Kbd(_) => "kbd",
+        Node::Progress(_) => "progress",
+        Node::Spinner(_) => "spinner",
+        Node::Skeleton(_) => "skeleton",
+        Node::Icon(_) => "icon",
+        // Overlays
+        Node::Modal(_) => "modal",
+        Node::Tooltip(_) => "tooltip",
+        // Decoration
         Node::Divider(_) => "divider",
         Node::Spacer(_) => "spacer",
     }

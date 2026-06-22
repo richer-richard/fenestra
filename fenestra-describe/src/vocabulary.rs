@@ -33,14 +33,26 @@ pub struct Vocabulary {
 /// `(tag, summary, minimal example body)` for every node the parser handles —
 /// the single registry the vocabulary is generated from.
 const NODE_REGISTRY: &[(&str, &str, &str)] = &[
+    // ── Layout containers ─────────────────────────────────────────────────
     ("row", "Horizontal flex container.", r#"{"children":[]}"#),
     ("col", "Vertical flex container.", r#"{"children":[]}"#),
     ("div", "Generic flex container.", r#"{"children":[]}"#),
     ("stack", "Z-stacked / grid container.", r#"{"children":[]}"#),
-    ("text", "A run of text.", r#"{"content":"Hello"}"#),
+    (
+        "card",
+        "Raised-surface content card (vertical flex, SP6 padding, rounded).",
+        r#"{"children":[]}"#,
+    ),
+    // ── Text ──────────────────────────────────────────────────────────────
+    (
+        "text",
+        "A run of text. Supports `on_click` for clickable labels.",
+        r#"{"content":"Hello"}"#,
+    ),
+    // ── Form controls ──────────────────────────────────────────────────────
     (
         "button",
-        "Activatable button. `variant`: primary | secondary | ghost | danger.",
+        "Activatable button. `variant`: primary | secondary | ghost | danger. `bind` a bool state key for toggle behavior.",
         r#"{"label":"Add","on_click":"add","variant":"primary"}"#,
     ),
     (
@@ -55,8 +67,8 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "radio",
-        "One option of a radio group.",
-        r#"{"selected":false,"label":"One"}"#,
+        "One option of a radio group. Use `group` + `value` for group binding.",
+        r#"{"selected":false,"label":"One","group":"lang","value":"one"}"#,
     ),
     (
         "slider",
@@ -73,6 +85,85 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Multi-line text field. `bind` a root `state` key so typing echoes back.",
         r#"{"value":"","placeholder":"Notes","bind":"notes"}"#,
     ),
+    (
+        "select",
+        "Drop-down selector. `bind` a root `state` number key for the selected index.",
+        r#"{"options":["One","Two"],"selected":0}"#,
+    ),
+    // ── Navigation ────────────────────────────────────────────────────────
+    (
+        "tabs",
+        "Underline tab strip. `bind` a root `state` number key for the active index.",
+        r#"{"labels":["Overview","Settings"],"active":0}"#,
+    ),
+    (
+        "segmented",
+        "Compact single-select view switcher. `bind` a root `state` number key for the active index.",
+        r#"{"labels":["List","Board"],"active":0}"#,
+    ),
+    // ── Display / feedback ─────────────────────────────────────────────────
+    (
+        "badge",
+        "Status pill. `status`: accent (default) | danger | warning | success.",
+        r#"{"label":"New","status":"accent"}"#,
+    ),
+    (
+        "callout",
+        "Status callout: tinted background, status border, icon, and message.",
+        r#"{"status":"warning","message":"Trial ends in 3 days."}"#,
+    ),
+    (
+        "stat_card",
+        "Metric card with muted label, large value, and optional `delta` badge.",
+        r#"{"label":"Revenue","value":"$48k","delta":"+12%","delta_status":"success"}"#,
+    ),
+    (
+        "avatar",
+        "Circular initials avatar in the accent tint.",
+        r#"{"initials":"JD"}"#,
+    ),
+    (
+        "status",
+        "Status dot + label indicator. `live:true` adds a pulsing sonar ring.",
+        r#"{"label":"Operational","status":"success"}"#,
+    ),
+    (
+        "kbd",
+        "Keyboard key-cap chord. `raised:true` for 3D keycap style. Modifier names map to platform glyphs.",
+        r#"{"keys":["cmd","K"]}"#,
+    ),
+    (
+        "progress",
+        "4px progress bar, `value` 0..=1. `indeterminate:true` for the sweep animation.",
+        r#"{"value":0.5}"#,
+    ),
+    (
+        "spinner",
+        "Rotating arc activity indicator (no parameters).",
+        r#"{}"#,
+    ),
+    (
+        "skeleton",
+        "Loading placeholder. `kind`: rect (default) | circle | text. `rect`/`circle` use `w`/`h`; `text` uses `lines`.",
+        r#"{"w":120,"h":16,"kind":"rect"}"#,
+    ),
+    (
+        "icon",
+        "Named Lucide icon (24x24, stroked). Known names: alert-triangle, arrow-left, arrow-right, bell, calendar, check, chevron-down, chevron-left, chevron-right, chevron-up, clock, copy, download, external-link, eye, file, folder, home, info, link, lock, log-out, mail, menu, minus, moon, pencil, plus, refresh-cw, save, search, settings, star, sun, trash, upload, user, x.",
+        r#"{"name":"plus"}"#,
+    ),
+    // ── Overlays ──────────────────────────────────────────────────────────
+    (
+        "modal",
+        "Centered modal dialog with title, children, and optional `on_close` intent.",
+        r#"{"title":"Confirm","on_close":"dismiss","children":[]}"#,
+    ),
+    (
+        "tooltip",
+        "Hover tooltip wrapping a `target` node.",
+        r#"{"label":"Helpful info","target":{"text":{"content":"Hover me"}}}"#,
+    ),
+    // ── Decoration ────────────────────────────────────────────────────────
     ("divider", "Themed hairline rule.", r#"{}"#),
     ("spacer", "Flexible empty space.", r#"{}"#),
 ];
