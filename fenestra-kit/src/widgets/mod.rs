@@ -9,6 +9,7 @@ mod data_table;
 mod date_picker;
 mod disclosure;
 mod display;
+mod field;
 mod kbd;
 mod menu;
 mod navigation;
@@ -41,6 +42,7 @@ pub use display::{
     card, meter, progress, progress_indeterminate, reading_column, spinner, stat_card, status,
     table, tabs, wavy_progress,
 };
+pub use field::{Field, field};
 pub use kbd::{kbd, kbd_raised};
 pub use menu::{
     MenuItem, Menubar, context_menu, dropdown_menu, menu, menu_item, menu_items, menu_separator,
