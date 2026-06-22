@@ -54,7 +54,7 @@ impl App for Files {
 }
 
 #[test]
-fn tree_toggles_branches_and_selects_leaves() {
+fn tree_toggles_branches_and_navigates_by_keyboard() {
     let mut h = Harness::new(Files::default(), Theme::light(), (300, 300));
     assert!(
         h.query(&by::role(Semantics::Button).name("main.rs"))
@@ -72,13 +72,29 @@ fn tree_toggles_branches_and_selects_leaves() {
     h.click(&by::role(Semantics::Button).name("main.rs"));
     assert_eq!(h.app().selected.as_deref(), Some("main"));
 
-    // Left arrow on the focused branch collapses it.
-    h.focus(&by::role(Semantics::Button).name("src"));
+    // The whole tree is one tab stop; arrows navigate the selection.
+    h.tab();
+    h.key(KeyInput::plain(Key::ArrowUp));
+    assert_eq!(
+        h.app().selected.as_deref(),
+        Some("src"),
+        "ArrowUp moves the selection to the previous visible node"
+    );
+
+    // Left arrow on the open branch collapses it.
     h.key(KeyInput::plain(Key::ArrowLeft));
     assert!(
         h.query(&by::role(Semantics::Button).name("main.rs"))
             .is_none(),
         "collapsed again"
+    );
+
+    // Typeahead jumps to a matching node.
+    h.key(KeyInput::plain(Key::Char('r')));
+    assert_eq!(
+        h.app().selected.as_deref(),
+        Some("readme"),
+        "typing 'r' selects README.md"
     );
 }
 
