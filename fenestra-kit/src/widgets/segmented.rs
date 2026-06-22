@@ -14,7 +14,7 @@
 //! ```
 
 use fenestra_core::{
-    Cursor, Element, Semantics, ShadowToken, Theme, Transition, Weight, div, row, text,
+    Cursor, Element, Key, Semantics, ShadowToken, Theme, Transition, Weight, div, row, text,
 };
 
 use super::ControlSize;
@@ -80,7 +80,7 @@ impl<Msg> Segmented<Msg> {
     }
 }
 
-impl<Msg> From<Segmented<Msg>> for Element<Msg> {
+impl<Msg: 'static> From<Segmented<Msg>> for Element<Msg> {
     fn from(s: Segmented<Msg>) -> Self {
         let n = s.labels.len().max(1);
         let m = s.size.metrics();
@@ -109,7 +109,10 @@ impl<Msg> From<Segmented<Msg>> for Element<Msg> {
         let seg_h = (m.height - 2.0 * pad).max(0.0);
         let total_w = seg_w * n as f32 + 2.0 * pad;
         let active = s.active.min(n.saturating_sub(1));
-        let on_select = s.on_select;
+        // Shared so both the per-segment click handlers and the control-level
+        // key handler can echo the chosen index back to the host.
+        let on_select: std::rc::Rc<dyn Fn(usize) -> Msg> = s.on_select.into();
+        let labels = s.labels;
         let disabled = s.disabled;
 
         // The sliding thumb: one absolutely-positioned element whose `left`
@@ -129,9 +132,10 @@ impl<Msg> From<Segmented<Msg>> for Element<Msg> {
             .shadow(ShadowToken::Sm)
             .transition(Transition::colors().offsets(true).with_spring(380.0, 30.0));
 
+        let seg_select = on_select.clone();
         let segments = row().children((0..n).map(move |i| {
             let is_active = i == active;
-            let label = s.labels[i].clone();
+            let label = labels[i].clone();
             let mut seg = row()
                 .w(seg_w)
                 .h(seg_h)
@@ -157,10 +161,9 @@ impl<Msg> From<Segmented<Msg>> for Element<Msg> {
                         })
                     })]);
             if !disabled {
-                seg = seg
-                    .focusable(true)
-                    .cursor(Cursor::Pointer)
-                    .on_click(on_select(i));
+                // Segments are pointer targets but NOT individual tab stops; the
+                // whole control is one tab stop (see the track's key handler).
+                seg = seg.cursor(Cursor::Pointer).on_click(seg_select(i));
             }
             seg
         }));
@@ -175,6 +178,16 @@ impl<Msg> From<Segmented<Msg>> for Element<Msg> {
             .children([segments]);
         if disabled {
             track = track.opacity(0.5);
+        } else {
+            // One tab stop for the whole control; arrows roam the selection
+            // (WAI-ARIA tablist keyboard model), Home/End jump to the ends.
+            track = track.focusable(true).on_key(move |k| match k.key {
+                Key::ArrowRight | Key::ArrowDown => (active + 1 < n).then(|| on_select(active + 1)),
+                Key::ArrowLeft | Key::ArrowUp => (active > 0).then(|| on_select(active - 1)),
+                Key::Home => Some(on_select(0)),
+                Key::End => Some(on_select(n - 1)),
+                _ => None,
+            });
         }
         track
     }

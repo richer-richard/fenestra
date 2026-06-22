@@ -2,10 +2,10 @@
 //! selection + ARIA payload, kbd glyph mapping + accessible chord name, status
 //! labels, and skeleton totality over edge inputs.
 
-use fenestra_core::{App, Element, Semantics, Theme, by, col};
+use fenestra_core::{App, Element, Key, KeyInput, Semantics, Theme, by, col};
 use fenestra_kit::{
-    Status, kbd, kbd_raised, segmented, skeleton, skeleton_circle, skeleton_text, status,
-    wavy_progress,
+    Status, kbd, kbd_raised, radio_group, segmented, skeleton, skeleton_circle, skeleton_text,
+    status, tabs, wavy_progress,
 };
 use fenestra_shell::Harness;
 
@@ -68,6 +68,119 @@ fn segmented_selects_by_click_and_marks_active_segment() {
         .query(&by::role(Semantics::Tab { selected: false }).name("Board"))
         .expect("Board segment present");
     assert_eq!(board.semantics, Some(Semantics::Tab { selected: true }));
+}
+
+// ---------------------------------------------------------------- tabs
+
+#[derive(Default)]
+struct Tabs {
+    active: usize,
+}
+
+#[derive(Clone)]
+enum TabMsg {
+    Go(usize),
+}
+
+impl App for Tabs {
+    type Msg = TabMsg;
+    fn update(&mut self, msg: TabMsg) {
+        let TabMsg::Go(i) = msg;
+        self.active = i;
+    }
+    fn view(&self) -> Element<TabMsg> {
+        col().p(8.0).children([tabs(
+            self.active,
+            ["Overview", "Activity", "Settings"],
+            TabMsg::Go,
+        )])
+    }
+}
+
+#[test]
+fn tabs_arrow_keys_move_the_active_tab() {
+    // A tab strip is one tab stop; ←/→ move + activate (automatic activation),
+    // Home/End jump to the ends.
+    let mut h = Harness::new(Tabs::default(), Theme::light(), (480, 120));
+    h.tab();
+    h.key(KeyInput::plain(Key::ArrowRight));
+    assert_eq!(h.app().active, 1);
+    h.key(KeyInput::plain(Key::End));
+    assert_eq!(h.app().active, 2);
+    h.key(KeyInput::plain(Key::ArrowRight));
+    assert_eq!(h.app().active, 2, "clamps at the last tab");
+    h.key(KeyInput::plain(Key::Home));
+    assert_eq!(h.app().active, 0);
+}
+
+// ---------------------------------------------------------------- radio group
+
+#[derive(Default)]
+struct RadioG {
+    selected: usize,
+}
+
+#[derive(Clone)]
+enum RgMsg {
+    Pick(usize),
+}
+
+impl App for RadioG {
+    type Msg = RgMsg;
+    fn update(&mut self, msg: RgMsg) {
+        let RgMsg::Pick(i) = msg;
+        self.selected = i;
+    }
+    fn view(&self) -> Element<RgMsg> {
+        col().p(8.0).children([radio_group(
+            self.selected,
+            ["Monthly", "Quarterly", "Annual"],
+            RgMsg::Pick,
+        )])
+    }
+}
+
+#[test]
+fn radio_group_arrows_move_and_wrap_the_selection() {
+    // WAI-ARIA radio group: arrows move AND select, and the ends wrap.
+    let mut h = Harness::new(RadioG::default(), Theme::light(), (300, 160));
+    h.tab();
+    h.key(KeyInput::plain(Key::ArrowDown));
+    assert_eq!(h.app().selected, 1);
+    h.key(KeyInput::plain(Key::ArrowUp));
+    assert_eq!(h.app().selected, 0);
+    h.key(KeyInput::plain(Key::ArrowUp));
+    assert_eq!(
+        h.app().selected,
+        2,
+        "ArrowUp wraps from the first to the last"
+    );
+    h.key(KeyInput::plain(Key::ArrowDown));
+    assert_eq!(
+        h.app().selected,
+        0,
+        "ArrowDown wraps from the last to the first"
+    );
+}
+
+#[test]
+fn segmented_arrow_keys_move_the_active_segment() {
+    // The control is one tab stop; arrows roam the selection within it
+    // (WAI-ARIA tablist keyboard model), Home/End jump to the ends.
+    let mut h = Harness::new(Seg::default(), Theme::light(), (420, 120));
+    h.tab(); // focus the segmented control
+    h.key(KeyInput::plain(Key::ArrowRight));
+    assert_eq!(h.app().active, 1, "ArrowRight advances the selection");
+    h.key(KeyInput::plain(Key::ArrowRight));
+    assert_eq!(h.app().active, 2);
+    h.key(KeyInput::plain(Key::ArrowRight));
+    assert_eq!(h.app().active, 2, "selection clamps at the last segment");
+    h.key(KeyInput::plain(Key::ArrowLeft));
+    assert_eq!(h.app().active, 1, "ArrowLeft retreats the selection");
+    h.key(KeyInput::plain(Key::Home));
+    assert_eq!(h.app().active, 0, "Home jumps to the first segment");
+    h.key(KeyInput::plain(Key::End));
+    assert_eq!(h.app().active, 2, "End jumps to the last segment");
 }
 
 // ---------------------------------------------------------------- kbd

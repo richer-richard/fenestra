@@ -2,9 +2,9 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    CubicBezier, Element, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, SP1, SP2, SP3,
-    SP4, SP6, Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition, Weight, col,
-    div, path, row, stack, text,
+    CubicBezier, Element, Key, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, SP1, SP2,
+    SP3, SP4, SP6, Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition, Weight,
+    col, div, path, row, stack, text,
 };
 use kurbo::BezPath;
 
@@ -459,21 +459,25 @@ pub fn callout<Msg>(status: Status, message: impl Into<String>) -> Element<Msg> 
 pub fn tabs<Msg: Clone + 'static>(
     active: usize,
     labels: impl IntoIterator<Item = impl Into<String>>,
-    on_select: impl Fn(usize) -> Msg,
+    on_select: impl Fn(usize) -> Msg + 'static,
 ) -> Element<Msg> {
     let labels: Vec<String> = labels.into_iter().map(Into::into).collect();
-    row()
+    let n = labels.len();
+    let active = if n == 0 { 0 } else { active.min(n - 1) };
+    // Shared between the per-tab click handlers and the strip-level key handler.
+    let on_select = std::rc::Rc::new(on_select);
+    let tab_select = on_select.clone();
+    let strip = row()
         .gap(SP4)
         .themed(|t: &Theme, s| s.border(0.0, t.border_subtle))
-        .children(labels.into_iter().enumerate().map(|(i, label)| {
+        .children(labels.into_iter().enumerate().map(move |(i, label)| {
             let is_active = i == active;
             col()
                 .items_center()
                 .gap(SP1)
                 .pt(SP1)
-                .focusable(true)
                 .cursor(fenestra_core::Cursor::Pointer)
-                .on_click(on_select(i))
+                .on_click(tab_select(i))
                 .semantics(Semantics::Tab {
                     selected: is_active,
                 })
@@ -503,7 +507,19 @@ pub fn tabs<Msg: Clone + 'static>(
                             }
                         }),
                 ])
-        }))
+        }));
+    // The strip is one tab stop; ←/→ (and ↑/↓) move + activate, Home/End jump.
+    if n > 1 {
+        strip.focusable(true).on_key(move |k| match k.key {
+            Key::ArrowRight | Key::ArrowDown => (active + 1 < n).then(|| on_select(active + 1)),
+            Key::ArrowLeft | Key::ArrowUp => (active > 0).then(|| on_select(active - 1)),
+            Key::Home => Some(on_select(0)),
+            Key::End => Some(on_select(n - 1)),
+            _ => None,
+        })
+    } else {
+        strip
+    }
 }
 
 /// A simple data table: muted header with a bottom rule, 44px rows with a
