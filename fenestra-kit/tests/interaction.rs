@@ -4,7 +4,9 @@
 use std::path::PathBuf;
 
 use fenestra_core::{App, Element, Key, KeyInput, SP3, SP4, TextSize, Theme, col, row, text};
-use fenestra_kit::{ButtonVariant, ControlSize, button, checkbox, radio, slider, switch};
+use fenestra_kit::{
+    ButtonVariant, ControlSize, button, checkbox, radio, range_slider, slider, switch,
+};
 use fenestra_shell::{SyntheticEvent, render_app, testing::assert_png_snapshot};
 
 fn snapshot_dir() -> PathBuf {
@@ -159,6 +161,183 @@ impl App for Volume {
     }
 }
 
+struct Temp {
+    value: f32,
+}
+
+#[derive(Clone)]
+enum TempMsg {
+    Set(f32),
+}
+
+impl App for Temp {
+    type Msg = TempMsg;
+    fn update(&mut self, msg: TempMsg) {
+        let TempMsg::Set(v) = msg;
+        self.value = v;
+    }
+    fn view(&self) -> Element<TempMsg> {
+        col().p(SP4).items_start().children([slider(self.value)
+            .range(0.0, 100.0)
+            .step(10.0)
+            .on_change(TempMsg::Set)])
+    }
+}
+
+struct PriceRange {
+    low: f32,
+    high: f32,
+}
+
+#[derive(Clone)]
+enum RangeMsg {
+    Set(f32, f32),
+}
+
+impl App for PriceRange {
+    type Msg = RangeMsg;
+    fn update(&mut self, msg: RangeMsg) {
+        let RangeMsg::Set(l, h) = msg;
+        self.low = l;
+        self.high = h;
+    }
+    fn view(&self) -> Element<RangeMsg> {
+        col()
+            .p(SP4)
+            .items_start()
+            .children([range_slider(self.low, self.high)
+                .range(0.0, 100.0)
+                .step(10.0)
+                .on_change(RangeMsg::Set)])
+    }
+}
+
+#[test]
+fn slider_custom_domain_steps_in_real_units() {
+    let theme = Theme::light();
+    let mut app = Temp { value: 50.0 };
+    render_app(
+        &mut app,
+        &[
+            SyntheticEvent::Tab,
+            SyntheticEvent::Key(KeyInput::plain(Key::ArrowRight)),
+        ],
+        (260, 80),
+        &theme,
+    );
+    assert!(
+        (app.value - 60.0).abs() < 1e-3,
+        "ArrowRight steps by 10 in a 0..100 domain, got {}",
+        app.value
+    );
+    let mut app = Temp { value: 50.0 };
+    render_app(
+        &mut app,
+        &[
+            SyntheticEvent::Tab,
+            SyntheticEvent::Key(KeyInput::plain(Key::End)),
+        ],
+        (260, 80),
+        &theme,
+    );
+    assert!(
+        (app.value - 100.0).abs() < 1e-3,
+        "End snaps to max, got {}",
+        app.value
+    );
+}
+
+#[test]
+fn range_slider_thumbs_move_independently_and_cannot_cross() {
+    let theme = Theme::light();
+    // First tab stop = low thumb; ArrowRight raises low by one step.
+    let mut app = PriceRange {
+        low: 20.0,
+        high: 80.0,
+    };
+    render_app(
+        &mut app,
+        &[
+            SyntheticEvent::Tab,
+            SyntheticEvent::Key(KeyInput::plain(Key::ArrowRight)),
+        ],
+        (260, 80),
+        &theme,
+    );
+    assert!(
+        (app.low - 30.0).abs() < 1e-3,
+        "low thumb +10 -> 30, got {}",
+        app.low
+    );
+    assert!(
+        (app.high - 80.0).abs() < 1e-3,
+        "high unchanged, got {}",
+        app.high
+    );
+
+    // The low thumb cannot pass the high thumb: End on low clamps to high.
+    let mut app = PriceRange {
+        low: 20.0,
+        high: 50.0,
+    };
+    render_app(
+        &mut app,
+        &[
+            SyntheticEvent::Tab,
+            SyntheticEvent::Key(KeyInput::plain(Key::End)),
+        ],
+        (260, 80),
+        &theme,
+    );
+    assert!(
+        (app.low - 50.0).abs() < 1e-3,
+        "low clamps to high (50), got {}",
+        app.low
+    );
+
+    // Second tab stop = high thumb; ArrowLeft lowers high by one step.
+    let mut app = PriceRange {
+        low: 20.0,
+        high: 80.0,
+    };
+    render_app(
+        &mut app,
+        &[
+            SyntheticEvent::Tab,
+            SyntheticEvent::Tab,
+            SyntheticEvent::Key(KeyInput::plain(Key::ArrowLeft)),
+        ],
+        (260, 80),
+        &theme,
+    );
+    assert!(
+        (app.high - 70.0).abs() < 1e-3,
+        "high thumb -10 -> 70, got {}",
+        app.high
+    );
+}
+
+#[test]
+fn slider_variants_golden() {
+    // The new visuals: step marks under a single slider, and a two-thumb range
+    // with the fill spanning between the thumbs.
+    let theme = Theme::light();
+    let scene = col::<()>()
+        .p(SP4)
+        .gap(SP4)
+        .items_start()
+        .bg(theme.bg)
+        .children((
+            slider(0.4).marks(true),
+            range_slider(20.0, 70.0)
+                .range(0.0, 100.0)
+                .step(10.0)
+                .marks(true),
+        ));
+    let image = fenestra_shell::render_element(scene, &theme, (240, 96));
+    assert_png_snapshot(snapshot_dir(), "slider_variants", &image);
+}
+
 /// Arrow keys step a focused slider; dragging maps the pointer to a value.
 #[test]
 fn slider_keys_and_drag() {
@@ -196,6 +375,44 @@ fn slider_keys_and_drag() {
     assert!(
         app.value > 0.9,
         "press near the right end should set a high value, got {}",
+        app.value
+    );
+}
+
+#[test]
+fn slider_page_keys_jump_a_larger_step() {
+    let theme = Theme::light();
+    // PageUp jumps 10 steps: 0.4 + 10*0.05 = 0.9.
+    let mut app = Volume { value: 0.4 };
+    render_app(
+        &mut app,
+        &[
+            SyntheticEvent::Tab,
+            SyntheticEvent::Key(KeyInput::plain(Key::PageUp)),
+        ],
+        (260, 80),
+        &theme,
+    );
+    assert!(
+        (app.value - 0.9).abs() < 1e-4,
+        "PageUp jumps 10 steps to 0.9, got {}",
+        app.value
+    );
+
+    // PageDown jumps 10 steps and clamps at 0.0.
+    let mut app = Volume { value: 0.4 };
+    render_app(
+        &mut app,
+        &[
+            SyntheticEvent::Tab,
+            SyntheticEvent::Key(KeyInput::plain(Key::PageDown)),
+        ],
+        (260, 80),
+        &theme,
+    );
+    assert!(
+        app.value.abs() < 1e-4,
+        "PageDown clamps at 0.0, got {}",
         app.value
     );
 }

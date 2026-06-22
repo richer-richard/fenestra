@@ -44,7 +44,7 @@ pub use radio::{Radio, radio, radio_group};
 pub use segmented::{Segmented, segmented};
 pub use select::{Select, select};
 pub use skeleton::{skeleton, skeleton_circle, skeleton_text};
-pub use slider::{Slider, slider};
+pub use slider::{RangeSlider, Slider, range_slider, slider};
 pub use switch::{Switch, switch};
 pub use text_area::{TextArea, text_area};
 pub use text_input::{TextInput, text_input};
