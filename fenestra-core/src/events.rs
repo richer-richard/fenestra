@@ -6,7 +6,7 @@ use std::collections::HashMap;
 
 use kurbo::Point;
 
-use crate::element::{Cursor, Element, Kind};
+use crate::element::{Cursor, Element, Kind, SwipeDir};
 use crate::frame::Frame;
 use crate::frame_state::FrameState;
 use crate::id::WidgetId;
@@ -409,6 +409,30 @@ fn first_file_drop<Msg>(el: &Element<Msg>) -> Option<&(dyn Fn(&std::path::Path) 
     el.children.iter().find_map(first_file_drop)
 }
 
+/// Minimum flick distance (logical px) to count as a swipe.
+const SWIPE_MIN_DIST: f32 = 24.0;
+/// Maximum flick duration (seconds) — slower than this is a drag, not a swipe.
+const SWIPE_MAX_SECS: f64 = 0.5;
+
+/// Classifies a press-to-release delta and duration as a [`SwipeDir`], or `None`
+/// when the gesture is too short or too slow to be a flick.
+fn recognize_swipe(dx: f32, dy: f32, dt: f64) -> Option<SwipeDir> {
+    if dx.hypot(dy) < SWIPE_MIN_DIST || !(0.0..=SWIPE_MAX_SECS).contains(&dt) {
+        return None;
+    }
+    Some(if dx.abs() >= dy.abs() {
+        if dx >= 0.0 {
+            SwipeDir::Right
+        } else {
+            SwipeDir::Left
+        }
+    } else if dy >= 0.0 {
+        SwipeDir::Down
+    } else {
+        SwipeDir::Up
+    })
+}
+
 /// Dispatches one event against the last laid-out frame, updating retained
 /// interaction state and collecting emitted messages.
 pub fn dispatch<Msg: Clone>(
@@ -552,6 +576,7 @@ pub fn dispatch<Msg: Clone>(
                     !el.disabled
                         && (el.on_click.is_some()
                             || el.on_drag.is_some()
+                            || el.on_swipe.is_some()
                             || el.focusable
                             || el.selectable
                             || frame.toggle_overlay_of(*id).is_some())
@@ -559,6 +584,8 @@ pub fn dispatch<Msg: Clone>(
             });
             if let Some(id) = target {
                 state.active = Some(id);
+                // Remember where/when the press began, for swipe recognition.
+                state.press_origin = state.pointer.map(|(x, y)| (x, y, state.now()));
                 if let Some(el) = handlers.get(id) {
                     if el.focusable && state.focus != Some(id) {
                         state.focus = Some(id);
@@ -743,8 +770,21 @@ pub fn dispatch<Msg: Clone>(
                     out.msgs.push(msg.clone());
                     out.redraw = true;
                 }
+                // Swipe: a fast flick from the press origin past a small distance
+                // fires `on_swipe` with the dominant direction.
+                if let Some(el) = handlers.get(active)
+                    && !el.disabled
+                    && let Some(f) = &el.on_swipe
+                    && let (Some((ox, oy, ot)), Some((px, py))) =
+                        (state.press_origin, state.pointer)
+                    && let Some(dir) = recognize_swipe(px - ox, py - oy, state.now() - ot)
+                {
+                    out.msgs.push(f(dir));
+                    out.redraw = true;
+                }
                 out.redraw = true;
             }
+            state.press_origin = None;
             // Capture ended: hover reflects whatever is now under the
             // pointer (it was frozen at press-time contents during capture).
             if let Some((x, y)) = state.pointer {

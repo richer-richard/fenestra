@@ -23,6 +23,7 @@ mod i18n;
 mod id;
 mod input;
 mod layout;
+mod nav;
 pub mod optical;
 mod paint_plan;
 mod painter;
@@ -42,15 +43,16 @@ pub use chrome::{ChromeElevation, ChromeText};
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
     Cursor, DrawerSide, Element, ExitAnim, ImageData, InputData, Kind, OpticalCorrection, Overlay,
-    OverlayMode, OverlayPlacement, PathData, Semantics, Span, VirtualData, col, div, divider,
-    image_rgba8, path, raw_input, raw_text_area, responsive, responsive_hinted, rich_text, row,
-    spacer, span, stack, text,
+    OverlayMode, OverlayPlacement, PathData, Semantics, Span, SwipeDir, VirtualData, col, div,
+    divider, image_rgba8, path, raw_input, raw_text_area, responsive, responsive_hinted, rich_text,
+    row, spacer, span, stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, refresh_hover};
 pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene};
 pub use frame_state::FrameState;
 pub use i18n::{Catalog, Locale};
 pub use id::WidgetId;
+pub use nav::Nav;
 pub use paint_plan::{MultiPassSpec, PassKind};
 pub use proxy::Proxy;
 pub use query::{Query, QueryError, TextMatch, by};

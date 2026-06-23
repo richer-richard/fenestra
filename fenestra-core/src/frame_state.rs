@@ -62,6 +62,9 @@ pub struct FrameState {
     pub(crate) focus_visible: bool,
     /// Last pointer position in logical coordinates.
     pub(crate) pointer: Option<(f32, f32)>,
+    /// Where and when the active press began (x, y, seconds) — for swipe
+    /// recognition on release.
+    pub(crate) press_origin: Option<(f32, f32, f64)>,
     /// In-flight style transitions per widget.
     pub(crate) anims: HashMap<WidgetId, Anim>,
     /// Every node's absolute rect from the frame just built, keyed by id —
@@ -130,6 +133,7 @@ impl Default for FrameState {
             focus: None,
             focus_visible: false,
             pointer: None,
+            press_origin: None,
             anims: HashMap::new(),
             prev_rects: HashMap::new(),
             exit_cache: HashMap::new(),

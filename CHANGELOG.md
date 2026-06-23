@@ -4,6 +4,19 @@
 
 ### Added
 
+- **Navigation router, swipe gestures, and verified web/wasm.**
+  - `Nav<Route>`: an Elm-native navigation stack — `push` / `pop` / `replace` /
+    `pop_to` / `pop_to_root` / `reset`, plus `current` / `can_pop` / `depth` /
+    `stack`. The app holds it in its model and matches `current()` in the view; it
+    is never empty (the root never pops), so the current screen is always valid.
+  - `Element::on_swipe(|dir| …)`: a swipe (flick) recognizer — a press plus a fast
+    drag past a small threshold fires with the dominant `SwipeDir`
+    (`Up`/`Down`/`Left`/`Right`). Built on the existing press/capture path; a tiny
+    move stays a tap.
+  - **Web/wasm is first-class, now verified end to end.** All four crates build
+    for `wasm32-unknown-unknown`, and the existing `pages.yml` workflow ships the
+    `web_demo` example to GitHub Pages over WebGPU. The router, gestures, i18n,
+    RTL, and forms work added this pass are all wasm-clean.
 - **RTL mirroring, Dynamic Type, and i18n.** Three locale/accessibility knobs on
   the theme, plus a new i18n module.
   - `Theme::rtl()` / `with_direction(WritingDir)` mirrors the realized layout

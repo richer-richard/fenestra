@@ -14,6 +14,8 @@ pub(crate) type TypeAheadFn<Msg> = Box<dyn Fn(&str) -> Option<Msg>>;
 pub(crate) type KeyFn<Msg> = Box<dyn Fn(&KeyInput) -> Option<Msg>>;
 /// Maps a pointer position (as fractions of the element rect) to a message.
 pub(crate) type DragFn<Msg> = Box<dyn Fn(f32, f32) -> Option<Msg>>;
+/// Maps a recognized [`SwipeDir`] to a message.
+pub(crate) type SwipeFn<Msg> = Box<dyn Fn(SwipeDir) -> Msg>;
 /// Maps the edited text to a message.
 pub(crate) type InputFn<Msg> = Box<dyn Fn(&str) -> Msg>;
 /// Maps a dropped OS file path to a message.
@@ -449,6 +451,20 @@ impl Span {
     }
 }
 
+/// A recognized swipe (flick) direction, delivered by
+/// [`Element::on_swipe`]. Screen axes: `Down` is toward the bottom.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SwipeDir {
+    /// A flick toward the top.
+    Up,
+    /// A flick toward the bottom.
+    Down,
+    /// A flick toward the start of the line (left in LTR).
+    Left,
+    /// A flick toward the end of the line (right in LTR).
+    Right,
+}
+
 /// Mouse cursor shown while hovering an element.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Cursor {
@@ -512,6 +528,9 @@ pub struct Element<Msg> {
     /// that drove [`Self::on_drag`] ended). Only meaningful alongside
     /// `on_drag`; used for drag lifecycles like column-resize commit.
     pub(crate) on_drag_end: Option<Msg>,
+    /// Fired when a press-drag-release on this element is recognized as a swipe
+    /// (a fast flick past a small distance), with the dominant [`SwipeDir`].
+    pub(crate) on_swipe: Option<SwipeFn<Msg>>,
     pub(crate) on_input: Option<InputFn<Msg>>,
     pub(crate) on_close: Option<Msg>,
     pub(crate) on_file_drop: Option<FileDropFn<Msg>>,
@@ -585,6 +604,7 @@ impl<Msg> Element<Msg> {
             on_key: None,
             on_drag: None,
             on_drag_end: None,
+            on_swipe: None,
             on_input: None,
             on_close: None,
             on_file_drop: None,
@@ -766,6 +786,15 @@ impl<Msg> Element<Msg> {
     /// model gesture lifecycles — e.g. committing a column resize.
     pub fn on_drag_end(mut self, msg: Msg) -> Self {
         self.on_drag_end = Some(msg);
+        self
+    }
+
+    /// Recognizes a swipe (flick) on this element: a press, a quick drag past a
+    /// small threshold, and release fire the closure with the dominant
+    /// [`SwipeDir`]. Good for carousels, dismissible cards, and back gestures —
+    /// the element captures the press, so it works without `on_drag`.
+    pub fn on_swipe(mut self, f: impl Fn(SwipeDir) -> Msg + 'static) -> Self {
+        self.on_swipe = Some(Box::new(f));
         self
     }
 
@@ -1945,6 +1974,10 @@ impl<Msg: 'static> Element<Msg> {
                 Box::new(move |x: f32, y: f32| d(x, y).map(&f)) as DragFn<B>
             }),
             on_drag_end: self.on_drag_end.map(&f),
+            on_swipe: self.on_swipe.map(|s| {
+                let f = f.clone();
+                Box::new(move |d: SwipeDir| f(s(d))) as SwipeFn<B>
+            }),
             on_input: self.on_input.map(|i| {
                 let f = f.clone();
                 Box::new(move |s: &str| f(i(s))) as InputFn<B>

@@ -2176,6 +2176,38 @@ The forms follow-up closes the remaining gaps from the validation pass.
   message in order, for a field that lists all its problems) join the first-failure
   `validate`.
 
+## Navigation router, gestures, and web/wasm
+
+The last maturity strand: app-level navigation, a swipe recognizer, and
+confirmation that the web target is first-class.
+
+- **`Nav<R>` is a stack, not a framework.** Navigation is Elm-native: the app
+  holds a `Nav<Route>` of its *own* route enum, matches `current()` in `view`, and
+  drives it from `update` (`push` on navigate, `pop` on back). No magic — it
+  composes with multi-window `view_for` and with `.enter()`/`.exit()` for screen
+  transitions. The stack is non-empty by construction (the root never pops), so
+  `current()` is infallible; `pop_to`/`pop_to_root`/`replace`/`reset` cover the
+  usual flows and `stack()` feeds a breadcrumb. Decision: a value-stack the app
+  owns beats a registered-routes table — it stays pure, testable, and serialization
+  is the app's choice.
+- **Swipe rides the existing capture path.** A press records its origin
+  `(x, y, t)` in `FrameState`; on release, `recognize_swipe(dx, dy, dt)` classifies
+  a flick that travels ≥ 24 px in ≤ 0.5 s into the dominant `SwipeDir` and fires
+  `Element::on_swipe`. `on_swipe` joins the press-target filter, so a swipe-only
+  element captures the press without needing `on_drag`; a sub-threshold move stays
+  a tap (and because a real flick lifts off the element, click and swipe are
+  naturally exclusive). **Envelope:** long-press, pinch, and rotate are not built —
+  they need a hold-timer tick and a multi-touch `InputEvent` the single-pointer
+  model does not carry yet; documented, not faked.
+- **Web/wasm verified first-class.** `cargo check --target wasm32-unknown-unknown`
+  passes for all four crates (`fenestra-core`/`-kit` are unconditionally
+  wasm-clean; `-shell`/facade gate native-only deps — accesskit, arboard, pollster,
+  image — behind `cfg(not(target_arch = "wasm32"))` and pull web-time +
+  wasm-bindgen-futures on web). The existing `.github/workflows/pages.yml` builds
+  the `web_demo` example to wasm, runs `wasm-bindgen`, and deploys to GitHub Pages
+  over WebGPU — the same code as native, byte for byte. Everything added this
+  maturity pass stays within that envelope.
+
 ## RTL mirroring, Dynamic Type, and i18n
 
 Three locale/accessibility settings ride on the `Theme` (the per-render config
