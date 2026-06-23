@@ -510,6 +510,53 @@ struct PendingOverlay {
     path: Vec<usize>,
 }
 
+/// How many times [`build`] follows a `responsive` wrapper under one id before
+/// giving up. Real use needs exactly one hop — the closure returns a concrete
+/// element. A closure that returns another `responsive()` under the same id
+/// would otherwise recurse forever; this cap (far above any legitimate depth)
+/// turns that authoring mistake into graceful degradation instead of a stack
+/// overflow.
+const RESPONSIVE_MAX_HOPS: u8 = 16;
+
+/// Expands a [`responsive`](crate::responsive) container query into the concrete
+/// element [`build`] should lay out, or `None` when `el` is not a responsive
+/// wrapper. The available size comes from this container's own rect last frame
+/// (`prev_rects`, recorded for every node by the motion pass) — the hint until a
+/// measurement exists, giving the one-frame-deferred convergence. A closure that
+/// returns another `responsive()` under the same id is followed up to
+/// [`RESPONSIVE_MAX_HOPS`] times, then flattened to a plain box, so the
+/// pathological self-wrapping case degrades to empty rather than overflowing.
+fn expand_responsive<Msg>(
+    el: &Element<Msg>,
+    id: WidgetId,
+    state: &FrameState,
+) -> Option<Element<Msg>> {
+    let avail_for = |hint: (f32, f32)| -> (f32, f32) {
+        state
+            .prev_rects
+            .get(&id)
+            .map(|rc| {
+                #[expect(clippy::cast_possible_truncation, reason = "logical px fit f32")]
+                (rc.width() as f32, rc.height() as f32)
+            })
+            .unwrap_or(hint)
+    };
+    let r = el.responsive.as_ref()?;
+    let mut current = (r.f)(avail_for(r.hint));
+    // Follow a chain of self-wrapping responsives, bounded. The borrow of
+    // `current.responsive` ends before each reassignment (the hint is copied out
+    // first, then the closure call returns an owned element).
+    for _ in 0..RESPONSIVE_MAX_HOPS {
+        let Some(hint) = current.responsive.as_ref().map(|r| r.hint) else {
+            return Some(current);
+        };
+        current = (current.responsive.as_ref().expect("just matched").f)(avail_for(hint));
+    }
+    // Cap exceeded: lay the wrapper out as the empty transparent box it is.
+    current.responsive = None;
+    Some(current)
+}
+
 #[expect(
     clippy::too_many_arguments,
     reason = "internal recursion carries build context"
@@ -528,6 +575,16 @@ fn build<Msg>(
     // Canvas height: the materialization viewport for virtual lists.
     viewport: f32,
 ) -> BuiltNode {
+    // Container query: a `responsive(..)` wrapper is transparent — expand it to
+    // the element its closure builds from this container's own size last frame,
+    // built under the SAME `id` so next frame `prev_rects[id]` is the generated
+    // container's rect (closing the loop). One frame deferred: the first frame
+    // has no record and uses the hint, then converges. See `expand_responsive`.
+    if let Some(generated) = expand_responsive(el, id, state) {
+        return build(
+            &generated, theme, fonts, tree, state, animating, id, in_stack, path, pending, viewport,
+        );
+    }
     if el.autofocus && !el.disabled {
         // Focus when newly appearing (absent last frame or a different
         // element), without a keyboard focus ring.

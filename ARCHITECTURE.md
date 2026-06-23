@@ -2264,3 +2264,62 @@ element, gated on `!reduced_motion`, so every prior golden is byte-identical
   painter now replays the frozen transform like the live path. Both are still inert
   under reduced motion (FLIP never runs, ghosts never paint). Regression:
   `exit_ghost_inherits_a_mid_flip_slide` in `tests/motion.rs`.
+
+## Constraints-aware layout: window breakpoints (`view_at`) + container queries (`responsive`)
+
+Two opt-in tiers for layout that reacts to *size*, not just state. Pure-additive
+and fully defaulted, so every prior golden is byte-identical (verified: full
+suite green, no `.png`/`.snap` churn). Tier 1 keys off the window; Tier 2 keys off
+a container's own measured size.
+
+- **Tier 1 — `App::view_at(key, size)`.** A new defaulted trait method:
+  `view_at` → `view_for` → `view`, so existing apps are untouched (the size is
+  ignored by the default). The runner/embed/harness redraw sites now pass the
+  logical size they already had in scope (each hoisted into one `logical`
+  binding so a single `#[expect(cast_possible_truncation)]` covers the f64→f32
+  cast used by both `view_at` and `build_frame`). `embed::render` previously
+  called `view()` directly; it now routes through `view_at(MAIN_WINDOW, logical)`
+  for parity with the windowed runner — a behavioral change only for an app that
+  *overrides `view_for`/`view_at` and renders through `embed`* (an unusual combo,
+  and arguably a bugfix). `Breakpoint` (`Base/Sm/Md/Lg/Xl/Xxl`, Tailwind logical-px
+  thresholds) classifies a width via `Breakpoint::at`, with boolean
+  `Breakpoints::up/down/only` + `is_*` shorthands for `view_at` consumers
+  (`breakpoints.rs`, unit-tested). `Harness::resize(key, w, h)` rebuilds one slot
+  at a new size via `view_at` — the headless analogue of dragging a window edge.
+
+- **Tier 2 — `responsive(|avail| -> Element)`, reusing `prev_rects`.** A container
+  query: the closure rebuilds the subtree from the container's *own* size. The key
+  decision is to **reuse `FrameState::prev_rects`** — the motion/FLIP map that
+  already records every realized node's absolute rect each frame (`state.prev_rects
+  = all_rects`, unconditional) — instead of adding a parallel measurement map with
+  its own realize/GC machinery. `build` runs before realize, so during this frame's
+  build `prev_rects` holds last frame's rects. `responsive`/`responsive_hinted`
+  produce a *transparent* wrapper element carrying only a `pub(crate)
+  ResponsiveData { hint, f: Rc<dyn Fn((f32,f32)) -> Element> }` (mapped in
+  `Element::map` exactly like `virtual_rows`' builder). The very first statement of
+  `build` expands it: read `prev_rects[id]` (or the hint on frame 1), call the
+  closure, and recurse **under the same `id`** — so next frame `prev_rects[id]` is
+  the *generated* container's rect, closing the loop. The wrapper's own style is
+  never resolved (early return before `resolve`), so consumers style the returned
+  element.
+
+- **One-frame-deferred convergence (the CSS container-query model).** Frame 1 has
+  no measurement → hint; frame 2+ uses the measured size; a resize re-converges one
+  frame after it lands (the intervening frame reads the stale measurement). This
+  trades instant convergence for a guaranteed absence of layout cycles. Traced
+  end-to-end in `tests/responsive_layout.rs`
+  (`responsive_container_query_converges_one_frame_after_resize`: hint→col,
+  measured→row, shrink→stale-row→col).
+
+- **Caveats, documented on the builders.** (1) *Identity*: the loop keys off the
+  wrapper's `WidgetId`, so a wrapper whose sibling position can move needs a stable
+  `.id` (a fixed position is already stable). (2) *Monotonicity*: a non-monotone
+  closure (larger `avail` yields content that shrinks the container back below a
+  threshold) can oscillate every frame at a boundary; prefer width-driven
+  breakpoints on a parent-sized (`w_full`) container, where width is independent of
+  the chosen branch. (3) Nest a finer `responsive(..)` as a *child*, never as the
+  closure's root: a direct self-wrapping chain expands under the same id, so
+  `expand_responsive` follows it only `RESPONSIVE_MAX_HOPS` (16) times and then
+  flattens it to an empty box — graceful degradation, never a stack overflow
+  (regression: `responsive_self_wrapping_is_capped_not_a_stack_overflow`).
+  `Breakpoint`/`Breakpoints` are the natural threshold vocabulary for both tiers.

@@ -69,6 +69,14 @@ impl<Msg> Clone for VirtualData<Msg> {
     }
 }
 
+/// Payload for a container query ([`responsive`]): the closure rebuilds this
+/// container's subtree from its own available size, and `hint` is the size the
+/// first frame uses before any measurement exists.
+pub(crate) struct ResponsiveData<Msg> {
+    pub(crate) hint: (f32, f32),
+    pub(crate) f: std::rc::Rc<dyn Fn((f32, f32)) -> Element<Msg>>,
+}
+
 /// Payload for [`Kind::Image`].
 #[derive(Debug, Clone)]
 pub struct ImageData {
@@ -493,6 +501,9 @@ pub struct Element<Msg> {
     pub(crate) keyframes: Option<crate::style::Keyframes>,
     /// Virtualized rows: materialized from scroll state at build time.
     pub(crate) virtual_rows: Option<VirtualData<Msg>>,
+    /// Container query: a transparent wrapper that `build` replaces with the
+    /// element its closure builds from this container's own measured size.
+    pub(crate) responsive: Option<ResponsiveData<Msg>>,
     /// Accessible role and state (kit widgets set it; leaves auto-project).
     pub(crate) semantics: Option<Semantics>,
     /// Announce content changes to assistive technology (polite).
@@ -556,6 +567,7 @@ impl<Msg> Element<Msg> {
             spin: None,
             keyframes: None,
             virtual_rows: None,
+            responsive: None,
             semantics: None,
             live: false,
             selectable: false,
@@ -1691,6 +1703,62 @@ pub fn divider<Msg>() -> Element<Msg> {
     Element::new(Kind::Divider).w_full().h(1.0).shrink0()
 }
 
+/// A container that chooses its own layout from its measured size — a
+/// **container query**, the counterpart of window-size
+/// [`App::view_at`](crate::App::view_at). `f(available)` receives this
+/// container's own content size in logical px *from the previous frame* (the
+/// layout the motion system already records) and returns the element to lay
+/// out in its place.
+///
+/// It is **one frame deferred**: the very first frame has no measured size, so
+/// it builds at the hint `(0.0, 0.0)` — the "smallest" branch — and converges
+/// on the next frame; a later resize re-converges one frame after it lands.
+/// Reach for [`responsive_hinted`] to seed a first-frame size and skip that
+/// flash.
+///
+/// The returned element is **transparent**: it replaces the `responsive(..)`
+/// wrapper entirely, so style the element you return, not this call. Two rules
+/// keep the feedback loop well-behaved:
+/// - **Stable identity.** Give the wrapper a stable [`Element::id`] if its
+///   position among its siblings can change, so the query keys off a stable
+///   [`WidgetId`](crate::WidgetId) across frames (a fixed tree position is
+///   already stable).
+/// - **Monotone in width, and never self-wrapping.** `f` should not return
+///   content that shrinks the container back below a threshold a wider size
+///   crossed (otherwise it can flip every frame at a boundary — prefer
+///   width-driven breakpoints on a parent-sized container). Nest a finer
+///   `responsive(..)` as a *child* of the returned element, never as its root:
+///   a closure that directly returns another `responsive(..)` chains under the
+///   same id, and is expanded only a bounded number of times before being
+///   flattened to empty (it degrades, it never overflows the stack).
+///
+/// Like a virtualized list, the generated subtree is not part of the *declared*
+/// tree, so an [`overlay`](Element::overlay) inside it is silently skipped (the
+/// overlay machinery indexes the declared tree). Mount overlays outside the
+/// `responsive` wrapper.
+#[track_caller]
+pub fn responsive<Msg>(f: impl Fn((f32, f32)) -> Element<Msg> + 'static) -> Element<Msg> {
+    responsive_hinted((0.0, 0.0), f)
+}
+
+/// [`responsive`] with an explicit first-frame size: `f(hint)` builds the
+/// initial frame (before any measurement exists), removing the one-frame
+/// "smallest branch" flash when the rough size is known up front. See
+/// [`responsive`] for the convergence model and the identity / monotonicity
+/// caveats.
+#[track_caller]
+pub fn responsive_hinted<Msg>(
+    hint: (f32, f32),
+    f: impl Fn((f32, f32)) -> Element<Msg> + 'static,
+) -> Element<Msg> {
+    let mut el = Element::new(Kind::Box);
+    el.responsive = Some(ResponsiveData {
+        hint,
+        f: std::rc::Rc::new(f),
+    });
+    el
+}
+
 /// A bare single-line text input leaf. Most apps want the styled
 /// `fenestra_kit` `text_input` instead; this is the primitive it wraps.
 /// Focusable, shows the text I-beam, and emits `on_input` per edit.
@@ -1850,6 +1918,14 @@ impl<Msg: 'static> Element<Msg> {
                     row_height: v.row_height,
                     variable: v.variable,
                     builder: std::rc::Rc::new(move |i| builder(i).map(f.clone())),
+                }
+            }),
+            responsive: self.responsive.map(|r| {
+                let f = f.clone();
+                let inner = r.f;
+                ResponsiveData {
+                    hint: r.hint,
+                    f: std::rc::Rc::new(move |sz| inner(sz).map(f.clone())),
                 }
             }),
             semantics: self.semantics,

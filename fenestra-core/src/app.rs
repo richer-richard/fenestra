@@ -109,6 +109,17 @@ pub trait App {
         self.view()
     }
 
+    /// The view for one window at a given available size (logical px: the
+    /// content size the frame is laid out at). Override to switch layout on
+    /// window-size breakpoints (see [`Breakpoints`](crate::Breakpoints)).
+    /// Defaults to [`Self::view_for`] (size ignored), so apps opt in. For a
+    /// *container's* own size, reach for [`responsive`](crate::responsive)
+    /// instead.
+    fn view_at(&self, key: &str, size: (f32, f32)) -> Element<Self::Msg> {
+        let _ = size;
+        self.view_for(key)
+    }
+
     /// The theme for one window; defaults to [`Self::theme`] everywhere.
     /// Override for per-window theming (e.g. a dark inspector next to a
     /// light main window). The windowed runner consults it per window;
@@ -146,6 +157,10 @@ impl<A: App> App for &mut A {
 
     fn view_for(&self, key: &str) -> Element<Self::Msg> {
         (**self).view_for(key)
+    }
+
+    fn view_at(&self, key: &str, size: (f32, f32)) -> Element<Self::Msg> {
+        (**self).view_at(key, size)
     }
 
     fn theme_for(&self, key: &str) -> Theme {

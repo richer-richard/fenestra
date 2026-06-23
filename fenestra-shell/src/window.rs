@@ -828,14 +828,15 @@ impl<A: App> AppRunner<A> {
         let theme = self.app.theme();
         self.shell.background = theme.bg;
         self.state.tick(self.started.elapsed().as_secs_f64());
-        let view = self.app.view_for(fenestra_core::MAIN_WINDOW);
         #[expect(clippy::cast_possible_truncation, reason = "window sizes fit in f32")]
+        let logical = (lw as f32, lh as f32);
+        let view = self.app.view_at(fenestra_core::MAIN_WINDOW, logical);
         let frame = build_frame(
             &view,
             &theme,
             &mut self.fonts,
             &mut self.state,
-            (lw as f32, lh as f32),
+            logical,
             scale,
         );
         let scene = frame.paint(&mut self.fonts, &mut self.state);
@@ -1029,14 +1030,15 @@ impl<A: App> AppRunner<A> {
         };
         bundle.shell.background = theme.bg;
         bundle.state.tick(now);
-        let view = self.app.view_for(key);
         #[expect(clippy::cast_possible_truncation, reason = "window sizes fit in f32")]
+        let logical = (lw as f32, lh as f32);
+        let view = self.app.view_at(key, logical);
         let frame = build_frame(
             &view,
             &theme,
             &mut self.fonts,
             &mut bundle.state,
-            (lw as f32, lh as f32),
+            logical,
             scale,
         );
         let scene = frame.paint(&mut self.fonts, &mut bundle.state);

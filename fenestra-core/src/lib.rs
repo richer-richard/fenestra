@@ -7,6 +7,7 @@
 mod anim;
 mod apca;
 mod app;
+mod breakpoints;
 pub mod canvas;
 mod children;
 mod chrome;
@@ -32,13 +33,15 @@ mod tokens;
 
 pub use apca::{lc, lc_abs, meets, required_lc, wcag2_passes, wcag2_ratio};
 pub use app::{App, MAIN_WINDOW, WindowDesc};
+pub use breakpoints::{Breakpoint, Breakpoints};
 pub use children::{FromIter, FromTuple, IntoChildren};
 pub use chrome::{ChromeElevation, ChromeText};
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
     Cursor, DrawerSide, Element, ExitAnim, ImageData, InputData, Kind, OpticalCorrection, Overlay,
     OverlayMode, OverlayPlacement, PathData, Semantics, Span, VirtualData, col, div, divider,
-    image_rgba8, path, raw_input, raw_text_area, rich_text, row, spacer, span, stack, text,
+    image_rgba8, path, raw_input, raw_text_area, responsive, responsive_hinted, rich_text, row,
+    spacer, span, stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, refresh_hover};
 pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene};

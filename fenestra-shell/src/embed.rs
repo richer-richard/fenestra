@@ -307,12 +307,12 @@ where
         self.pump();
         let (pw, ph) = (physical.0.max(1), physical.1.max(1));
         self.state.tick(self.started.elapsed().as_secs_f64());
-        let view = self.app.view();
         #[expect(clippy::cast_possible_truncation, reason = "window sizes fit in f32")]
         let logical = (
             (f64::from(pw) / scale) as f32,
             (f64::from(ph) / scale) as f32,
         );
+        let view = self.app.view_at(fenestra_core::MAIN_WINDOW, logical);
         let frame = build_frame(
             &view,
             &self.theme,

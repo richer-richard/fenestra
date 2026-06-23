@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Constraints-aware layout: window breakpoints + container queries.** Two opt-in
+  tiers for layout that reacts to *size*. Tier 1: `App::view_at(key, size)` hands the
+  window's logical size to the view, so an app can switch layout on width breakpoints
+  (defaults to `view_for` → `view`, so existing apps are untouched). Tier 2:
+  `responsive(|avail| -> Element)` is a **container query** — the closure rebuilds a
+  subtree from the container's *own* measured size (reusing the motion system's
+  per-node rect record), converging one frame after a resize like CSS container
+  queries, with no layout cycles. `responsive_hinted` seeds the first frame to skip the
+  flash. New `Breakpoint`/`Breakpoints` give Tailwind-style thresholds
+  (`Breakpoint::at(width)`, `Breakpoints::is_md(width)`, …) for either tier, and
+  `Harness::resize` drives both headlessly. Every prior golden is byte-identical.
 - **Motion completion: FLIP layout animation + exit animations.** `.animate_layout()`
   makes an element *slide* when layout moves it (FLIP / shared-element): its measured
   rect is compared frame-to-frame and, on a real move, it paints from the old position

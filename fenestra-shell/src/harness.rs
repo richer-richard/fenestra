@@ -115,7 +115,7 @@ where
         state.tick(clock);
         #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
         let logical = (size.0 as f32, size.1 as f32);
-        let view = app.view_for(key);
+        let view = app.view_at(key, logical);
         let frame = with_fonts(|fonts| build_frame(&view, theme, fonts, &mut state, logical, 1.0));
         WindowSlot {
             state,
@@ -168,7 +168,7 @@ where
         let keys: Vec<String> = self.slots.keys().cloned().collect();
         for key in keys {
             let slot = self.slots.get_mut(&key).expect("slot exists");
-            slot.view = self.app.view_for(&key);
+            slot.view = self.app.view_at(&key, slot.logical);
             slot.state.tick(self.clock);
             slot.frame = with_fonts(|fonts| {
                 build_frame(
@@ -210,6 +210,43 @@ where
             self.window_keys()
         );
         self.active = key.to_owned();
+    }
+
+    /// Resizes one window: clamps to the renderer's limits, updates the slot's
+    /// pixel and logical size, and rebuilds its frame via [`App::view_at`] at
+    /// the new size — the headless analogue of dragging a window edge, and how
+    /// `view_at` window breakpoints and
+    /// [`responsive`](fenestra_core::responsive) container queries are driven.
+    /// Other windows are untouched.
+    ///
+    /// # Panics
+    /// If no open window has this key.
+    pub fn resize(&mut self, key: &str, width: u32, height: u32) {
+        assert!(
+            self.slots.contains_key(key),
+            "no open window {key:?}; open windows: {:?}",
+            self.window_keys()
+        );
+        let size =
+            with_headless(|h| h.clamp_size(width, height)).expect("headless renderer unavailable");
+        #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
+        let logical = (size.0 as f32, size.1 as f32);
+        let view = self.app.view_at(key, logical);
+        let slot = self.slots.get_mut(key).expect("checked above");
+        slot.size = size;
+        slot.logical = logical;
+        slot.view = view;
+        slot.state.tick(self.clock);
+        slot.frame = with_fonts(|fonts| {
+            build_frame(
+                &slot.view,
+                &self.theme,
+                fonts,
+                &mut slot.state,
+                logical,
+                1.0,
+            )
+        });
     }
 
     /// The keys of every open window, sorted (main first).
