@@ -99,11 +99,54 @@ struct NodeMeta {
 
 /// Scroll geometry of one scrollable container, resolved for this frame.
 struct ScrollInfo {
-    offset: f32,
-    thumb: Option<Rect>,
+    offset_y: f32,
+    offset_x: f32,
+    /// Vertical scrollbar thumb (right edge).
+    thumb_v: Option<Rect>,
+    /// Horizontal scrollbar thumb (bottom edge).
+    thumb_h: Option<Rect>,
     alpha: f32,
-    /// Content actually overflows; wheel routing skips containers that fit.
-    can_scroll: bool,
+    /// Content overflows vertically; wheel routing skips containers that fit.
+    can_scroll_y: bool,
+    /// Content overflows horizontally.
+    can_scroll_x: bool,
+}
+
+/// The viewport a `position: sticky` element sticks within — the nearest
+/// scroll-container ancestor's content rect, in canvas coordinates.
+#[derive(Clone, Copy)]
+struct StickyCtx {
+    viewport: Rect,
+}
+
+/// Clamps a sticky element's natural rect to its scroll viewport per its
+/// `sticky_*` thresholds, keeping its size. With no scrolling ancestor the
+/// natural rect is returned unchanged (sticky is inert).
+fn apply_sticky(natural: Rect, style: &Style, ctx: Option<StickyCtx>) -> Rect {
+    let Some(ctx) = ctx else {
+        return natural;
+    };
+    let v = ctx.viewport;
+    let (w, h) = (natural.width(), natural.height());
+    let mut x0 = natural.x0;
+    let mut y0 = natural.y0;
+    // Apply the bottom/right (`min`) constraints first, then top/left (`max`),
+    // so that when both edges are set and conflict, top/left win — per CSS
+    // positioned-layout rules (the last `max` overrides the earlier `min`).
+    if let Some(b) = style.sticky_bottom {
+        y0 = y0.min((v.y1 - f64::from(b) - h).max(v.y0));
+    }
+    if let Some(t) = style.sticky_top {
+        // Don't push below the element's natural position, nor past the viewport.
+        y0 = y0.max((v.y0 + f64::from(t)).min(v.y1 - h));
+    }
+    if let Some(r) = style.sticky_right {
+        x0 = x0.min((v.x1 - f64::from(r) - w).max(v.x0));
+    }
+    if let Some(l) = style.sticky_left {
+        x0 = x0.max((v.x0 + f64::from(l)).min(v.x1 - w));
+    }
+    Rect::new(x0, y0, x0 + w, y0 + h)
 }
 
 /// One node with its final absolute logical rect.
@@ -114,6 +157,8 @@ struct FrameNode {
     rect: Rect,
     /// Effective clip rect inherited from ancestors (None = unclipped).
     visible: Option<Rect>,
+    /// `position: sticky` — painted and hit-tested after its siblings (on top).
+    is_sticky: bool,
     scroll: Option<ScrollInfo>,
     meta: NodeMeta,
     /// Continuous rotation period (ms) for spinner paths.
@@ -805,38 +850,63 @@ struct Realize<'a> {
 impl Realize<'_> {
     /// Converts a built node into a frame node with absolute rects, applying
     /// baseline shifts, scroll offsets, and clip propagation.
-    fn realize(&mut self, node: BuiltNode, origin: Point, visible: Option<Rect>) -> FrameNode {
+    fn realize(
+        &mut self,
+        node: BuiltNode,
+        origin: Point,
+        visible: Option<Rect>,
+        sticky_ctx: Option<StickyCtx>,
+    ) -> FrameNode {
         let l = self.tree.layout(node.taffy).expect("taffy layout");
         let x = origin.x + f64::from(l.location.x);
         let y = origin.y + f64::from(l.location.y);
-        let rect = Rect::new(
+        let natural = Rect::new(
             x,
             y,
             x + f64::from(l.size.width),
             y + f64::from(l.size.height),
         );
+        // `position: sticky` clamps the rect to its scroll viewport, post-layout.
+        let is_sticky = node.style.position == Position::Sticky;
+        let rect = if is_sticky {
+            apply_sticky(natural, &node.style, sticky_ctx)
+        } else {
+            natural
+        };
 
-        // Scroll resolution: clamp the persisted offset to the content range.
-        let scroll = (node.style.overflow_y == Overflow::Scroll).then(|| {
-            let max = (l.content_size.height - l.size.height).max(0.0);
-            let offset = if max >= MIN_SCROLL_RANGE {
-                self.state.clamp_scroll(node.id, max, node.stick_bottom)
+        // Scroll resolution: clamp the persisted offsets to the content range
+        // on whichever axes scroll.
+        let scrolls_y = node.style.overflow_y == Overflow::Scroll;
+        let scrolls_x = node.style.overflow_x == Overflow::Scroll;
+        let scroll = (scrolls_y || scrolls_x).then(|| {
+            let max_y = if scrolls_y {
+                (l.content_size.height - l.size.height).max(0.0)
             } else {
-                self.state.clamp_scroll(node.id, 0.0, node.stick_bottom)
+                0.0
             };
-            let alpha = if max >= MIN_SCROLL_RANGE {
+            let max_x = if scrolls_x {
+                (l.content_size.width - l.size.width).max(0.0)
+            } else {
+                0.0
+            };
+            let (offset_y, offset_x) =
+                self.state
+                    .clamp_scroll_2d(node.id, max_y, max_x, node.stick_bottom);
+            let can_scroll_y = max_y >= MIN_SCROLL_RANGE;
+            let can_scroll_x = max_x >= MIN_SCROLL_RANGE;
+            let alpha = if can_scroll_y || can_scroll_x {
                 self.state.scrollbar_alpha(node.id)
             } else {
                 0.0
             };
             self.animating |= self.state.scrollbar_animating(node.id);
-            let thumb = (alpha > 0.0 && max >= MIN_SCROLL_RANGE).then(|| {
+            let thumb_v = (alpha > 0.0 && can_scroll_y).then(|| {
                 let track_h = rect.height() - 2.0 * SCROLLBAR_INSET;
                 let content_h = f64::from(l.content_size.height);
                 let thumb_h = (track_h * rect.height() / content_h).max(24.0).min(track_h);
-                let denom = f64::from(max);
+                let denom = f64::from(max_y);
                 let t = if denom > 0.0 {
-                    f64::from(offset) / denom
+                    f64::from(offset_y) / denom
                 } else {
                     0.0
                 };
@@ -848,11 +918,32 @@ impl Realize<'_> {
                     thumb_y + thumb_h,
                 )
             });
+            let thumb_h = (alpha > 0.0 && can_scroll_x).then(|| {
+                let track_w = rect.width() - 2.0 * SCROLLBAR_INSET;
+                let content_w = f64::from(l.content_size.width);
+                let thumb_w = (track_w * rect.width() / content_w).max(24.0).min(track_w);
+                let denom = f64::from(max_x);
+                let t = if denom > 0.0 {
+                    f64::from(offset_x) / denom
+                } else {
+                    0.0
+                };
+                let thumb_x = rect.x0 + SCROLLBAR_INSET + t * (track_w - thumb_w);
+                Rect::new(
+                    thumb_x,
+                    rect.y1 - SCROLLBAR_INSET - SCROLLBAR_WIDTH,
+                    thumb_x + thumb_w,
+                    rect.y1 - SCROLLBAR_INSET,
+                )
+            });
             ScrollInfo {
-                offset,
-                thumb,
+                offset_y,
+                offset_x,
+                thumb_v,
+                thumb_h,
                 alpha,
-                can_scroll: max >= MIN_SCROLL_RANGE,
+                can_scroll_y,
+                can_scroll_x,
             }
         });
 
@@ -862,8 +953,24 @@ impl Realize<'_> {
         } else {
             visible
         };
-        let scroll_dy = scroll.as_ref().map_or(0.0, |s| f64::from(s.offset));
-        let child_origin = Point::new(x, y - scroll_dy);
+        let scroll_dy = scroll.as_ref().map_or(0.0, |s| f64::from(s.offset_y));
+        let scroll_dx = scroll.as_ref().map_or(0.0, |s| f64::from(s.offset_x));
+        // Children follow this node's resolved (possibly sticky-clamped) origin.
+        let child_origin = Point::new(rect.x0 - scroll_dx, rect.y0 - scroll_dy);
+        // A scroll container is the viewport its sticky descendants stick within
+        // (the content box, inside padding); otherwise the context passes through.
+        let child_sticky_ctx = if scroll.is_some() {
+            let pad = &node.style.padding;
+            let content = Rect::new(
+                rect.x0 + f64::from(pad.left),
+                rect.y0 + f64::from(pad.top),
+                rect.x1 - f64::from(pad.right),
+                rect.y1 - f64::from(pad.bottom),
+            );
+            Some(StickyCtx { viewport: content })
+        } else {
+            sticky_ctx
+        };
 
         // Baseline rows: shift in-flow children so first baselines align.
         let baseline_offsets: Option<Vec<f64>> = (node.style.display == Display::Flex
@@ -906,6 +1013,7 @@ impl Realize<'_> {
                     child,
                     Point::new(child_origin.x, child_origin.y + dy),
                     child_visible,
+                    child_sticky_ctx,
                 )
             })
             .collect();
@@ -935,6 +1043,7 @@ impl Realize<'_> {
             style: node.style,
             rect,
             visible,
+            is_sticky,
             scroll,
             meta,
             spin: node.spin,
@@ -1033,7 +1142,7 @@ pub fn build_frame<Msg>(
         state,
         animating: false,
     };
-    let root_node = realize.realize(node, Point::ORIGIN, None);
+    let root_node = realize.realize(node, Point::ORIGIN, None, None);
     let mut animating = realize.animating || transitions_running;
     let canvas = Rect::new(0.0, 0.0, f64::from(size.0), f64::from(size.1));
 
@@ -1258,7 +1367,7 @@ pub fn build_frame<Msg>(
                 state,
                 animating: false,
             };
-            let onode = orealize.realize(built, origin, None);
+            let onode = orealize.realize(built, origin, None, None);
             animating |= orealize.animating;
 
             overlays.push(OverlayFrame {
@@ -1496,14 +1605,21 @@ impl Frame {
             }
             PaintKind::Box => {}
         }
-        for child in &node.children {
+        // Non-sticky children first, then sticky children on top.
+        for child in node.children.iter().filter(|c| !c.is_sticky) {
             self.paint_node(scene, fonts, state, child);
         }
-        if let Some(scroll) = &node.scroll
-            && let Some(thumb) = scroll.thumb
-        {
+        for child in node.children.iter().filter(|c| c.is_sticky) {
+            self.paint_node(scene, fonts, state, child);
+        }
+        if let Some(scroll) = &node.scroll {
             let color = self.thumb_color.multiply_alpha(scroll.alpha * 0.6);
-            painter::fill_rounded(scene, thumb, R_FULL, color);
+            if let Some(thumb) = scroll.thumb_v {
+                painter::fill_rounded(scene, thumb, R_FULL, color);
+            }
+            if let Some(thumb) = scroll.thumb_h {
+                painter::fill_rounded(scene, thumb, R_FULL, color);
+            }
         }
         painter::pop_box(scene, layers);
     }
@@ -1702,7 +1818,7 @@ impl Frame {
             let here = node
                 .scroll
                 .as_ref()
-                .is_some_and(|s| s.can_scroll)
+                .is_some_and(|s| s.can_scroll_y)
                 .then_some((node.id, node.rect));
             if let Some(h) = here {
                 out.push(h);
@@ -1721,7 +1837,7 @@ impl Frame {
             false
         }
         fn first_scrollable(node: &FrameNode) -> Option<(WidgetId, Rect)> {
-            if node.scroll.as_ref().is_some_and(|s| s.can_scroll) {
+            if node.scroll.as_ref().is_some_and(|s| s.can_scroll_y) {
                 return Some((node.id, node.rect));
             }
             node.children.iter().find_map(first_scrollable)
@@ -1742,9 +1858,36 @@ impl Frame {
     }
 
     /// The deepest scrollable container whose visible area contains `point`
-    /// and which actually has overflowing content.
+    /// and which actually has overflowing content on either axis.
     pub fn scrollable_at(&self, point: Point) -> Option<WidgetId> {
-        fn walk(node: &FrameNode, point: Point) -> Option<WidgetId> {
+        self.scrollable_axis_at(point, &|s| s.can_scroll_x || s.can_scroll_y)
+    }
+
+    /// The deepest container under `point` that scrolls *vertically* — wheel
+    /// routing for `dy`.
+    pub fn scrollable_y_at(&self, point: Point) -> Option<WidgetId> {
+        self.scrollable_axis_at(point, &|s| s.can_scroll_y)
+    }
+
+    /// The deepest container under `point` that scrolls *horizontally* — wheel
+    /// routing for `dx`. May differ from the vertical scroller (nested panes).
+    pub fn scrollable_x_at(&self, point: Point) -> Option<WidgetId> {
+        self.scrollable_axis_at(point, &|s| s.can_scroll_x)
+    }
+
+    /// The deepest scrollable container under `point` whose `ScrollInfo`
+    /// satisfies `can` — so `dx` and `dy` route to the nearest scroller on
+    /// *their own* axis, which may be different nodes.
+    fn scrollable_axis_at(
+        &self,
+        point: Point,
+        can: &dyn Fn(&ScrollInfo) -> bool,
+    ) -> Option<WidgetId> {
+        fn walk(
+            node: &FrameNode,
+            point: Point,
+            can: &dyn Fn(&ScrollInfo) -> bool,
+        ) -> Option<WidgetId> {
             if node.style.display == Display::None {
                 return None;
             }
@@ -1759,14 +1902,14 @@ impl Frame {
             // Children win over the container (deepest scrollable first);
             // later children paint on top, so walk them in reverse.
             for child in node.children.iter().rev() {
-                if let Some(id) = walk(child, point) {
+                if let Some(id) = walk(child, point, can) {
                     return Some(id);
                 }
             }
-            (node.scroll.as_ref().is_some_and(|s| s.can_scroll) && node.rect.contains(point))
+            (node.scroll.as_ref().is_some_and(can) && node.rect.contains(point))
                 .then_some(node.id)
         }
-        walk(&self.root, point)
+        walk(&self.root, point, can)
     }
 
     /// All elements containing `point` along the topmost branch (later
@@ -1809,7 +1952,13 @@ impl Frame {
         if inside {
             out.push(node.id);
         }
-        for child in node.children.iter().rev() {
+        // Sticky children sit on top, so hit-test them before non-sticky ones.
+        for child in node.children.iter().rev().filter(|c| c.is_sticky) {
+            if Self::walk_hit(child, point, out) {
+                return true;
+            }
+        }
+        for child in node.children.iter().rev().filter(|c| !c.is_sticky) {
             if Self::walk_hit(child, point, out) {
                 return true;
             }
@@ -1905,7 +2054,11 @@ impl Frame {
     /// `true` if the id resolves to a scrollable with room to scroll.
     pub fn is_scrollable(&self, id: WidgetId) -> bool {
         fn walk(node: &FrameNode, id: WidgetId) -> bool {
-            (node.id == id && node.scroll.as_ref().is_some_and(|s| s.can_scroll))
+            (node.id == id
+                && node
+                    .scroll
+                    .as_ref()
+                    .is_some_and(|s| s.can_scroll_x || s.can_scroll_y))
                 || node.children.iter().any(|c| walk(c, id))
         }
         walk(&self.root, id)
@@ -1933,6 +2086,8 @@ struct NodeDump {
     fill: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     scroll_offset: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    scroll_offset_x: Option<f32>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     children: Vec<NodeDump>,
 }
@@ -1975,7 +2130,12 @@ impl NodeDump {
                 Paint::RadialGradient { .. } => "radial-gradient".to_owned(),
                 Paint::ConicGradient { .. } => "conic-gradient".to_owned(),
             }),
-            scroll_offset: node.scroll.as_ref().map(|s| s.offset),
+            scroll_offset: node.scroll.as_ref().map(|s| s.offset_y),
+            scroll_offset_x: node
+                .scroll
+                .as_ref()
+                .filter(|s| s.offset_x != 0.0)
+                .map(|s| s.offset_x),
             children: node.children.iter().map(Self::from_node).collect(),
         }
     }

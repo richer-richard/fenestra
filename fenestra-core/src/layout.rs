@@ -69,7 +69,7 @@ pub(crate) fn to_taffy(style: &Style, in_stack: bool) -> taffy::Style {
             bottom: inset(style.inset.bottom),
         },
         position: match style.position {
-            Position::Relative => taffy::style::Position::Relative,
+            Position::Relative | Position::Sticky => taffy::style::Position::Relative,
             Position::Absolute => taffy::style::Position::Absolute,
         },
         size: Size {

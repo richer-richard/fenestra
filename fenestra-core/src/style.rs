@@ -112,6 +112,10 @@ pub enum Position {
     Relative,
     /// Out of flow, positioned against the nearest relative ancestor.
     Absolute,
+    /// In normal flow until the nearest scroll container scrolls it past a
+    /// `sticky_*` threshold, then pinned to that edge of the viewport (CSS
+    /// `position: sticky`). Resolved post-layout in the realize pass.
+    Sticky,
 }
 
 /// Overflow behavior per axis.
@@ -785,6 +789,14 @@ pub struct Style {
     pub overflow_x: Overflow,
     /// Vertical overflow.
     pub overflow_y: Overflow,
+    /// Sticky offset from the scroll viewport's top edge (with `Position::Sticky`).
+    pub sticky_top: Option<f32>,
+    /// Sticky offset from the scroll viewport's right edge.
+    pub sticky_right: Option<f32>,
+    /// Sticky offset from the scroll viewport's bottom edge.
+    pub sticky_bottom: Option<f32>,
+    /// Sticky offset from the scroll viewport's left edge.
+    pub sticky_left: Option<f32>,
 
     // -- paint --
     /// Background paint.
@@ -870,6 +882,10 @@ impl Default for Style {
             grid_row: GridPlace::default(),
             overflow_x: Overflow::Visible,
             overflow_y: Overflow::Visible,
+            sticky_top: None,
+            sticky_right: None,
+            sticky_bottom: None,
+            sticky_left: None,
             fill: None,
             border: None,
             side_borders: EdgeBorders::default(),
@@ -1386,6 +1402,50 @@ impl Style {
     pub fn scroll_y(mut self) -> Self {
         self.overflow_y = Overflow::Scroll;
         self.clip = true;
+        self
+    }
+
+    /// Horizontal scrolling with clipped content.
+    pub fn scroll_x(mut self) -> Self {
+        self.overflow_x = Overflow::Scroll;
+        self.clip = true;
+        self
+    }
+
+    /// Scrolling on both axes with clipped content.
+    pub fn scroll_xy(mut self) -> Self {
+        self.overflow_x = Overflow::Scroll;
+        self.overflow_y = Overflow::Scroll;
+        self.clip = true;
+        self
+    }
+
+    /// Sticks the element `offset` px below the scroll viewport's top edge once
+    /// it would scroll past (CSS `position: sticky; top: offset`).
+    pub fn sticky_top(mut self, offset: f32) -> Self {
+        self.position = Position::Sticky;
+        self.sticky_top = Some(offset);
+        self
+    }
+
+    /// Sticks the element `offset` px above the scroll viewport's bottom edge.
+    pub fn sticky_bottom(mut self, offset: f32) -> Self {
+        self.position = Position::Sticky;
+        self.sticky_bottom = Some(offset);
+        self
+    }
+
+    /// Sticks the element `offset` px right of the scroll viewport's left edge.
+    pub fn sticky_left(mut self, offset: f32) -> Self {
+        self.position = Position::Sticky;
+        self.sticky_left = Some(offset);
+        self
+    }
+
+    /// Sticks the element `offset` px left of the scroll viewport's right edge.
+    pub fn sticky_right(mut self, offset: f32) -> Self {
+        self.position = Position::Sticky;
+        self.sticky_right = Some(offset);
         self
     }
 

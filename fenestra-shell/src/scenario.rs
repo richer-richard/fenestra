@@ -84,9 +84,20 @@ enum Step {
     Key(String),
     Tab(u32),
     ShiftTab(u32),
-    Wheel { target: QuerySpec, dy: f32 },
-    Drag { from: QuerySpec, to: QuerySpec },
-    DropFile { target: QuerySpec, path: String },
+    Wheel {
+        target: QuerySpec,
+        #[serde(default)]
+        dx: f32,
+        dy: f32,
+    },
+    Drag {
+        from: QuerySpec,
+        to: QuerySpec,
+    },
+    DropFile {
+        target: QuerySpec,
+        path: String,
+    },
     PumpMs(f64),
     Window(String),
     Shot(String),
@@ -299,9 +310,9 @@ where
                     harness.shift_tab();
                 }
             }
-            Step::Wheel { target, dy } => {
+            Step::Wheel { target, dx, dy } => {
                 let q = target!(target);
-                harness.wheel(&q, *dy);
+                harness.wheel_xy(&q, *dx, *dy);
             }
             Step::Drag { from, to } => {
                 let from = target!(from);

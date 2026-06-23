@@ -377,7 +377,17 @@ where
     /// If the query matches zero or several nodes.
     pub fn wheel(&mut self, q: &Query, dy: f32) {
         self.hover(q);
-        self.input(InputEvent::Wheel { dy });
+        self.input(InputEvent::Wheel { dx: 0.0, dy });
+    }
+
+    /// Scrolls the wheel on both axes over the matched node (positive `dx`
+    /// moves content right, positive `dy` moves content down).
+    ///
+    /// # Panics
+    /// If the query matches zero or several nodes.
+    pub fn wheel_xy(&mut self, q: &Query, dx: f32, dy: f32) {
+        self.hover(q);
+        self.input(InputEvent::Wheel { dx, dy });
     }
 
     /// Advances the deterministic clock by `ms` milliseconds and

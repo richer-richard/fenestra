@@ -4,6 +4,15 @@
 
 ### Added
 
+- **Horizontal scrolling + `position: sticky`.** Scroll state is now 2D: new
+  `.scroll_x()` / `.scroll_xy()` builders, an `offset_x` axis with its own clamp
+  and scrollbar, and wheel `dx` routing (each axis routes to the nearest scroller
+  *on that axis*, so a horizontal pane nested in a vertical one each get their own
+  delta). `position: sticky` arrives via `.sticky_top/bottom/left/right(px)`: a
+  sticky element pins to its scroll viewport's content box once scrolled past the
+  threshold (top/left win on conflict, per CSS), painting and hit-testing above
+  its siblings. This is the core primitive sticky table headers and frozen
+  columns build on.
 - **`aria-invalid` is verifiable.** A control's danger-ring `invalid` state now
   surfaces in the access tree: `AccessNode` / `AccessNodeDto` gain an `invalid`
   field, the aria snapshot emits `[invalid]`, and the describe `text_input` /

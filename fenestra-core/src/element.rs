@@ -1190,6 +1190,42 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Horizontal scrolling with clipped content.
+    pub fn scroll_x(mut self) -> Self {
+        self.style = self.style.scroll_x();
+        self
+    }
+
+    /// Scrolling on both axes with clipped content.
+    pub fn scroll_xy(mut self) -> Self {
+        self.style = self.style.scroll_xy();
+        self
+    }
+
+    /// Sticks `offset` px below the scroll viewport's top edge (`position: sticky`).
+    pub fn sticky_top(mut self, offset: f32) -> Self {
+        self.style = self.style.sticky_top(offset);
+        self
+    }
+
+    /// Sticks `offset` px above the scroll viewport's bottom edge.
+    pub fn sticky_bottom(mut self, offset: f32) -> Self {
+        self.style = self.style.sticky_bottom(offset);
+        self
+    }
+
+    /// Sticks `offset` px right of the scroll viewport's left edge.
+    pub fn sticky_left(mut self, offset: f32) -> Self {
+        self.style = self.style.sticky_left(offset);
+        self
+    }
+
+    /// Sticks `offset` px left of the scroll viewport's right edge.
+    pub fn sticky_right(mut self, offset: f32) -> Self {
+        self.style = self.style.sticky_right(offset);
+        self
+    }
+
     /// Keeps a scroll container pinned to its bottom edge while content
     /// grows — until the user scrolls away, and again once they return to
     /// the bottom (the chat/log pattern). Starts at the bottom.

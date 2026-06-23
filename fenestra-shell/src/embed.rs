@@ -32,7 +32,7 @@ use kurbo::Point;
 use vello::wgpu::{self, util::TextureBlitter};
 use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene};
 
-use crate::window::{LINE_SCROLL_PX, map_cursor, map_key};
+use crate::window::{map_cursor, map_key, wheel_deltas};
 
 /// What the embedded UI did with one window event.
 #[derive(Debug, Clone, Copy, Default)]
@@ -209,7 +209,7 @@ where
         window: &winit::window::Window,
         event: &winit::event::WindowEvent,
     ) -> EventResponse {
-        use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+        use winit::event::{ElementState, MouseButton, WindowEvent};
         let scale = window.scale_factor();
         match event {
             WindowEvent::CursorMoved { position, .. } =>
@@ -236,12 +236,12 @@ where
                 response
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => f64::from(*y) * LINE_SCROLL_PX,
-                    MouseScrollDelta::PixelDelta(pos) => pos.y / scale,
-                };
+                let (dx, dy) = wheel_deltas(*delta, scale);
                 #[expect(clippy::cast_possible_truncation, reason = "deltas fit in f32")]
-                self.input(InputEvent::Wheel { dy: dy as f32 })
+                self.input(InputEvent::Wheel {
+                    dx: dx as f32,
+                    dy: dy as f32,
+                })
             }
             WindowEvent::ModifiersChanged(mods) => {
                 self.modifiers = mods.state();

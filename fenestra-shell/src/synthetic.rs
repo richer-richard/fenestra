@@ -28,8 +28,11 @@ pub enum SyntheticEvent {
     Key(KeyInput),
     /// Commit text (M5).
     Text(String),
-    /// Scroll (winit convention: positive `dy` moves content down).
+    /// Scroll (winit convention: positive `dy` moves content down, positive
+    /// `dx` moves content right).
     Wheel {
+        /// Horizontal delta in logical px.
+        dx: f32,
         /// Vertical delta in logical px.
         dy: f32,
     },
@@ -52,7 +55,7 @@ impl From<&SyntheticEvent> for InputEvent {
             SyntheticEvent::FileDrop(p) => Self::FileDrop(p.clone()),
             SyntheticEvent::Key(k) => Self::Key(*k),
             SyntheticEvent::Text(s) => Self::Text(s.clone()),
-            SyntheticEvent::Wheel { dy } => Self::Wheel { dy: *dy },
+            SyntheticEvent::Wheel { dx, dy } => Self::Wheel { dx: *dx, dy: *dy },
             SyntheticEvent::Tab => Self::Tab,
             SyntheticEvent::ShiftTab => Self::ShiftTab,
             SyntheticEvent::Modifiers(shift, ctrl, alt, meta) => Self::Modifiers {

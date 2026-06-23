@@ -2126,3 +2126,39 @@ value, calls `validate` in its `view`, and wires the result.
 - **Still deferred (logged on the forms task):** `aria-required` (needs a
   `required` field on `Element`, which does not exist yet), date-range, and input
   adornments. The validation engine + the `aria-invalid` surfacing ship complete.
+
+## Horizontal scrolling + `position: sticky` (R3 layout)
+
+Scrolling was vertical-only; this pass makes it 2D and adds CSS sticky positioning
+— the primitives sticky table headers, frozen columns, and horizontal panes need.
+
+- **2D scroll state.** `FrameState`'s `Scroll` gains `offset_x`; `clamp_scroll`
+  became `clamp_scroll_2d(id, max_y, max_x, stick_bottom) -> (y, x)` (the old
+  vertical-only shim is gone). `ScrollInfo` is now 2D (`offset_x/y`, `thumb_v/h`,
+  `can_scroll_x/y`); `realize` clamps and shifts children on whichever axes scroll
+  and paints a bottom-edge horizontal thumb mirroring the vertical one. Builders:
+  `.scroll_x()` / `.scroll_xy()`.
+- **Per-axis wheel routing (the subtle part).** `InputEvent::Wheel` gains `dx`; the
+  winit `(dx, dy)` extraction is shared (`wheel_deltas`). Dispatch routes `dy` to
+  `scrollable_y_at(point)` and `dx` to `scrollable_x_at(point)` *independently* —
+  a horizontal pane nested inside a vertical scroller each receive their own delta
+  (an adversarial review caught that routing both deltas to one
+  `scrollable_at` would let an inner horizontal pane swallow the page's vertical
+  scroll).
+- **Sticky is a post-layout rect clamp.** `Position::Sticky` maps to taffy
+  `Relative` (normal flow, correct content size), then `realize` clamps the rect
+  via `apply_sticky(natural, style, ctx)` to the nearest scroll container's
+  *content box* (inside padding — another review fix). `top`/`left` win over
+  `bottom`/`right` on conflict (CSS positioned-layout order, achieved by applying
+  the `min` edges before the `max` edges). A `StickyCtx { viewport }` threads down
+  through `realize`; scroll containers set it to their content rect, other nodes
+  pass it through, so a sticky descendant sees its nearest scrolling ancestor.
+- **Sticky z-order.** `FrameNode.is_sticky` splits paint into two passes
+  (non-sticky, then sticky on top) and hit-testing into two (sticky first), without
+  reordering the children vector (which would corrupt baseline-offset indexing).
+- **Reduced motion / determinism.** Headless scrollbar alpha is deterministic
+  (clock-driven); sticky is a pure geometry clamp with no animation. Verified by
+  `fenestra-core/tests/scroll_2d.rs` (offset shift/clamp, axis independence, nested
+  per-axis routing, content-box padding) and `tests/sticky.rs` (pin, below-line
+  passthrough, top-wins-over-bottom, inert-without-ancestor). The data_table widget
+  consumes these (sticky header + frozen columns) in the data_table maturity task.

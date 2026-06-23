@@ -34,6 +34,17 @@ use crate::ShellError;
 /// One wheel "line" in logical pixels.
 pub(crate) const LINE_SCROLL_PX: f64 = 40.0;
 
+/// Extracts `(dx, dy)` logical-pixel deltas from a winit wheel event, honoring
+/// the window scale for pixel deltas.
+pub(crate) fn wheel_deltas(delta: MouseScrollDelta, scale: f64) -> (f64, f64) {
+    match delta {
+        MouseScrollDelta::LineDelta(x, y) => {
+            (f64::from(x) * LINE_SCROLL_PX, f64::from(y) * LINE_SCROLL_PX)
+        }
+        MouseScrollDelta::PixelDelta(pos) => (pos.x / scale, pos.y / scale),
+    }
+}
+
 /// A raw paint callback: `(scene, logical_w, logical_h, background)`.
 #[cfg(not(target_arch = "wasm32"))]
 type PaintFn = Box<dyn FnMut(&mut Scene, f64, f64, Color)>;
@@ -645,22 +656,27 @@ impl ApplicationHandler for StaticApp {
                 self.cursor = Point::new(position.x / scale, position.y / scale);
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => f64::from(y) * LINE_SCROLL_PX,
-                    MouseScrollDelta::PixelDelta(pos) => {
-                        let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
-                        pos.y / scale
+                let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
+                let (dx, dy) = wheel_deltas(delta, scale);
+                if let Some(frame) = &self.last_frame {
+                    let y_target = (dy.abs() > 1e-3)
+                        .then(|| frame.scrollable_y_at(self.cursor))
+                        .flatten();
+                    let x_target = (dx.abs() > 1e-3)
+                        .then(|| frame.scrollable_x_at(self.cursor))
+                        .flatten();
+                    #[expect(clippy::cast_possible_truncation, reason = "scroll deltas fit in f32")]
+                    {
+                        if let Some(id) = y_target {
+                            self.state.scroll_by(id, -dy as f32);
+                        }
+                        if let Some(id) = x_target {
+                            self.state.scroll_by_x(id, -dx as f32);
+                        }
                     }
-                };
-                if let Some(frame) = &self.last_frame
-                    && let Some(id) = frame.scrollable_at(self.cursor)
-                {
-                    #[expect(
-                        clippy::cast_possible_truncation,
-                        reason = "scroll deltas fit in f32"
-                    )]
-                    self.state.scroll_by(id, -dy as f32);
-                    if let Some(w) = self.shell.window() {
+                    if (y_target.is_some() || x_target.is_some())
+                        && let Some(w) = self.shell.window()
+                    {
                         w.request_redraw();
                     }
                 }
@@ -1143,19 +1159,21 @@ impl<A: App> AppRunner<A> {
                 );
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => f64::from(y) * LINE_SCROLL_PX,
-                    MouseScrollDelta::PixelDelta(pos) => {
-                        let scale = self
-                            .secondary
-                            .get(key)
-                            .and_then(|b| b.shell.window())
-                            .map_or(1.0, |w| w.scale_factor());
-                        pos.y / scale
-                    }
-                };
+                let scale = self
+                    .secondary
+                    .get(key)
+                    .and_then(|b| b.shell.window())
+                    .map_or(1.0, |w| w.scale_factor());
+                let (dx, dy) = wheel_deltas(delta, scale);
                 #[expect(clippy::cast_possible_truncation, reason = "deltas fit in f32")]
-                self.secondary_input_main(key, event_loop, InputEvent::Wheel { dy: dy as f32 });
+                self.secondary_input_main(
+                    key,
+                    event_loop,
+                    InputEvent::Wheel {
+                        dx: dx as f32,
+                        dy: dy as f32,
+                    },
+                );
             }
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == winit::event::ElementState::Pressed =>
@@ -1529,15 +1547,16 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                 );
             }
             WindowEvent::MouseWheel { delta, .. } => {
-                let dy = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => f64::from(y) * LINE_SCROLL_PX,
-                    MouseScrollDelta::PixelDelta(pos) => {
-                        let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
-                        pos.y / scale
-                    }
-                };
+                let scale = self.shell.window().map_or(1.0, |w| w.scale_factor());
+                let (dx, dy) = wheel_deltas(delta, scale);
                 #[expect(clippy::cast_possible_truncation, reason = "deltas fit in f32")]
-                self.input_main(event_loop, InputEvent::Wheel { dy: dy as f32 });
+                self.input_main(
+                    event_loop,
+                    InputEvent::Wheel {
+                        dx: dx as f32,
+                        dy: dy as f32,
+                    },
+                );
             }
             WindowEvent::KeyboardInput { event, .. }
                 if event.state == winit::event::ElementState::Pressed =>

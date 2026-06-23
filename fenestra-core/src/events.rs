@@ -96,8 +96,11 @@ pub enum InputEvent {
     /// An OS file was dropped onto the window (one event per file).
     FileDrop(std::path::PathBuf),
     /// Wheel / trackpad scroll. Winit convention: positive `dy` moves the
-    /// content down (scrolling toward the top of the document).
+    /// content down (scrolling toward the top of the document); positive `dx`
+    /// moves the content right.
     Wheel {
+        /// Horizontal delta in logical px (0.0 for a pure vertical event).
+        dx: f32,
         /// Vertical delta in logical px.
         dy: f32,
     },
@@ -741,12 +744,24 @@ pub fn dispatch<Msg: Clone>(
                 );
             }
         }
-        InputEvent::Wheel { dy } => {
-            if let Some((x, y)) = state.pointer
-                && let Some(id) = frame.scrollable_at(Point::new(f64::from(x), f64::from(y)))
-            {
-                state.scroll_by(id, -dy);
-                out.redraw = true;
+        InputEvent::Wheel { dx, dy } => {
+            if let Some((x, y)) = state.pointer {
+                let p = Point::new(f64::from(x), f64::from(y));
+                // dy and dx route to the nearest scroller on their OWN axis —
+                // which may be different containers (e.g. a horizontal pane
+                // nested in a vertical one).
+                if dy.abs() > 1e-3
+                    && let Some(id) = frame.scrollable_y_at(p)
+                {
+                    state.scroll_by(id, -dy);
+                    out.redraw = true;
+                }
+                if dx.abs() > 1e-3
+                    && let Some(id) = frame.scrollable_x_at(p)
+                {
+                    state.scroll_by_x(id, -dx);
+                    out.redraw = true;
+                }
             }
         }
         InputEvent::Tab | InputEvent::ShiftTab => {

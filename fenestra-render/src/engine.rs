@@ -120,6 +120,9 @@ pub enum Step {
     Wheel {
         /// The node to scroll.
         target: Selector,
+        /// Horizontal delta (positive moves content right).
+        #[serde(default)]
+        dx: f32,
         /// Vertical delta (positive moves content down).
         dy: f32,
     },
@@ -269,9 +272,9 @@ fn apply_step(h: &mut Harness<DescribedApp>, step: &Step, index: usize) -> Resul
                 h.shift_tab();
             }
         }
-        Step::Wheel { target, dy } => {
+        Step::Wheel { target, dx, dy } => {
             let q = resolve(h, target, index)?;
-            h.wheel(&q, *dy);
+            h.wheel_xy(&q, *dx, *dy);
         }
         Step::Drag { from, to } => {
             let from_q = resolve(h, from, index)?;
