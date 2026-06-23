@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Motion completion: FLIP layout animation + exit animations.** `.animate_layout()`
+  makes an element *slide* when layout moves it (FLIP / shared-element): its measured
+  rect is compared frame-to-frame and, on a real move, it paints from the old position
+  and springs to the new — reorder a keyed list or resize a sibling and rows glide
+  instead of jumping (needs a stable `.id`; identity is the `WidgetId`). `.exit(...)` /
+  `.exit_to(opacity, scale, dx, dy)` animate an element *out* when it leaves the tree:
+  a paint-only "ghost" snapshot lingers and fades/scales/slides to its targets, then is
+  dropped — the counterpart of `.enter()`. A ghost faithfully replays the transform it
+  last painted with, so a node removed mid-FLIP-slide (or carrying a static transform)
+  exits from where it actually was. Both ride the existing transition engine and are
+  **inert under reduced motion** (FLIP snaps, exits are immediate) — every prior golden
+  is byte-identical.
 - **`data_table` is feature-complete.** On top of the existing sort + multi-select:
   row **virtualization** (only the visible window materializes — 100k rows cost the
   same as 100), a **sticky header** (pinned above the scrolling body), column

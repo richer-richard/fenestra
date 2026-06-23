@@ -430,6 +430,25 @@ pub enum Cursor {
     NotAllowed,
 }
 
+/// How an element animates *out* when it leaves the tree (the counterpart of
+/// [`Element::enter`]). When an element tagged with [`Element::exit`] is
+/// removed, a paint-only snapshot ("ghost") is left in its place and animates
+/// toward these targets over `transition`, then is dropped — there is no live
+/// widget behind it (inputs collapse to a plain box). Inert under reduced
+/// motion: the element is removed immediately, so headless renders are
+/// unchanged.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ExitAnim {
+    /// Timing of the exit (spring, or duration + easing).
+    pub transition: Transition,
+    /// Opacity the ghost fades to (0.0 = fully gone, the default).
+    pub opacity_to: f32,
+    /// Scale the ghost reaches about its center (1.0 = no scale change).
+    pub scale_to: f32,
+    /// Translation the ghost drifts by as it leaves, logical px `(dx, dy)`.
+    pub translate_to: (f32, f32),
+}
+
 /// One node in the view tree. `Msg` is the app's message type; handlers
 /// carry `Msg` values, not closures over state.
 pub struct Element<Msg> {
@@ -482,6 +501,12 @@ pub struct Element<Msg> {
     pub(crate) selectable: bool,
     /// Fade-in transition seeded when the id first appears.
     pub(crate) enter: Option<crate::style::Transition>,
+    /// Exit animation: a paint-only ghost lingers and animates out when the
+    /// id is removed from the tree (the counterpart of [`Self::enter`]).
+    pub(crate) exit: Option<ExitAnim>,
+    /// FLIP/shared-element layout animation: when the element's measured rect
+    /// moves between frames it slides from the old position to the new.
+    pub(crate) animate_layout: bool,
     /// Buffered type-ahead while focused (1s window per keystroke).
     pub(crate) on_type_ahead: Option<TypeAheadFn<Msg>>,
     /// Accessible name (screen-reader label).
@@ -535,6 +560,8 @@ impl<Msg> Element<Msg> {
             live: false,
             selectable: false,
             enter: None,
+            exit: None,
+            animate_layout: false,
             on_type_ahead: None,
             label: None,
             themed: None,
@@ -833,13 +860,70 @@ impl<Msg> Element<Msg> {
 
     /// Animates the element in when it first appears (a fade from
     /// opacity 0 through the given transition — give stateful entries a
-    /// stable `.id` so reorders don't retrigger it). Exit animations
-    /// are not supported yet: removal is immediate.
+    /// stable `.id` so reorders don't retrigger it). Pair with
+    /// [`Self::exit`] to also animate removal.
     pub fn enter(mut self, transition: crate::style::Transition) -> Self {
         self.enter = Some(crate::style::Transition {
             opacity: true,
             ..transition
         });
+        self
+    }
+
+    /// Animates the element *out* when it is removed from the tree: a
+    /// paint-only snapshot ("ghost") is left in place and fades to transparent
+    /// over `transition`, then dropped (the counterpart of [`Self::enter`]).
+    /// Give stateful entries a stable [`Self::id`] so removal is detected by
+    /// identity, not list position. Inert under reduced motion (removal is
+    /// immediate). Use [`Self::exit_to`] to also scale or slide the ghost.
+    pub fn exit(mut self, transition: crate::style::Transition) -> Self {
+        self.exit = Some(ExitAnim {
+            transition: crate::style::Transition {
+                opacity: true,
+                ..transition
+            },
+            opacity_to: 0.0,
+            scale_to: 1.0,
+            translate_to: (0.0, 0.0),
+        });
+        self
+    }
+
+    /// Like [`Self::exit`], but the leaving ghost animates toward an explicit
+    /// `opacity`, `scale` (about its center), and `(dx, dy)` translation over
+    /// the standard exit timing (a brisk accelerate-eased
+    /// [`MotionDuration::exit_ms`](crate::tokens::MotionDuration::exit_ms)).
+    /// For example `exit_to(0.0, 0.96, 0.0, 8.0)` fades a toast out while it
+    /// shrinks slightly and drops away.
+    pub fn exit_to(mut self, opacity: f32, scale: f32, dx: f32, dy: f32) -> Self {
+        self.exit = Some(ExitAnim {
+            transition: crate::style::Transition::all()
+                .duration_ms(crate::tokens::MotionDuration::Base.exit_ms())
+                .easing(crate::tokens::EASE_EXIT),
+            opacity_to: opacity,
+            scale_to: scale,
+            translate_to: (dx, dy),
+        });
+        self
+    }
+
+    /// Animates this element's *position* when layout moves it between frames
+    /// (FLIP / shared-element). Its measured rect is compared with the
+    /// previous frame's; when the center moves, the element is painted
+    /// starting at the old position and springs to the new one, so reordering
+    /// a list (or a resized sibling pushing it) glides instead of jumping.
+    /// Pair with a stable [`Self::id`] — without one, reordering changes the
+    /// `WidgetId`, the previous position is lost under the new identity, and
+    /// the slide never fires. Composes with any static or animated
+    /// `translate`. Inert under reduced motion (the element snaps).
+    ///
+    /// With no explicit [`Self::transition`]/[`Self::enter`] the slide rides an
+    /// implicit spatial spring; a declared transition wins and drives the slide
+    /// at its own timing instead. Either way that transition is the element's
+    /// general one, so an incidental style change animates through it too
+    /// (colors clamp; only position springs here).
+    pub fn animate_layout(mut self) -> Self {
+        self.animate_layout = true;
         self
     }
 
@@ -1772,6 +1856,8 @@ impl<Msg: 'static> Element<Msg> {
             live: self.live,
             selectable: self.selectable,
             enter: self.enter,
+            exit: self.exit,
+            animate_layout: self.animate_layout,
             label: self.label,
             themed: self.themed,
             hover_style: self.hover_style,

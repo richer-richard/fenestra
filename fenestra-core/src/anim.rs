@@ -30,6 +30,17 @@ impl Anim {
         }
     }
 
+    /// Retargets the segment: replays from `from` to `to` starting at `now`.
+    /// FLIP layout animation uses it to slide an element from its previous
+    /// measured position to its new one — the two styles differ only in
+    /// `translate`, so only position moves while every other property holds.
+    pub(crate) fn inject(&mut self, from: Style, to: Style, now: f64, seen: u64) {
+        self.from = from;
+        self.to = to;
+        self.t0 = now;
+        self.seen = seen;
+    }
+
     /// Advances toward `target`, restarting the segment from the current
     /// animated value whenever the target changes. Returns the style to
     /// paint and whether the animation is still running.
@@ -41,19 +52,7 @@ impl Anim {
         seen: u64,
     ) -> (Style, bool) {
         self.seen = seen;
-        let (eased, done) = match transition.spring {
-            Some(spring) =>
-            {
-                #[expect(clippy::cast_possible_truncation, reason = "short time spans")]
-                spring_progress(spring, (now - self.t0).max(0.0) as f32)
-            }
-            None => {
-                let duration = f64::from(transition.duration_ms.max(1.0)) / 1000.0;
-                let elapsed = ((now - self.t0) / duration).clamp(0.0, 1.0);
-                #[expect(clippy::cast_possible_truncation, reason = "progress is 0..=1")]
-                (transition.easing.eval(elapsed as f32), elapsed >= 1.0)
-            }
-        };
+        let (eased, done) = progress_at(transition, now - self.t0);
         let current = lerp_style(&self.from, &self.to, eased, transition);
 
         if *target != self.to {
@@ -71,6 +70,27 @@ impl Anim {
             self.from = self.to.clone();
         }
         (current, running)
+    }
+}
+
+/// Maps elapsed seconds to `(progress, done)` for a transition: the spring's
+/// closed-form step response (which may overshoot 1.0) when one is set, else
+/// the eased fraction of the duration. The single source of truth behind both
+/// the style-transition engine ([`Anim::advance`]) and exit animations, which
+/// have no `Anim` but the same timing.
+pub(crate) fn progress_at(transition: Transition, elapsed_secs: f64) -> (f32, bool) {
+    match transition.spring {
+        Some(spring) =>
+        {
+            #[expect(clippy::cast_possible_truncation, reason = "short time spans")]
+            spring_progress(spring, elapsed_secs.max(0.0) as f32)
+        }
+        None => {
+            let duration = f64::from(transition.duration_ms.max(1.0)) / 1000.0;
+            let elapsed = (elapsed_secs / duration).clamp(0.0, 1.0);
+            #[expect(clippy::cast_possible_truncation, reason = "progress is 0..=1")]
+            (transition.easing.eval(elapsed as f32), elapsed >= 1.0)
+        }
     }
 }
 
@@ -231,7 +251,7 @@ fn lerp_style(a: &Style, b: &Style, t: f32, transition: Transition) -> Style {
     out
 }
 
-fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
+pub(crate) fn lerp_f32(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
 

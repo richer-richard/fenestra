@@ -16,6 +16,7 @@ mod element;
 mod events;
 mod frame;
 mod frame_state;
+mod ghost;
 mod id;
 mod input;
 mod layout;
@@ -35,7 +36,7 @@ pub use children::{FromIter, FromTuple, IntoChildren};
 pub use chrome::{ChromeElevation, ChromeText};
 pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
-    Cursor, DrawerSide, Element, ImageData, InputData, Kind, OpticalCorrection, Overlay,
+    Cursor, DrawerSide, Element, ExitAnim, ImageData, InputData, Kind, OpticalCorrection, Overlay,
     OverlayMode, OverlayPlacement, PathData, Semantics, Span, VirtualData, col, div, divider,
     image_rgba8, path, raw_input, raw_text_area, rich_text, row, spacer, span, stack, text,
 };

@@ -6,8 +6,27 @@ use std::collections::HashMap;
 
 use crate::anim::Anim;
 use crate::clipboard::{Clipboard, MemoryClipboard};
+use crate::element::ExitAnim;
+use crate::ghost::GhostNode;
 use crate::id::WidgetId;
 use crate::input::EditorState;
+
+/// One in-flight exit animation: the paint-only snapshot left behind by a
+/// departed element, its targets and timing, the clock time it began, and
+/// whether it has finished playing (a settled record is garbage-collected at
+/// the top of the next frame build).
+pub(crate) struct ExitRecord {
+    /// The frozen subtree to paint.
+    pub(crate) ghost: GhostNode,
+    /// Exit targets and timing.
+    pub(crate) exit: ExitAnim,
+    /// Clock time the exit started.
+    pub(crate) t0: f64,
+    /// Whether the animation has completed (paint advances this; the next
+    /// build drops it). Seeded `true` under reduced motion so removal is
+    /// instant and headless renders are unchanged.
+    pub(crate) settled: bool,
+}
 
 /// How long the scrollbar stays fully visible after the last scroll.
 const SCROLLBAR_HOLD_SECS: f64 = 0.8;
@@ -45,6 +64,18 @@ pub struct FrameState {
     pub(crate) pointer: Option<(f32, f32)>,
     /// In-flight style transitions per widget.
     pub(crate) anims: HashMap<WidgetId, Anim>,
+    /// Every node's absolute rect from the frame just built, keyed by id —
+    /// the previous-frame measurements FLIP layout animation slides from (and
+    /// shared with the constraints-aware-layout work). Replaced wholesale each
+    /// frame after realize.
+    pub(crate) prev_rects: HashMap<WidgetId, kurbo::Rect>,
+    /// Exit-tagged live nodes from the frame just built (id -> snapshot +
+    /// targets). Next frame, any id here but absent from the new tree has
+    /// departed and starts an exit animation.
+    pub(crate) exit_cache: HashMap<WidgetId, (GhostNode, ExitAnim)>,
+    /// Exit animations currently playing (a departed element's lingering
+    /// ghost). Painted on top of the frame; GC'd once settled.
+    pub(crate) exiting: HashMap<WidgetId, ExitRecord>,
     /// Text editor state per input widget.
     pub(crate) editors: HashMap<WidgetId, EditorState>,
     /// Open overlay ids, bottom to top.
@@ -100,6 +131,9 @@ impl Default for FrameState {
             focus_visible: false,
             pointer: None,
             anims: HashMap::new(),
+            prev_rects: HashMap::new(),
+            exit_cache: HashMap::new(),
+            exiting: HashMap::new(),
             editors: HashMap::new(),
             overlays: Vec::new(),
             overlay_opened: HashMap::new(),
@@ -320,6 +354,48 @@ impl FrameState {
             let age = self.now - s.last_change;
             age > 0.0 && age <= SCROLLBAR_HOLD_SECS + SCROLLBAR_FADE_SECS
         })
+    }
+
+    // ---- motion introspection (test support; hidden from the public docs) ----
+    //
+    // Integration tests live in their own crate and link the library built
+    // without `cfg(test)`, so a `#[cfg(test)]` accessor would be invisible to
+    // them; these are plain `pub` + `#[doc(hidden)]` instead — the same shape
+    // the existing `scroll_offset` test hooks use.
+
+    /// Whether a retained style/FLIP animation is currently held for `id`.
+    #[doc(hidden)]
+    pub fn has_anim(&self, id: WidgetId) -> bool {
+        self.anims.contains_key(&id)
+    }
+
+    /// Whether an exit animation is tracked for `id` (in flight, or settled
+    /// but not yet garbage-collected).
+    #[doc(hidden)]
+    pub fn has_exiting(&self, id: WidgetId) -> bool {
+        self.exiting.contains_key(&id)
+    }
+
+    /// Whether the exit animation for `id` has settled, or `None` when no exit
+    /// is tracked for it.
+    #[doc(hidden)]
+    pub fn exiting_settled(&self, id: WidgetId) -> Option<bool> {
+        self.exiting.get(&id).map(|r| r.settled)
+    }
+
+    /// The previous frame's measured rect for `id` (what FLIP slides from),
+    /// if one was recorded.
+    #[doc(hidden)]
+    pub fn prev_rect(&self, id: WidgetId) -> Option<kurbo::Rect> {
+        self.prev_rects.get(&id).copied()
+    }
+
+    /// The exit ghost's frozen paint-time translate for `id` (what the leaving
+    /// element last painted with, including any in-flight FLIP slide), or `None`
+    /// when no exit is tracked for it.
+    #[doc(hidden)]
+    pub fn exiting_ghost_translate(&self, id: WidgetId) -> Option<(f32, f32)> {
+        self.exiting.get(&id).map(|r| r.ghost.style.translate)
     }
 }
 

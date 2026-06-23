@@ -9,9 +9,11 @@ use taffy::prelude::{AvailableSpace, NodeId, Size, TaffyTree};
 use vello::Scene;
 
 use crate::element::{
-    DrawerSide, Element, Kind, Overlay, OverlayMode, OverlayPlacement, PathData, Semantics,
+    DrawerSide, Element, ExitAnim, Kind, Overlay, OverlayMode, OverlayPlacement, PathData,
+    Semantics,
 };
-use crate::frame_state::FrameState;
+use crate::frame_state::{ExitRecord, FrameState};
+use crate::ghost::{GhostNode, GhostPaint};
 use crate::id::WidgetId;
 use crate::input::{EditorState, InputPaint};
 use crate::layout;
@@ -174,6 +176,11 @@ struct FrameNode {
     live: bool,
     /// Text inputs: selected byte range (collapsed = caret position).
     selection: Option<(usize, usize)>,
+    /// FLIP/shared-element layout animation: slide from the previous measured
+    /// position when this node's center moves between frames.
+    animate_layout: bool,
+    /// Exit animation to play when this node is removed from the tree.
+    exit: Option<ExitAnim>,
     /// Builder call site, for `debug_tree`.
     source: &'static std::panic::Location<'static>,
     children: Vec<FrameNode>,
@@ -316,6 +323,10 @@ struct BuiltNode {
     live: bool,
     /// Text inputs: selected byte range (collapsed = caret position).
     selection: Option<(usize, usize)>,
+    /// FLIP/shared-element layout animation flag.
+    animate_layout: bool,
+    /// Exit animation to play on removal.
+    exit: Option<ExitAnim>,
     /// Builder call site, for `debug_tree`.
     source: &'static std::panic::Location<'static>,
     children: Vec<BuiltNode>,
@@ -448,6 +459,12 @@ fn resolve<Msg>(
         (Some(t), _) => Some(t),
         // Enter-only elements still need a transition to play through.
         (None, Some(enter)) => Some(enter),
+        // A bare `.animate_layout()` element still needs a retained animation
+        // to carry the FLIP slide: a spatial spring is its implicit
+        // transition. The post-realize FLIP pass retargets it to the measured
+        // position delta. (A declared `.transition()`/`.enter()` wins and
+        // drives the slide instead.)
+        (None, None) if el.animate_layout => Some(crate::style::Transition::spring()),
         (None, None) => None,
     };
     // Keyboard-driven state changes snap: a keyboard-focused control shows its
@@ -714,6 +731,8 @@ fn build<Msg>(
                 }),
             _ => None,
         },
+        animate_layout: el.animate_layout,
+        exit: el.exit,
         source: el.source,
         children,
     }
@@ -759,6 +778,10 @@ pub(crate) fn materialize_virtual_row<Msg>(
     if row.key.is_none() {
         row = row.id(&format!("v{i}"));
     }
+    // A row sliding out of the materialized window is recycled, not removed —
+    // it must never spawn an exit ghost or FLIP-slide as the window shifts.
+    row.exit = None;
+    row.animate_layout = false;
     row.h(v.row_height).shrink0()
 }
 
@@ -791,6 +814,10 @@ fn expand_virtual<Msg>(
             if row.key.is_none() {
                 row = row.id(&format!("v{i}"));
             }
+            // Recycled rows must not spawn exit ghosts or FLIP (see
+            // `materialize_virtual_row`).
+            row.exit = None;
+            row.animate_layout = false;
             out.push(row.shrink0());
         }
         out.push(crate::element::div().h(bottom).w_full().shrink0());
@@ -850,12 +877,19 @@ struct Realize<'a> {
 impl Realize<'_> {
     /// Converts a built node into a frame node with absolute rects, applying
     /// baseline shifts, scroll offsets, and clip propagation.
+    ///
+    /// Threads `all_rects` through the whole tree, recording every node's
+    /// absolute rect — the next frame's FLIP/exit measurements. Exit snapshots
+    /// are taken separately, *after* the FLIP pass (see [`collect_exits`]), so
+    /// a leaving ghost captures the same paint-time translate the live element
+    /// last showed.
     fn realize(
         &mut self,
         node: BuiltNode,
         origin: Point,
         visible: Option<Rect>,
         sticky_ctx: Option<StickyCtx>,
+        all_rects: &mut std::collections::HashMap<WidgetId, Rect>,
     ) -> FrameNode {
         let l = self.tree.layout(node.taffy).expect("taffy layout");
         let x = origin.x + f64::from(l.location.x);
@@ -1014,6 +1048,7 @@ impl Realize<'_> {
                     Point::new(child_origin.x, child_origin.y + dy),
                     child_visible,
                     child_sticky_ctx,
+                    all_rects,
                 )
             })
             .collect();
@@ -1037,7 +1072,7 @@ impl Realize<'_> {
                 && self.state.focus_visible,
             invalid: node.invalid,
         };
-        FrameNode {
+        let frame_node = FrameNode {
             id: node.id,
             kind: node.kind,
             style: node.style,
@@ -1050,9 +1085,102 @@ impl Realize<'_> {
             access: node.access,
             live: node.live,
             selection: node.selection,
+            animate_layout: node.animate_layout,
+            exit: node.exit,
             source: node.source,
             children,
+        };
+        // Record this node's measured rect for next frame's FLIP / departure
+        // detection. Exit snapshots are taken later, after the FLIP pass has
+        // adjusted paint-time translate (see `collect_exits`).
+        all_rects.insert(frame_node.id, frame_node.rect);
+        frame_node
+    }
+}
+
+/// Snapshots a realized subtree into a clonable, paint-only [`GhostNode`] — the
+/// frozen image an exit animation paints while its element is gone. A text
+/// input collapses to [`GhostPaint::InputBox`] (its live editor left with it).
+fn to_ghost(node: &FrameNode) -> GhostNode {
+    let paint = match &node.kind {
+        PaintKind::Box => GhostPaint::Box,
+        PaintKind::Text { text, style } => GhostPaint::Text {
+            text: text.clone(),
+            style: *style,
+        },
+        PaintKind::Rich { spans, style } => GhostPaint::Rich {
+            spans: spans.clone(),
+            style: *style,
+        },
+        PaintKind::Path(data) => GhostPaint::Path(data.clone()),
+        PaintKind::Image(data) => GhostPaint::Image(data.clone()),
+        PaintKind::Input(_) => GhostPaint::InputBox,
+    };
+    GhostNode {
+        rect: node.rect,
+        style: node.style.clone(),
+        visible: node.visible,
+        paint,
+        children: node.children.iter().map(to_ghost).collect(),
+    }
+}
+
+/// Snapshots every exit-tagged node in a realized subtree into `out`. Run for
+/// the root and each overlay *after* [`apply_flip`], so a node leaving mid-slide
+/// captures the FLIP translate it last painted with — the ghost then animates
+/// out from exactly where the element was, not from its settled layout rect.
+fn collect_exits(node: &FrameNode, out: &mut Vec<(WidgetId, GhostNode, ExitAnim)>) {
+    if let Some(exit) = node.exit {
+        out.push((node.id, to_ghost(node), exit));
+    }
+    for child in &node.children {
+        collect_exits(child, out);
+    }
+}
+
+/// Slides every `animate_layout` node from its previous measured center to the
+/// new one (FLIP): when the center moved more than half a pixel, retarget the
+/// node's retained spring to start at the position delta and paint it there
+/// this frame, so it appears at the old spot and springs to the new. Composes
+/// with any existing `translate`. Walks the realized tree in place.
+fn apply_flip(
+    node: &mut FrameNode,
+    state: &mut FrameState,
+    now: f64,
+    seen: u64,
+    animating: &mut bool,
+) {
+    if node.animate_layout
+        && let Some(prev) = state.prev_rects.get(&node.id).copied()
+    {
+        let prev_c = prev.center();
+        let new_c = node.rect.center();
+        let dx = prev_c.x - new_c.x;
+        let dy = prev_c.y - new_c.y;
+        if dx.hypot(dy) > 0.5 {
+            #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
+            let (dx, dy) = (dx as f32, dy as f32);
+            // Target = the natural resolved style; from = the same, shifted by
+            // the delta. Only `translate` differs, so nothing but position
+            // animates. Compose the delta onto any existing translate.
+            let to = node.style.clone();
+            let mut from = to.clone();
+            from.translate.0 += dx;
+            from.translate.1 += dy;
+            state
+                .anims
+                .entry(node.id)
+                .or_insert_with(|| crate::anim::Anim::new(to.clone(), now, seen))
+                .inject(from, to, now, seen);
+            // Paint at the old position this frame; resolve advances the spring
+            // toward zero on subsequent frames.
+            node.style.translate.0 += dx;
+            node.style.translate.1 += dy;
+            *animating = true;
         }
+    }
+    for child in &mut node.children {
+        apply_flip(child, state, now, seen, animating);
     }
 }
 
@@ -1067,6 +1195,11 @@ pub fn build_frame<Msg>(
     scale: f64,
 ) -> Frame {
     state.virtual_windows.clear();
+    // Drop exit animations that finished playing on the previous frame (a
+    // settled ghost is painted once more at its final, faded state, then GC'd
+    // here). Under reduced motion exits settle on creation, so this clears
+    // them the very next frame.
+    state.exiting.retain(|_, r| !r.settled);
     let mut tree: TaffyTree<MeasureCtx> = TaffyTree::new();
     state.frame_no += 1;
     let mut transitions_running = false;
@@ -1136,13 +1269,18 @@ pub fn build_frame<Msg>(
     )
     .expect("taffy compute_layout");
 
+    // Every node's absolute rect this frame, threaded through every realize
+    // pass (root and overlays); it becomes next frame's `prev_rects`, the FLIP
+    // and departure baseline. Exit ghosts are snapshotted later, after FLIP.
+    let mut all_rects: std::collections::HashMap<WidgetId, Rect> = std::collections::HashMap::new();
+
     let mut realize = Realize {
         tree: &tree,
         fonts,
         state,
         animating: false,
     };
-    let root_node = realize.realize(node, Point::ORIGIN, None, None);
+    let mut root_node = realize.realize(node, Point::ORIGIN, None, None, &mut all_rects);
     let mut animating = realize.animating || transitions_running;
     let canvas = Rect::new(0.0, 0.0, f64::from(size.0), f64::from(size.1));
 
@@ -1367,7 +1505,7 @@ pub fn build_frame<Msg>(
                 state,
                 animating: false,
             };
-            let onode = orealize.realize(built, origin, None, None);
+            let onode = orealize.realize(built, origin, None, None, &mut all_rects);
             animating |= orealize.animating;
 
             overlays.push(OverlayFrame {
@@ -1399,6 +1537,56 @@ pub fn build_frame<Msg>(
             .position(|id| *id == o.id)
             .unwrap_or(usize::MAX)
     });
+
+    // ---- motion completion: FLIP layout slides, then exit-ghost lifecycle ----
+    let now = state.now();
+    let seen = state.frame_no;
+    // FLIP: slide `animate_layout` nodes from their previous measured center.
+    // Skipped under reduced motion — they snap, so headless goldens are inert.
+    // Runs before the anim GC below so freshly injected springs survive.
+    if !state.reduced_motion {
+        apply_flip(&mut root_node, state, now, seen, &mut animating);
+        for overlay in &mut overlays {
+            apply_flip(&mut overlay.node, state, now, seen, &mut animating);
+        }
+    }
+    // Snapshot exit-tagged nodes now, after FLIP, so a node leaving mid-slide
+    // carries the translate it last painted with. (Always run; under reduced
+    // motion the FLIP pass was a no-op, so these snapshots are untranslated —
+    // and the ghosts they seed settle instantly and never paint anyway.)
+    let mut exit_entries: Vec<(WidgetId, GhostNode, ExitAnim)> = Vec::new();
+    collect_exits(&root_node, &mut exit_entries);
+    for overlay in &overlays {
+        collect_exits(&overlay.node, &mut exit_entries);
+    }
+    // Exit detection: cancel any exit whose id reappeared this frame, then for
+    // each exit-tagged node present last frame but absent now, start its exit.
+    state.exiting.retain(|id, _| !all_rects.contains_key(id));
+    let reduced = state.reduced_motion;
+    for (id, (ghost, exit)) in std::mem::take(&mut state.exit_cache) {
+        if !all_rects.contains_key(&id) && !state.exiting.contains_key(&id) {
+            state.exiting.insert(
+                id,
+                // Settle instantly under reduced motion: the ghost is never
+                // painted, removal is immediate, and goldens are unchanged.
+                ExitRecord {
+                    ghost,
+                    exit,
+                    t0: now,
+                    settled: reduced,
+                },
+            );
+        }
+    }
+    // Refresh the cache with this frame's live exit-tagged nodes, and persist
+    // every node's rect as next frame's FLIP / departure baseline.
+    state.exit_cache = exit_entries
+        .into_iter()
+        .map(|(id, ghost, exit)| (id, (ghost, exit)))
+        .collect();
+    state.prev_rects = all_rects;
+    // Keep the runner scheduling while any exit is still playing.
+    animating |= state.exiting.values().any(|r| !r.settled);
 
     let frame_no = state.frame_no;
     state.anims.retain(|_, a| a.seen == frame_no);
@@ -1485,7 +1673,146 @@ impl Frame {
                 scene.pop_layer();
             }
         }
+        self.paint_exits(&mut scene, fonts, state);
         scene
+    }
+
+    /// Paints every in-flight exit ghost on top of the frame. Each ghost
+    /// advances its own spring/ease progress from `now - t0`, marks itself
+    /// settled when complete (the next build GCs it), and draws inside an
+    /// opacity layer and a scale/translate sub-scene about its center. Settled
+    /// records are skipped, so under reduced motion (where exits settle on
+    /// creation) nothing is drawn and goldens are byte-identical.
+    fn paint_exits(&self, scene: &mut Scene, fonts: &mut Fonts, state: &mut FrameState) {
+        let now = state.now();
+        for record in state.exiting.values_mut() {
+            if record.settled {
+                continue;
+            }
+            let (progress, done) =
+                crate::anim::progress_at(record.exit.transition, now - record.t0);
+            if done {
+                record.settled = true;
+            }
+            // Ghost visuals clamp at the target (a spring may overshoot in
+            // position, but opacity/scale never pass their endpoints).
+            let p = progress.clamp(0.0, 1.0);
+            let opacity = crate::anim::lerp_f32(1.0, record.exit.opacity_to, p).clamp(0.0, 1.0);
+            if opacity <= 0.0 {
+                continue;
+            }
+            let scale = crate::anim::lerp_f32(1.0, record.exit.scale_to, p);
+            let tx = f64::from(crate::anim::lerp_f32(0.0, record.exit.translate_to.0, p));
+            let ty = f64::from(crate::anim::lerp_f32(0.0, record.exit.translate_to.1, p));
+            // Honor the clip the ghost lived within (None = unclipped → canvas).
+            let clip = record.ghost.visible.unwrap_or(self.canvas);
+            let layered = opacity < 1.0;
+            if layered {
+                scene.push_layer(
+                    peniko::Fill::NonZero,
+                    peniko::Mix::Normal,
+                    opacity,
+                    kurbo::Affine::IDENTITY,
+                    &clip,
+                );
+            }
+            let mut sub = Scene::new();
+            self.paint_ghost_node(&mut sub, fonts, &record.ghost);
+            let c = record.ghost.rect.center();
+            let mut a = kurbo::Affine::translate((tx, ty)) * kurbo::Affine::translate((c.x, c.y));
+            if (scale - 1.0).abs() > 1e-4 {
+                a *= kurbo::Affine::scale(f64::from(scale));
+            }
+            a *= kurbo::Affine::translate((-c.x, -c.y));
+            scene.append(&sub, Some(a));
+            if layered {
+                scene.pop_layer();
+            }
+        }
+    }
+
+    /// Paints one ghost subtree, replaying its frozen paint transform
+    /// (translate / rotate / skew / scale about the element center) exactly as
+    /// [`Self::paint_node`] does for a live node — so a ghost that left
+    /// mid-FLIP-slide, or carrying a static transform, animates out from where
+    /// it last painted rather than snapping to its untransformed layout rect.
+    /// The exit animation's own transform composes on top (applied by the
+    /// [`Self::paint_exits`] caller).
+    fn paint_ghost_node(&self, scene: &mut Scene, fonts: &mut Fonts, node: &GhostNode) {
+        if node.style.display == Display::None {
+            return;
+        }
+        let s = &node.style;
+        let has_transform = (s.scale - 1.0).abs() > 1e-4
+            || s.translate.0.abs() > 1e-4
+            || s.translate.1.abs() > 1e-4
+            || s.rotate.abs() > 1e-4
+            || s.skew.0.abs() > 1e-4
+            || s.skew.1.abs() > 1e-4;
+        if has_transform {
+            let mut sub = Scene::new();
+            self.paint_ghost_node_unscaled(&mut sub, fonts, node);
+            let c = node.rect.center();
+            // origin = center: T(translate) · T(c) · R · Skew · S · T(-c)
+            let mut a =
+                kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
+                    * kurbo::Affine::translate((c.x, c.y));
+            if s.rotate.abs() > 1e-4 {
+                a *= kurbo::Affine::rotate(f64::from(s.rotate).to_radians());
+            }
+            if s.skew.0.abs() > 1e-4 || s.skew.1.abs() > 1e-4 {
+                a *= kurbo::Affine::new([
+                    1.0,
+                    f64::from(s.skew.1).to_radians().tan(),
+                    f64::from(s.skew.0).to_radians().tan(),
+                    1.0,
+                    0.0,
+                    0.0,
+                ]);
+            }
+            if (s.scale - 1.0).abs() > 1e-4 {
+                a *= kurbo::Affine::scale(f64::from(s.scale));
+            }
+            a *= kurbo::Affine::translate((-c.x, -c.y));
+            scene.append(&sub, Some(a));
+            return;
+        }
+        self.paint_ghost_node_unscaled(scene, fonts, node);
+    }
+
+    /// Paints one ghost subtree without its transform (mirrors
+    /// [`Self::paint_node_unscaled`] over a [`GhostNode`]): the box layers, then
+    /// the frozen content by kind, then children. No focus ring, scrollbars,
+    /// selection, or caret — a ghost is an inert snapshot.
+    fn paint_ghost_node_unscaled(&self, scene: &mut Scene, fonts: &mut Fonts, node: &GhostNode) {
+        let layers = painter::push_box(scene, &node.style, node.rect, self.canvas, self.scale);
+        match &node.paint {
+            GhostPaint::Text { text, style } => {
+                fonts.paint(scene, text, style, node.rect, None);
+            }
+            GhostPaint::Rich { spans, style } => {
+                fonts.paint_rich(scene, spans, style, node.rect, None);
+            }
+            GhostPaint::Path(data) => {
+                let color = node.style.text.color.unwrap_or(self.thumb_color);
+                painter::draw_path_rotated(
+                    scene,
+                    data,
+                    node.style.path_trim,
+                    color,
+                    node.rect,
+                    0.0,
+                );
+            }
+            GhostPaint::Image(data) => {
+                painter::draw_image(scene, &data.image, node.rect, node.style.corner_radius);
+            }
+            GhostPaint::Box | GhostPaint::InputBox => {}
+        }
+        for child in &node.children {
+            self.paint_ghost_node(scene, fonts, child);
+        }
+        painter::pop_box(scene, layers);
     }
 
     fn paint_node(

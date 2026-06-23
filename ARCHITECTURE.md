@@ -2203,3 +2203,64 @@ Built on the R3 scroll/sticky primitives and core row virtualization.
   overflowing virtualized body desyncs the header. (3) Resize/pins need explicit
   `.column_widths` (the drag closure sees fractions, not laid-out rects, so pixel
   boundaries must be known at build time). All three are documented in code.
+
+## Motion completion: FLIP layout animation + exit animations
+
+Supersedes the earlier deferrals ("Enter animations seed, exit stays out"; the
+M6 tabs / 0.32 segmented "no measured-position animation" notes): shared-element
+layout slides and exit animations now exist in core. Pure-additive — opt-in per
+element, gated on `!reduced_motion`, so every prior golden is byte-identical
+(verified: full suite green, no `.actual.png` artifacts).
+
+- **FLIP rides the existing transition engine, not a parallel path.** `realize`
+  records every node's absolute rect into `FrameState::prev_rects` (shared,
+  by design, with the constraints-aware-layout work). A bare `.animate_layout()`
+  element is handed an *implicit* spatial spring in `resolve`, so the retained
+  `Anim` already exists and advances each frame like any transition. After
+  layout, `apply_flip` compares this frame's center to `prev_rects`; on a move
+  it `Anim::inject`s a retarget whose `from` is the natural style shifted by
+  `(prev − new)` and paints the node there this frame — so it appears at the old
+  spot and the engine springs it to zero over subsequent frames. Endpoints
+  differ only in `translate`, so nothing but position moves; the delta *adds* to
+  any existing translate. A declared `.transition()`/`.enter()` wins and drives
+  the slide at its own timing. Identity is the `WidgetId`: index-keyed reorders
+  can't FLIP (per-index id+position are stable), so a stable `.id` is required —
+  documented and tested.
+- **Exit animations are paint-only ghosts with a retained lifecycle.**
+  `FrameNode` is not `Clone` (live editors, scroll, a11y), so an exiting element
+  is snapshotted into a clonable `GhostNode`/`GhostPaint` tree (`ghost.rs`; an
+  input collapses to a box — no editor behind a ghost). Each frame, *after* the
+  FLIP pass, `collect_exits` snapshots live exit-tagged nodes into
+  `FrameState::exit_cache` — post-FLIP, so a node leaving mid-slide keeps the
+  paint-time translate it last showed rather than snapping to its settled layout
+  rect. In `build_frame` a departure (in last frame's cache, absent from this
+  frame's `all_rects`) starts an `exiting` record, a reappearance cancels it, and
+  a settled record is GC'd at the *top* of the next build. `Frame::paint` draws
+  each non-settled ghost above everything inside an opacity layer, replaying the
+  ghost's own frozen transform (the `paint_ghost_node` → `_unscaled` split mirrors
+  the live `paint_node` split) with the exit's scale/translate sub-scene composed
+  on top, advancing its own spring/ease progress and marking itself settled when done.
+- **Reduced motion keeps it inert (the golden guarantee).** FLIP is skipped
+  wholesale (elements snap; no spring injected). Exits are detected but seeded
+  `settled = true`, so they are never painted and are collected the next frame —
+  headless removal is immediate. `expand_virtual` strips `.exit`/`.animate_layout`
+  from generated rows, so scrolling a virtual row out of the window never spawns
+  a ghost or a FLIP slide.
+- **Deviations from the brief (deliberate).** (1) The test-introspection hooks
+  (`has_anim`/`has_exiting`/`exiting_settled`/`prev_rect`/`exiting_ghost_translate`)
+  are `pub` + `#[doc(hidden)]`, not `#[cfg(test)]`: integration tests link the
+  library built *without* `cfg(test)`, so a `cfg(test)` method would be invisible
+  to them — the same shape the existing `scroll_offset` hooks use. (2) `GhostNode`
+  drops the suggested `id` field — it would be a never-read copy of the `exiting`
+  map key (a dead field rustc would flag); `visible` is kept and honored as the
+  ghost's clip.
+- **Refinement (post-review): FLIP and exit compose faithfully.** A first pass
+  snapshotted exit ghosts *inside* `realize`, before `apply_flip` set the FLIP
+  translate, and `paint_ghost_node` ignored the frozen transform — so an element
+  removed mid-slide (a reorderable + deletable list) popped from its slid position
+  to its settled rect for one frame, and any static `.translate()`/`.scale()` on an
+  exiting element was likewise dropped. Fixed in two halves: snapshotting moved to
+  `collect_exits` *after* the FLIP pass (captures the slid translate), and the ghost
+  painter now replays the frozen transform like the live path. Both are still inert
+  under reduced motion (FLIP never runs, ghosts never paint). Regression:
+  `exit_ghost_inherits_a_mid_flip_slide` in `tests/motion.rs`.
