@@ -1906,8 +1906,7 @@ impl Frame {
                     return Some(id);
                 }
             }
-            (node.scroll.as_ref().is_some_and(can) && node.rect.contains(point))
-                .then_some(node.id)
+            (node.scroll.as_ref().is_some_and(can) && node.rect.contains(point)).then_some(node.id)
         }
         walk(&self.root, point, can)
     }

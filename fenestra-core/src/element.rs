@@ -457,6 +457,10 @@ pub struct Element<Msg> {
     pub(crate) on_hover: Option<Msg>,
     pub(crate) on_key: Option<KeyFn<Msg>>,
     pub(crate) on_drag: Option<DragFn<Msg>>,
+    /// Fired once on pointer release after a captured drag (the gesture
+    /// that drove [`Self::on_drag`] ended). Only meaningful alongside
+    /// `on_drag`; used for drag lifecycles like column-resize commit.
+    pub(crate) on_drag_end: Option<Msg>,
     pub(crate) on_input: Option<InputFn<Msg>>,
     pub(crate) on_close: Option<Msg>,
     pub(crate) on_file_drop: Option<FileDropFn<Msg>>,
@@ -517,6 +521,7 @@ impl<Msg> Element<Msg> {
             on_hover: None,
             on_key: None,
             on_drag: None,
+            on_drag_end: None,
             on_input: None,
             on_close: None,
             on_file_drop: None,
@@ -684,6 +689,16 @@ impl<Msg> Element<Msg> {
     /// rect on both axes.
     pub fn on_drag(mut self, f: impl Fn(f32, f32) -> Option<Msg> + 'static) -> Self {
         self.on_drag = Some(Box::new(f));
+        self
+    }
+
+    /// Emits a message once when a captured drag (see [`Self::on_drag`])
+    /// ends on pointer release. It fires only when this element actually
+    /// captured the press as a drag, so a plain click on a different
+    /// (click-only) element never triggers it. Pairs with `on_drag` to
+    /// model gesture lifecycles — e.g. committing a column resize.
+    pub fn on_drag_end(mut self, msg: Msg) -> Self {
+        self.on_drag_end = Some(msg);
         self
     }
 
@@ -1725,6 +1740,7 @@ impl<Msg: 'static> Element<Msg> {
                 let f = f.clone();
                 Box::new(move |x: f32, y: f32| d(x, y).map(&f)) as DragFn<B>
             }),
+            on_drag_end: self.on_drag_end.map(&f),
             on_input: self.on_input.map(|i| {
                 let f = f.clone();
                 Box::new(move |s: &str| f(i(s))) as InputFn<B>

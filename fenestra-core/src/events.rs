@@ -730,6 +730,19 @@ pub fn dispatch<Msg: Clone>(
                         state.last_click = Some((active, now));
                     }
                 }
+                // Drag end: a captured drag (the press landed on an `on_drag`
+                // element) commits on release — even if the pointer has since
+                // left the element, mirroring `on_drag` firing on press. A
+                // plain click on a click-only element has no `on_drag`, so it
+                // never fires here.
+                if let Some(el) = handlers.get(active)
+                    && !el.disabled
+                    && el.on_drag.is_some()
+                    && let Some(msg) = &el.on_drag_end
+                {
+                    out.msgs.push(msg.clone());
+                    out.redraw = true;
+                }
                 out.redraw = true;
             }
             // Capture ended: hover reflects whatever is now under the

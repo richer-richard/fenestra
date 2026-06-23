@@ -4,6 +4,16 @@
 
 ### Added
 
+- **`data_table` is feature-complete.** On top of the existing sort + multi-select:
+  row **virtualization** (only the visible window materializes — 100k rows cost the
+  same as 100), a **sticky header** (pinned above the scrolling body), column
+  **resize** (`.column_widths` + drag handles + `.on_resize`/`.on_resize_end`),
+  column **reorder** (`.column_order` + header drag-and-drop + `.on_reorder`),
+  column **pin/freeze** (`.pinned_left`/`.pinned_right`, frozen during horizontal
+  scroll via `position: sticky`), and a per-column **filter** row (`.filter` +
+  `.on_filter`). Elm-pure throughout — the app owns widths/order/filter and emits
+  Msgs. New core primitive `Element::on_drag_end(msg)` (fires on release after a
+  drag) powers the resize lifecycle.
 - **Horizontal scrolling + `position: sticky`.** Scroll state is now 2D: new
   `.scroll_x()` / `.scroll_xy()` builders, an `offset_x` axis with its own clamp
   and scrollbar, and wheel `dx` routing (each axis routes to the nearest scroller

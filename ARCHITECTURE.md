@@ -2162,3 +2162,44 @@ Scrolling was vertical-only; this pass makes it 2D and adds CSS sticky positioni
   per-axis routing, content-box padding) and `tests/sticky.rs` (pin, below-line
   passthrough, top-wins-over-bottom, inert-without-ancestor). The data_table widget
   consumes these (sticky header + frozen columns) in the data_table maturity task.
+
+## data_table maturity (virtualize / resize / reorder / pin / filter)
+
+The data_table grew from sort + multi-select to a full data grid, staying Elm-pure
+(the app owns column widths/order/filter; the widget renders them and emits Msgs).
+Built on the R3 scroll/sticky primitives and core row virtualization.
+
+- **Virtualization + sticky header.** The body is a dedicated
+  `col().id("dt-body-{id}").scroll_y().virtual_rows(n, ROW_H, builder)` — only the
+  visible window materializes. The header is a *sibling above* that scroll
+  container (not inside it), so it is sticky for free with no `Position::Sticky`.
+  A stable `.id(key)` is required (the scroll offset keys off it).
+- **Resize via the split-pane drag pattern.** `.column_widths(..)` switches column
+  tracks from `Fr` to `Px`. Each header cell carries an inert resize handle; the
+  `on_drag` lives on the header *row* (the handle is just a hit target), converts
+  `fraction_in` to a content-x, detects the column boundary (or continues
+  `.resize_active`), and emits `.on_resize(col, w.clamp(40, 800))`. The new core
+  `Element::on_drag_end` fires `.on_resize_end` so `resize_active` can't get stuck.
+- **Reorder via internal DnD.** `.column_order` permutes display→data; the header
+  sort-button is a `drag_source("col-reorder:{i}")` and each header cell an
+  `on_drop` that emits `.on_reorder(from, to)` (guarded `from == to` so a plain
+  click still sorts). Selection tracks the *data* column through reorders.
+- **Pin via sticky.** `.pinned_left/right(n)` cells get `.sticky_left/right(offset)`
+  and the body becomes `.scroll_xy()`, so frozen columns hold during horizontal
+  scroll (verified by an interaction test).
+- **`on_drag_end` (core).** New `Element::on_drag_end(msg)`: on `PointerUp`, if the
+  captured `active` element had `on_drag`, the message fires — even if the pointer
+  left the element (capture semantics), never on a plain click. Tested in
+  `fenestra-core/tests/drag_end.rs`.
+- **Documented limitations (deliberate, not gaps).** (1) `Cursor::ColResize` does
+  not exist in the cursor enum (and `map_cursor` is exhaustive), so resize handles
+  use `Cursor::Pointer` — matching the split-pane divider. (2) Under virtualization,
+  a *pinned* column's freeze works, but the header does not track the body's live
+  *horizontal* offset: `virtual_rows` replaces a container's children (header must
+  be a sibling), `StickyCtx` resolves a single nearest scroll ancestor, and
+  `WidgetId` derives from the parent — so header and virtualized body cannot share
+  one horizontal scroll offset without a larger core change. Invisible for vertical
+  scroll and for pins where the rest fits; only a live horizontal scroll of an
+  overflowing virtualized body desyncs the header. (3) Resize/pins need explicit
+  `.column_widths` (the drag closure sees fractions, not laid-out rects, so pixel
+  boundaries must be known at build time). All three are documented in code.
