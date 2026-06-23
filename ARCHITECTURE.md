@@ -2041,3 +2041,46 @@ pass, returning one `VerifyReport` (an overall `ok` plus a per-check breakdown).
   `fenestra-describe` (`query` / `check_a11y` / `match_aria`) directly, as before.
   The committed `tests/scenarios/login.json` fixture exercises the full multi-step
   flow (focus, type, toggle, submit) through both the engine and the CLI.
+
+## Responsive grid track vocabulary (R3 layout)
+
+Grid layout was wired to taffy from M3, but the track vocabulary was just `Px`
+and `Fr` — no `minmax`, `repeat`, or the `auto-fit` that makes a grid *responsive*
+(reflow the column count to the width, no media queries). This pass completes the
+responsive half. taffy 0.10 already computes all of it; the work was modelling the
+CSS `<track-size>` / `<track-list>` grammar in fenestra's `Style` and mapping it.
+
+- **`Track` is the single track-size; `GridTemplate` is the template entry.**
+  `Track` gains `Auto`, `MinContent`, `MaxContent`, `FitContent(px)`, and
+  `MinMax(TrackMin, TrackMax)` (the floor/ceiling pair — `TrackMin` forbids `fr`,
+  as CSS does). A new `GridTemplate` is `Single(Track)` or `Repeat(Repeat, Vec<Track>)`
+  where `Repeat` is `Count(n)` / `AutoFit` / `AutoFill`. The `Style.grid_template_{columns,rows}`
+  fields change from `Vec<Track>` to `Vec<GridTemplate>`.
+- **One builder, backward compatible.** `grid_cols` / `grid_rows` are now generic
+  over `Item: Into<GridTemplate>`, and `Track: Into<GridTemplate>` wraps as
+  `Single`. So every existing caller (`grid_cols([Track::Px(_), Track::Fr(_)])` in
+  data_table, table, the markdown table, the demo) compiles unchanged, while
+  `grid_cols([GridTemplate::auto_fit_minmax(240.0)])` unlocks the responsive form.
+  `GridTemplate::{auto_fit_minmax, auto_fill_minmax, repeat}` are the ergonomic
+  constructors; `auto_fit_minmax(min)` is `repeat(auto-fit, minmax(min, 1fr))` —
+  the canonical responsive card grid.
+- **The taffy mapping is one generic function.** `layout::template<S: CheapCloneStr>`
+  maps a `GridTemplate` to taffy's `GridTemplateComponent<S>` (S — taffy's
+  custom-ident type for *named* lines/areas — is inferred from the collection
+  target, so the responsive core needs no idents). Single tracks go through
+  `track_sizing` → `TrackSizingFunction`; `MinMax` splits into `track_min` /
+  `track_max`; `Repeat` calls taffy's `repeat(RepetitionCount, Vec<_>)`. All sizing
+  uses taffy's own `length` / `fr` / `auto` / `fit_content` / `minmax` helpers, so
+  fenestra never reimplements track resolution.
+- **Verified at the layout level, not just visually.** `fenestra-core/tests/grid.rs`
+  asserts the resolved geometry headlessly: `repeat(auto-fit, minmax(180px, 1fr))`
+  in a 600px container yields three 200px columns with the fourth item wrapping;
+  `repeat(3, [1fr])` yields three equal columns; a fixed+`fr` template still splits
+  100/400. The `responsive_grid(min_col, children)` kit helper + a light/dark golden
+  give the web-grade visual proof.
+- **Deferred to a follow-up (logged):** *named grid lines* and *grid-template-areas*
+  use taffy's ident-generic API (`CheapCloneStr`) and want their own builder + a
+  describe-vocab pass, and exposing grid templates through the `fenestra-describe`
+  JSON vocabulary is additive on top. These are a separable second layer, tracked
+  rather than half-built — the responsive core (the reason grids are "responsive")
+  ships complete and standalone.

@@ -1734,14 +1734,24 @@ impl<Msg: 'static> Element<Msg> {
 }
 
 impl<Msg> Element<Msg> {
-    /// Grid template columns (switches display to grid).
-    pub fn grid_cols(mut self, tracks: impl IntoIterator<Item = crate::style::Track>) -> Self {
+    /// Grid template columns (switches display to grid). Accepts plain
+    /// [`Track`](crate::style::Track)s or full
+    /// [`GridTemplate`](crate::style::GridTemplate) entries (e.g. `repeat(...)`).
+    pub fn grid_cols<T: Into<crate::style::GridTemplate>>(
+        mut self,
+        tracks: impl IntoIterator<Item = T>,
+    ) -> Self {
         self.style = self.style.grid_cols(tracks);
         self
     }
 
-    /// Grid template rows (switches display to grid).
-    pub fn grid_rows(mut self, tracks: impl IntoIterator<Item = crate::style::Track>) -> Self {
+    /// Grid template rows (switches display to grid). Accepts plain
+    /// [`Track`](crate::style::Track)s or full
+    /// [`GridTemplate`](crate::style::GridTemplate) entries (e.g. `repeat(...)`).
+    pub fn grid_rows<T: Into<crate::style::GridTemplate>>(
+        mut self,
+        tracks: impl IntoIterator<Item = T>,
+    ) -> Self {
         self.style = self.style.grid_rows(tracks);
         self
     }

@@ -39,8 +39,8 @@ pub use date_picker::{Date, DatePicker, date_picker, date_range_picker};
 pub use disclosure::{Accordion, AccordionItem, accordion, accordion_item};
 pub use display::{
     Meter, StatCard, Status, StatusIndicator, WavyProgress, avatar, badge, badge_dot, callout,
-    card, meter, progress, progress_indeterminate, reading_column, spinner, stat_card, status,
-    table, tabs, wavy_progress,
+    card, meter, progress, progress_indeterminate, reading_column, responsive_grid, spinner,
+    stat_card, status, table, tabs, wavy_progress,
 };
 pub use field::{Field, field};
 pub use kbd::{kbd, kbd_raised};

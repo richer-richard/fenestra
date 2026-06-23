@@ -164,13 +164,113 @@ pub struct Inset {
     pub left: Option<f32>,
 }
 
-/// A grid track size: fixed logical pixels or a fraction of free space.
+/// A grid track size — CSS `<track-size>`. `Px` and `Fr` are the common cases;
+/// `MinMax` plus the content keywords cover responsive templates.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Track {
     /// Fixed logical pixels.
     Px(f32),
-    /// Fraction of remaining space (CSS `fr`).
+    /// Fraction of remaining free space (CSS `fr`).
     Fr(f32),
+    /// Sized to fit its content within the available space (CSS `auto`).
+    Auto,
+    /// The largest minimal content contribution (CSS `min-content`).
+    MinContent,
+    /// The largest maximal content contribution (CSS `max-content`).
+    MaxContent,
+    /// `fit-content(px)`: like `auto`, but capped at the given pixels.
+    FitContent(f32),
+    /// `minmax(min, max)`: a floor and a ceiling for the track size.
+    MinMax(TrackMin, TrackMax),
+}
+
+/// The `min` argument of a [`Track::MinMax`] — a track's floor. A floor cannot be
+/// flexible, so there is no `fr` here (CSS forbids it).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TrackMin {
+    /// Fixed logical pixels.
+    Px(f32),
+    /// `auto` (the track's minimum content size).
+    Auto,
+    /// `min-content`.
+    MinContent,
+    /// `max-content`.
+    MaxContent,
+}
+
+/// The `max` argument of a [`Track::MinMax`] — a track's ceiling.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum TrackMax {
+    /// Fixed logical pixels.
+    Px(f32),
+    /// Fraction of remaining free space (CSS `fr`).
+    Fr(f32),
+    /// `auto`.
+    Auto,
+    /// `min-content`.
+    MinContent,
+    /// `max-content`.
+    MaxContent,
+    /// `fit-content(px)`.
+    FitContent(f32),
+}
+
+/// One entry of a grid template: a single [`Track`], or a `repeat(...)` of tracks
+/// (including the responsive `auto-fit` / `auto-fill`). Build a `Vec<GridTemplate>`
+/// with [`Style::grid_cols`] / [`Style::grid_rows`], which also accept plain
+/// `Track`s (each wrapped as [`GridTemplate::Single`]).
+#[derive(Debug, Clone, PartialEq)]
+pub enum GridTemplate {
+    /// A single track.
+    Single(Track),
+    /// `repeat(count, tracks)` — the fragment `tracks` repeated per [`Repeat`].
+    Repeat(Repeat, Vec<Track>),
+}
+
+/// How many times a `repeat(...)` fragment is generated.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Repeat {
+    /// Exactly `n` repetitions.
+    Count(u16),
+    /// As many as fit, collapsing empty repetitions (CSS `auto-fit`).
+    AutoFit,
+    /// As many as fit, keeping empty repetitions (CSS `auto-fill`).
+    AutoFill,
+}
+
+impl GridTemplate {
+    /// `repeat(auto-fit, minmax(min_px, 1fr))` — the canonical responsive grid:
+    /// as many equal columns as fit, each at least `min_px` wide, collapsing
+    /// empty tracks so the row stays centered when it is not full.
+    #[must_use]
+    pub fn auto_fit_minmax(min_px: f32) -> Self {
+        Self::Repeat(
+            Repeat::AutoFit,
+            vec![Track::MinMax(TrackMin::Px(min_px), TrackMax::Fr(1.0))],
+        )
+    }
+
+    /// `repeat(auto-fill, minmax(min_px, 1fr))` — like [`Self::auto_fit_minmax`],
+    /// but empty trailing tracks keep their space (CSS `auto-fill`).
+    #[must_use]
+    pub fn auto_fill_minmax(min_px: f32) -> Self {
+        Self::Repeat(
+            Repeat::AutoFill,
+            vec![Track::MinMax(TrackMin::Px(min_px), TrackMax::Fr(1.0))],
+        )
+    }
+
+    /// `repeat(n, tracks)`.
+    #[must_use]
+    pub fn repeat(n: u16, tracks: impl IntoIterator<Item = Track>) -> Self {
+        Self::Repeat(Repeat::Count(n), tracks.into_iter().collect())
+    }
+}
+
+impl From<Track> for GridTemplate {
+    fn from(t: Track) -> Self {
+        Self::Single(t)
+    }
 }
 
 /// Grid item placement on one axis.
@@ -674,9 +774,9 @@ pub struct Style {
     /// Flex basis.
     pub flex_basis: Length,
     /// Grid template columns (when `display` is `Grid`).
-    pub grid_template_columns: Vec<Track>,
+    pub grid_template_columns: Vec<GridTemplate>,
     /// Grid template rows.
-    pub grid_template_rows: Vec<Track>,
+    pub grid_template_rows: Vec<GridTemplate>,
     /// Column placement when inside a grid.
     pub grid_column: GridPlace,
     /// Row placement when inside a grid.
@@ -1596,16 +1696,17 @@ impl Style {
     // -- grid --
 
     /// Grid template columns (switches display to grid).
-    pub fn grid_cols(mut self, tracks: impl IntoIterator<Item = Track>) -> Self {
+    pub fn grid_cols<T: Into<GridTemplate>>(mut self, tracks: impl IntoIterator<Item = T>) -> Self {
         self.display = Display::Grid;
-        self.grid_template_columns = tracks.into_iter().collect();
+        self.grid_template_columns = tracks.into_iter().map(Into::into).collect();
         self
     }
 
-    /// Grid template rows (switches display to grid).
-    pub fn grid_rows(mut self, tracks: impl IntoIterator<Item = Track>) -> Self {
+    /// Grid template rows (switches display to grid). Accepts plain [`Track`]s or
+    /// full [`GridTemplate`] entries (e.g. `repeat(...)`).
+    pub fn grid_rows<T: Into<GridTemplate>>(mut self, tracks: impl IntoIterator<Item = T>) -> Self {
         self.display = Display::Grid;
-        self.grid_template_rows = tracks.into_iter().collect();
+        self.grid_template_rows = tracks.into_iter().map(Into::into).collect();
         self
     }
 

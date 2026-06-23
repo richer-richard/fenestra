@@ -2,9 +2,9 @@
 //! Callout, Tabs, and Table.
 
 use fenestra_core::{
-    CubicBezier, Element, Key, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL, SP1, SP2,
-    SP3, SP4, SP6, Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition, Weight,
-    col, div, path, row, stack, text,
+    CubicBezier, Element, GridTemplate, Key, Keyframes, Length, MEASURE_CH, MotionDuration, R_FULL,
+    SP1, SP2, SP3, SP4, SP6, Semantics, StatusColors, Surface, TextSize, Theme, Track, Transition,
+    Weight, col, div, path, row, stack, text,
 };
 use kurbo::BezPath;
 
@@ -675,6 +675,27 @@ pub fn tabs<Msg: Clone + 'static>(
     } else {
         strip
     }
+}
+
+/// A responsive grid: as many equal columns as fit at `min_col` logical pixels
+/// each, every child filling its track. Built on `repeat(auto-fit, minmax(min_col,
+/// 1fr))`, so the column count adapts to the available width with no breakpoints —
+/// the canonical responsive card layout. Children are gapped by [`SP4`].
+///
+/// ```
+/// use fenestra_kit::{card, responsive_grid};
+///
+/// let grid: fenestra_core::Element<()> = responsive_grid(240.0, (0..6).map(|_| card()));
+/// ```
+pub fn responsive_grid<Msg>(
+    min_col: f32,
+    children: impl IntoIterator<Item = Element<Msg>>,
+) -> Element<Msg> {
+    div()
+        .grid_cols([GridTemplate::auto_fit_minmax(min_col)])
+        .gap(SP4)
+        .w_full()
+        .children(children)
 }
 
 /// A simple data table: muted header with a bottom rule, 44px rows with a

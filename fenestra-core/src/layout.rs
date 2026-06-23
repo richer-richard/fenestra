@@ -2,11 +2,15 @@
 //! layout. Text measurement is wired in M2; grid/scroll complete in M3.
 
 use taffy::prelude::{Line, Size, TaffyGridLine, TaffyGridSpan, auto, fr, length, percent};
-use taffy::style::GridPlacement;
+use taffy::style::{
+    CheapCloneStr, GridPlacement, GridTemplateComponent, MaxTrackSizingFunction,
+    MinTrackSizingFunction, RepetitionCount, TrackSizingFunction,
+};
+use taffy::style_helpers::{TaffyMaxContent, TaffyMinContent, fit_content, minmax, repeat};
 
 use crate::style::{
-    AlignContent, AlignItems, Direction, Display, GridPlace, JustifyContent, Length, Overflow,
-    Position, Style, Track,
+    AlignContent, AlignItems, Direction, Display, GridPlace, GridTemplate, JustifyContent, Length,
+    Overflow, Position, Repeat, Style, Track, TrackMax, TrackMin,
 };
 
 /// Translates one resolved style to taffy. `in_stack` forces the element
@@ -83,12 +87,8 @@ pub(crate) fn to_taffy(style: &Style, in_stack: bool) -> taffy::Style {
         flex_grow: style.flex_grow,
         flex_shrink: style.flex_shrink,
         flex_basis: dimension(style.flex_basis),
-        grid_template_columns: style
-            .grid_template_columns
-            .iter()
-            .map(|t| track(*t))
-            .collect(),
-        grid_template_rows: style.grid_template_rows.iter().map(|t| track(*t)).collect(),
+        grid_template_columns: style.grid_template_columns.iter().map(template).collect(),
+        grid_template_rows: style.grid_template_rows.iter().map(template).collect(),
         overflow: taffy::geometry::Point {
             x: overflow(style.overflow_x),
             y: overflow(style.overflow_y),
@@ -164,10 +164,60 @@ fn overflow(v: Overflow) -> taffy::style::Overflow {
     }
 }
 
-fn track<T: taffy::style_helpers::FromLength + taffy::style_helpers::FromFr>(t: Track) -> T {
+/// Maps one fenestra grid template entry to a taffy template component. Generic
+/// over taffy's custom-ident type `S` (inferred from the collection target), so a
+/// `repeat(...)` and a single track share one path.
+fn template<S: CheapCloneStr>(g: &GridTemplate) -> GridTemplateComponent<S> {
+    match g {
+        GridTemplate::Single(t) => GridTemplateComponent::Single(track_sizing(*t)),
+        GridTemplate::Repeat(rep, tracks) => repeat(
+            repetition(*rep),
+            tracks.iter().map(|t| track_sizing(*t)).collect(),
+        ),
+    }
+}
+
+/// One CSS `<track-size>` as a taffy track sizing function.
+fn track_sizing(t: Track) -> TrackSizingFunction {
     match t {
         Track::Px(v) => length(finite(v)),
         Track::Fr(f) => fr(finite(f)),
+        Track::Auto => auto(),
+        Track::MinContent => TrackSizingFunction::MIN_CONTENT,
+        Track::MaxContent => TrackSizingFunction::MAX_CONTENT,
+        Track::FitContent(v) => fit_content(length(finite(v))),
+        Track::MinMax(mn, mx) => minmax(track_min(mn), track_max(mx)),
+    }
+}
+
+/// The `min` side of a `minmax()` as a taffy min track sizing function.
+fn track_min(m: TrackMin) -> MinTrackSizingFunction {
+    match m {
+        TrackMin::Px(v) => length(finite(v)),
+        TrackMin::Auto => auto(),
+        TrackMin::MinContent => MinTrackSizingFunction::MIN_CONTENT,
+        TrackMin::MaxContent => MinTrackSizingFunction::MAX_CONTENT,
+    }
+}
+
+/// The `max` side of a `minmax()` as a taffy max track sizing function.
+fn track_max(m: TrackMax) -> MaxTrackSizingFunction {
+    match m {
+        TrackMax::Px(v) => length(finite(v)),
+        TrackMax::Fr(f) => fr(finite(f)),
+        TrackMax::Auto => auto(),
+        TrackMax::MinContent => MaxTrackSizingFunction::MIN_CONTENT,
+        TrackMax::MaxContent => MaxTrackSizingFunction::MAX_CONTENT,
+        TrackMax::FitContent(v) => fit_content(length(finite(v))),
+    }
+}
+
+/// Maps a fenestra [`Repeat`] to taffy's repetition count.
+fn repetition(r: Repeat) -> RepetitionCount {
+    match r {
+        Repeat::Count(n) => RepetitionCount::Count(n),
+        Repeat::AutoFit => RepetitionCount::AutoFit,
+        Repeat::AutoFill => RepetitionCount::AutoFill,
     }
 }
 

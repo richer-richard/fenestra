@@ -24,6 +24,15 @@
   `match_aria_text`, and `query_tree`. `fenestra-render` gains public `diff_images`
   (compare an already-rendered image to a baseline) and the `scenario` module
   (`Scenario` / `verify` / `bless`). All additive — existing APIs are unchanged.
+- **Responsive grid tracks.** Grid templates now speak the responsive CSS
+  vocabulary: `Track` gains `Auto` / `MinContent` / `MaxContent` / `FitContent(px)`
+  / `MinMax(min, max)`, and a new `GridTemplate` adds `repeat(...)` including
+  `auto-fit` / `auto-fill`. `grid_cols` / `grid_rows` are generic over
+  `Into<GridTemplate>`, so plain `Track`s still work and
+  `grid_cols([GridTemplate::auto_fit_minmax(240.0)])` gives a reflowing column
+  count with no breakpoints. New `responsive_grid(min_col, children)` kit helper.
+  (Named grid lines + `grid-template-areas` + the describe-vocab exposure are a
+  tracked follow-up.)
 
 ## 0.33.0 — 2026-06-22
 
