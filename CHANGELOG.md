@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **`aria-invalid` is verifiable.** A control's danger-ring `invalid` state now
+  surfaces in the access tree: `AccessNode` / `AccessNodeDto` gain an `invalid`
+  field, the aria snapshot emits `[invalid]`, and the describe `text_input` /
+  `text_area` vocab gains `invalid`. So an agent can author an invalid control and
+  a scenario can assert `- textbox [invalid]` through the verify loop — validity
+  is provable, not just visual. Serializes skip-if-false (prior snapshots
+  unchanged).
+
 ## 0.34.0 — 2026-06-23
 
 A verification + layout pass: the agent verify loop is closed end-to-end, grids

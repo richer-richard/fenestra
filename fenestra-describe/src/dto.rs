@@ -18,6 +18,11 @@ pub struct Bounds {
     pub h: f64,
 }
 
+/// `serde` skip predicate: omit a `false` flag from the serialized tree.
+fn is_false(b: &bool) -> bool {
+    !b
+}
+
 /// One node of the typed access tree — the agent's primary view of a UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccessNodeDto {
@@ -41,6 +46,9 @@ pub struct AccessNodeDto {
     pub selected: Option<bool>,
     /// Whether the node is keyboard-focusable.
     pub focusable: bool,
+    /// Whether the control is marked invalid (`aria-invalid`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub invalid: bool,
     /// Layout rectangle.
     pub bounds: Bounds,
     /// Children in paint order.
@@ -136,6 +144,7 @@ mod tests {
             checked: None,
             selected: None,
             focusable: true,
+            invalid: false,
             bounds: Bounds {
                 x: 1.0,
                 y: 2.0,

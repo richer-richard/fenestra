@@ -151,6 +151,8 @@ pub struct AccessNode {
     pub rect: Rect,
     /// Keyboard focusable (and enabled).
     pub focusable: bool,
+    /// Marked invalid (the danger-hued control state — ARIA `aria-invalid`).
+    pub invalid: bool,
     /// The stable key assigned via `.id("...")`, when one was set.
     pub key: Option<String>,
     /// Live region: content changes are announced politely.
@@ -1531,6 +1533,7 @@ impl Frame {
                 value,
                 rect: node.rect,
                 focusable: node.meta.focusable,
+                invalid: node.meta.invalid,
                 key,
                 live: node.live,
                 selection: node.selection,

@@ -278,6 +278,7 @@ fn node_to_dto(node: &AccessNode, path: &[usize]) -> AccessNodeDto {
         checked,
         selected,
         focusable: node.focusable,
+        invalid: node.invalid,
         bounds: Bounds {
             x: node.rect.x0,
             y: node.rect.y0,

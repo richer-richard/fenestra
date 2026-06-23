@@ -324,6 +324,9 @@ pub struct InputNode {
     /// Intent string emitted on edit.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on_input: Option<String>,
+    /// Mark the control invalid (the danger ring + `aria-invalid`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invalid: Option<bool>,
     /// Stable key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,

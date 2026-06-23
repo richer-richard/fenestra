@@ -327,6 +327,9 @@ impl Frame {
             if node.live {
                 out.push_str(" [live]");
             }
+            if node.invalid {
+                out.push_str(" [invalid]");
+            }
             out
         }
         fn emit(node: &AccessNode, depth: usize, out: &mut String) {

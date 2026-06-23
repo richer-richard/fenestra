@@ -212,6 +212,9 @@ fn node_to_element(
             if let Some(ph) = &i.placeholder {
                 w = w.placeholder(ph.clone());
             }
+            if i.invalid == Some(true) {
+                w = w.invalid(true);
+            }
             match &i.bind {
                 Some(key) => {
                     let key = key.clone();
@@ -234,6 +237,9 @@ fn node_to_element(
             let mut w = text_area(value);
             if let Some(ph) = &i.placeholder {
                 w = w.placeholder(ph.clone());
+            }
+            if i.invalid == Some(true) {
+                w = w.invalid(true);
             }
             match &i.bind {
                 Some(key) => {

@@ -2116,7 +2116,13 @@ value, calls `validate` in its `view`, and wires the result.
   validator would pull in `regex`, so it is intentionally omitted — validate a
   pattern app-side, or at the `fenestra-describe` boundary where `regex` already
   lives. The regex-free constraints cover the practical bulk.
-- **Deferred (logged on the forms task):** surfacing `aria-invalid` / `required`
-  in the access tree (so validity is *verifiable* through the R2b scenario loop),
-  plus date-range and input adornments. The validation engine itself ships
-  complete and standalone.
+- **Validity is verifiable, not just visual.** The danger-ring `invalid` flag now
+  surfaces in the access tree: `AccessNode` (and the describe `AccessNodeDto`) gain
+  an `invalid` field, `access_yaml` emits `[invalid]`, and the describe `text_input`
+  / `text_area` vocab gains an `invalid` field. So an agent can author an invalid
+  control and a scenario can assert `- textbox [invalid]` through the R2b loop —
+  the moat extends from "looks invalid" to "*is* invalid, provably". `invalid`
+  serializes skip-if-false, so every prior tree/aria snapshot is byte-identical.
+- **Still deferred (logged on the forms task):** `aria-required` (needs a
+  `required` field on `Element`, which does not exist yet), date-range, and input
+  adornments. The validation engine + the `aria-invalid` surfacing ship complete.
