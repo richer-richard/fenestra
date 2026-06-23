@@ -2078,9 +2078,18 @@ CSS `<track-size>` / `<track-list>` grammar in fenestra's `Style` and mapping it
   `repeat(3, [1fr])` yields three equal columns; a fixed+`fr` template still splits
   100/400. The `responsive_grid(min_col, children)` kit helper + a light/dark golden
   give the web-grade visual proof.
+- **Authorable in the JSON vocabulary.** `fenestra-describe`'s `style` block gains
+  `grid_cols` / `grid_rows`, each an array of `TrackSpec`: a track *string*
+  (`"200px"`, `"1fr"`, `"auto"`, `"min-content"`, `"max-content"`) or a structured
+  `{"minmax": ["180px", "1fr"]}` / `{"fit_content": px}` / `{"repeat": {"count":
+  "auto-fit", "tracks": [...]}}`. So the responsive grid is authorable —
+  `{"repeat": {"count": "auto-fit", "tracks": [{"minmax": ["180px", "1fr"]}]}}` —
+  and therefore *verifiable* through the R2b scenario loop. The parser is
+  clamp-over-panic: a bad track string degrades to `1fr` with a path-pointed error
+  (`.../style/grid_cols/0`), `fr` is rejected as a `minmax` floor, and nested
+  `repeat` is an error.
 - **Deferred to a follow-up (logged):** *named grid lines* and *grid-template-areas*
   use taffy's ident-generic API (`CheapCloneStr`) and want their own builder + a
-  describe-vocab pass, and exposing grid templates through the `fenestra-describe`
-  JSON vocabulary is additive on top. These are a separable second layer, tracked
-  rather than half-built — the responsive core (the reason grids are "responsive")
-  ships complete and standalone.
+  describe-vocab pass. They are a separable second layer, tracked rather than
+  half-built — the responsive core (the reason grids are "responsive") ships
+  complete and standalone, in both the builders and the JSON vocabulary.

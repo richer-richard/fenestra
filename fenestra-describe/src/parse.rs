@@ -12,8 +12,8 @@
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
 use fenestra_core::{
-    DrawerSide, Element, ShadowToken, TextAlign, Theme, Weight, col, div, divider, linear_gradient,
-    row, spacer, stack, text,
+    DrawerSide, Element, GridTemplate, Repeat, ShadowToken, TextAlign, Theme, Track, TrackMax,
+    TrackMin, Weight, col, div, divider, linear_gradient, row, spacer, stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, accordion, accordion_item, avatar, badge, breadcrumbs,
@@ -28,9 +28,9 @@ use crate::error::DescribeError;
 use crate::format::{
     AccordionNode, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container, Description,
     DrawerNode, IconNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode, ModalNode, Node,
-    PaginationNode, ProgressNode, RadioNode, SCHEMA_V1, SegmentedNode, SelectNode, SkeletonNode,
-    SpinButtonNode, StatCardNode, StatusNode, StepperNode, Style, TabsNode, TextNode, ToolbarNode,
-    TooltipNode,
+    PaginationNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1, SegmentedNode, SelectNode,
+    SkeletonNode, SpinButtonNode, StatCardNode, StatusNode, StepperNode, Style, TabsNode, TextNode,
+    ToolbarNode, TooltipNode, TrackSpec,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -1067,6 +1067,13 @@ fn apply_style(
     {
         el = el.max_h(v);
     }
+    // ── Grid templates ────────────────────────────────────────────────────────
+    if let Some(specs) = &style.grid_cols {
+        el = el.grid_cols(track_list(specs, path, "grid_cols", errors));
+    }
+    if let Some(specs) = &style.grid_rows {
+        el = el.grid_rows(track_list(specs, path, "grid_rows", errors));
+    }
     // ── Corner radius ─────────────────────────────────────────────────────────
     if let Some(v) = style.rounded
         && finite_num(v, path, "rounded", errors)
@@ -1250,6 +1257,147 @@ fn finite_num(v: f32, path: &str, field: &str, errors: &mut Vec<DescribeError>) 
 fn relocate(mut e: DescribeError, path: String) -> DescribeError {
     e.path = path;
     e
+}
+
+/// Maps an array of [`TrackSpec`]s to grid template entries, path-pointing any
+/// problem (a bad track degrades to `1fr` rather than failing the whole tree).
+fn track_list(
+    specs: &[TrackSpec],
+    path: &str,
+    field: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Vec<GridTemplate> {
+    specs
+        .iter()
+        .enumerate()
+        .map(|(i, s)| track_template(s, &format!("{path}/style/{field}/{i}"), errors))
+        .collect()
+}
+
+/// One template entry: a `repeat(...)`, else a single track.
+fn track_template(spec: &TrackSpec, path: &str, errors: &mut Vec<DescribeError>) -> GridTemplate {
+    if let TrackSpec::Structured(obj) = spec
+        && let Some(rep) = &obj.repeat
+    {
+        let count = repeat_count(&rep.count, path, errors);
+        let tracks = rep
+            .tracks
+            .iter()
+            .enumerate()
+            .map(|(i, t)| leaf_track(t, &format!("{path}/repeat/tracks/{i}"), errors))
+            .collect();
+        return GridTemplate::Repeat(count, tracks);
+    }
+    GridTemplate::Single(leaf_track(spec, path, errors))
+}
+
+/// A single (non-repeat) track; a `repeat` here is an error, degrading to `1fr`.
+fn leaf_track(spec: &TrackSpec, path: &str, errors: &mut Vec<DescribeError>) -> Track {
+    match spec {
+        TrackSpec::Keyword(s) => track_keyword(s, path, errors),
+        TrackSpec::Structured(obj) => {
+            if obj.repeat.is_some() {
+                errors.push(DescribeError::new(path, "nested repeat is not allowed"));
+                return Track::Fr(1.0);
+            }
+            if let Some([mn, mx]) = &obj.minmax {
+                return Track::MinMax(track_min(mn, path, errors), track_max(mx, path, errors));
+            }
+            if let Some(px) = obj.fit_content {
+                if finite_num(px, path, "fit_content", errors) {
+                    return Track::FitContent(px);
+                }
+                return Track::Fr(1.0);
+            }
+            errors.push(DescribeError::new(
+                path,
+                "empty track object: set one of minmax, fit_content, repeat",
+            ));
+            Track::Fr(1.0)
+        }
+    }
+}
+
+/// Parses a track keyword/length string (`"<n>fr"`, `"<n>px"`, `"auto"`,
+/// `"min-content"`, `"max-content"`) into a [`Track`].
+fn track_keyword(s: &str, path: &str, errors: &mut Vec<DescribeError>) -> Track {
+    let t = s.trim();
+    if let Some(n) = t
+        .strip_suffix("fr")
+        .and_then(|n| n.trim().parse::<f32>().ok())
+        && n.is_finite()
+    {
+        return Track::Fr(n);
+    }
+    if let Some(n) = t
+        .strip_suffix("px")
+        .and_then(|n| n.trim().parse::<f32>().ok())
+        && n.is_finite()
+    {
+        return Track::Px(n);
+    }
+    match t {
+        "auto" => Track::Auto,
+        "min-content" => Track::MinContent,
+        "max-content" => Track::MaxContent,
+        _ => {
+            errors.push(DescribeError::new(
+                path,
+                format!(
+                    "unknown track {s:?}; use \"<n>fr\", \"<n>px\", \"auto\", \"min-content\", or \"max-content\""
+                ),
+            ));
+            Track::Fr(1.0)
+        }
+    }
+}
+
+/// Parses the `min` side of a `minmax` — `fr` is not allowed for a floor.
+fn track_min(s: &str, path: &str, errors: &mut Vec<DescribeError>) -> TrackMin {
+    match track_keyword(s, path, errors) {
+        Track::Px(v) => TrackMin::Px(v),
+        Track::MinContent => TrackMin::MinContent,
+        Track::MaxContent => TrackMin::MaxContent,
+        Track::Fr(_) => {
+            errors.push(DescribeError::new(
+                path,
+                "minmax min cannot be a fraction (fr); use px, auto, min-content, or max-content",
+            ));
+            TrackMin::Auto
+        }
+        _ => TrackMin::Auto,
+    }
+}
+
+/// Parses the `max` side of a `minmax`.
+fn track_max(s: &str, path: &str, errors: &mut Vec<DescribeError>) -> TrackMax {
+    match track_keyword(s, path, errors) {
+        Track::Px(v) => TrackMax::Px(v),
+        Track::Fr(v) => TrackMax::Fr(v),
+        Track::MinContent => TrackMax::MinContent,
+        Track::MaxContent => TrackMax::MaxContent,
+        _ => TrackMax::Auto,
+    }
+}
+
+/// Parses a repeat count: a positive integer, or `"auto-fit"` / `"auto-fill"`.
+fn repeat_count(c: &RepeatCount, path: &str, errors: &mut Vec<DescribeError>) -> Repeat {
+    match c {
+        RepeatCount::Count(n) => Repeat::Count((*n).max(1)),
+        RepeatCount::Keyword(k) => match k.as_str() {
+            "auto-fit" => Repeat::AutoFit,
+            "auto-fill" => Repeat::AutoFill,
+            _ => {
+                errors.push(DescribeError::new(
+                    path,
+                    format!(
+                        "unknown repeat count {k:?}; use a positive integer, \"auto-fit\", or \"auto-fill\""
+                    ),
+                ));
+                Repeat::AutoFit
+            }
+        },
+    }
 }
 
 /// Snaps a numeric OpenType weight to the nearest supported [`Weight`] step

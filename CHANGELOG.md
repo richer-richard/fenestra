@@ -31,8 +31,10 @@
   `Into<GridTemplate>`, so plain `Track`s still work and
   `grid_cols([GridTemplate::auto_fit_minmax(240.0)])` gives a reflowing column
   count with no breakpoints. New `responsive_grid(min_col, children)` kit helper.
-  (Named grid lines + `grid-template-areas` + the describe-vocab exposure are a
-  tracked follow-up.)
+  Authorable in JSON too: the describe `style` block gains `grid_cols` / `grid_rows`
+  (track strings like `"1fr"` / `"200px"`, or `minmax` / `fit_content` / `repeat`
+  objects), so a responsive grid is describable and verifiable through the scenario
+  loop. (Named grid lines + `grid-template-areas` are a tracked follow-up.)
 
 ## 0.33.0 — 2026-06-22
 

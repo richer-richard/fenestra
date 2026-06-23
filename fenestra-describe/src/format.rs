@@ -925,6 +925,64 @@ pub struct Style {
     /// Bottom offset in logical px (only meaningful when `absolute: true`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bottom: Option<f32>,
+    /// Grid template columns (switches the container to grid). An array of track
+    /// entries — see [`TrackSpec`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_cols: Option<Vec<TrackSpec>>,
+    /// Grid template rows. An array of track entries — see [`TrackSpec`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_rows: Option<Vec<TrackSpec>>,
+}
+
+/// One grid template entry: a track *string* (`"200px"`, `"1fr"`, `"auto"`,
+/// `"min-content"`, `"max-content"`), or a structured object for `minmax`,
+/// `fit_content`, or `repeat`. This is the JSON form of the builder vocabulary
+/// (`Track` / `GridTemplate`), so `repeat(auto-fit, minmax(180px, 1fr))` — the
+/// responsive grid — is authorable as
+/// `{"repeat": {"count": "auto-fit", "tracks": [{"minmax": ["180px", "1fr"]}]}}`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum TrackSpec {
+    /// A single track as a keyword/length string.
+    Keyword(String),
+    /// A structured track entry (`minmax` / `fit_content` / `repeat`).
+    Structured(Box<TrackObj>),
+}
+
+/// The structured form of a [`TrackSpec`]: exactly one of `minmax`, `fit_content`,
+/// or `repeat`.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TrackObj {
+    /// `minmax(min, max)` — two track strings, e.g. `["180px", "1fr"]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minmax: Option<[String; 2]>,
+    /// `fit-content(px)`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fit_content: Option<f32>,
+    /// `repeat(count, tracks)` — including the responsive `auto-fit` / `auto-fill`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub repeat: Option<RepeatSpec>,
+}
+
+/// A `repeat(count, tracks)` fragment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RepeatSpec {
+    /// A positive integer count, or `"auto-fit"` / `"auto-fill"`.
+    pub count: RepeatCount,
+    /// The track fragment to repeat (keyword / `minmax` / `fit_content`; not nested `repeat`).
+    pub tracks: Vec<TrackSpec>,
+}
+
+/// How many times a `repeat(...)` is generated.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum RepeatCount {
+    /// Exactly `n` repetitions.
+    Count(u16),
+    /// `"auto-fit"` or `"auto-fill"`.
+    Keyword(String),
 }
 
 /// A color reference: a theme role name, or an explicit OKLCH triple. A raw hex
