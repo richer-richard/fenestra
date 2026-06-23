@@ -1,6 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.34.0 — 2026-06-23
+
+A verification + layout pass: the agent verify loop is closed end-to-end, grids
+gain the responsive CSS track vocabulary (in builders and JSON), and forms get a
+constraint-validation engine. Pure-additive — every prior golden is byte-identical.
 
 ### Added
 
