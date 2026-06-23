@@ -1080,6 +1080,25 @@ fn apply_style(
     if let Some(specs) = &style.grid_rows {
         el = el.grid_rows(track_list(specs, path, "grid_rows", errors));
     }
+    // ── Named grid lines & areas ──────────────────────────────────────────────
+    if let Some(rows) = &style.grid_template_areas {
+        el = el.grid_template_areas(rows.iter());
+    }
+    if let Some(name) = &style.grid_area {
+        el = el.grid_area(name.clone());
+    }
+    if let Some([start, end]) = &style.grid_col_lines {
+        el = el.grid_col_lines(start.clone(), end.clone());
+    }
+    if let Some([start, end]) = &style.grid_row_lines {
+        el = el.grid_row_lines(start.clone(), end.clone());
+    }
+    if let Some(names) = &style.grid_col_names {
+        el = el.grid_col_names(names.iter().cloned());
+    }
+    if let Some(names) = &style.grid_row_names {
+        el = el.grid_row_names(names.iter().cloned());
+    }
     // ── Corner radius ─────────────────────────────────────────────────────────
     if let Some(v) = style.rounded
         && finite_num(v, path, "rounded", errors)

@@ -2088,11 +2088,26 @@ CSS `<track-size>` / `<track-list>` grammar in fenestra's `Style` and mapping it
   clamp-over-panic: a bad track string degrades to `1fr` with a path-pointed error
   (`.../style/grid_cols/0`), `fr` is rejected as a `minmax` floor, and nested
   `repeat` is an error.
-- **Deferred to a follow-up (logged):** *named grid lines* and *grid-template-areas*
-  use taffy's ident-generic API (`CheapCloneStr`) and want their own builder + a
-  describe-vocab pass. They are a separable second layer, tracked rather than
-  half-built — the responsive core (the reason grids are "responsive") ships
-  complete and standalone, in both the builders and the JSON vocabulary.
+- **Named grid lines + `grid-template-areas` (the follow-up, now shipped).** The
+  second grid layer: author a 2-D area map (`grid_template_areas(["header header",
+  "nav main", "footer footer"])`) and place children by name (`grid_area("main")`),
+  or name the lines positionally (`grid_col_names([...])`) and place by line name
+  (`grid_col_lines("sidebar", "content")`). Decision: **fenestra resolves names to
+  numeric taffy lines itself**, deterministically, rather than threading taffy's
+  ident-generic API through the whole style. taffy 0.10's `grid_template_areas`
+  wants *resolved* `{name, row/col start/end}` rectangles (it does not parse the
+  ASCII form), so a per-frame `grid::ResolvedGrid` (built in `frame.rs:build` from a
+  container's style, before its children) maps every name — area-derived
+  `<name>-start`/`<name>-end` lines and explicit positional names — to its first
+  1-based line; a child's `grid_area`/named-line placement resolves against the
+  parent's table just before `to_taffy`. Areas validate as rectangles (a
+  non-rectangular name is dropped, lenient — the child falls back to its numeric
+  placement, never a panic); `grid-template-areas` with no explicit tracks implies a
+  grid of `auto` tracks shaped to the map (CSS implicit grid). Authorable in JSON
+  (`grid_template_areas`, `grid_area`, `grid_col_lines`/`grid_row_lines`,
+  `grid_col_names`/`grid_row_names`) and therefore verifiable through the R2b loop.
+  Every prior grid golden is byte-identical; the holy-grail layout has exact-rect
+  tests in core and JSON plus light/dark goldens.
 
 ## Form constraint validation (kit)
 

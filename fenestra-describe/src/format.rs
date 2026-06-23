@@ -935,6 +935,26 @@ pub struct Style {
     /// Grid template rows. An array of track entries — see [`TrackSpec`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid_rows: Option<Vec<TrackSpec>>,
+    /// `grid-template-areas`: rows of whitespace-separated area names, `.` for an
+    /// empty cell, e.g. `["header header", "nav main", "footer footer"]`. Place
+    /// children with `grid_area`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_template_areas: Option<Vec<String>>,
+    /// Named-area placement (CSS `grid-area`), e.g. `"main"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_area: Option<String>,
+    /// Named-line column placement `[start, end]` (CSS `grid-column: a / b`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_col_lines: Option<[String; 2]>,
+    /// Named-line row placement `[start, end]` (CSS `grid-row: a / b`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_row_lines: Option<[String; 2]>,
+    /// Column line names, positional: the i-th names the (i+1)-th column line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_col_names: Option<Vec<String>>,
+    /// Row line names, positional: the i-th names the (i+1)-th row line.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid_row_names: Option<Vec<String>>,
 }
 
 /// One grid template entry: a track *string* (`"200px"`, `"1fr"`, `"auto"`,

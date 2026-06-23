@@ -14,12 +14,15 @@ use crate::element::{
 };
 use crate::frame_state::{ExitRecord, FrameState};
 use crate::ghost::{GhostNode, GhostPaint};
+use crate::grid;
 use crate::id::WidgetId;
 use crate::input::{EditorState, InputPaint};
 use crate::layout;
 use crate::paint_plan::{MultiPassSpec, PaintMode, PassKind};
 use crate::painter;
-use crate::style::{AlignItems, Direction, Display, Overflow, Paint, Position, Style};
+use crate::style::{
+    AlignItems, Direction, Display, GridTemplate, Overflow, Paint, Position, Style, Track,
+};
 use crate::text::{Fonts, ResolvedText, resolve_text};
 use crate::theme::Theme;
 use crate::tokens::{FOCUS_RING, R_FULL};
@@ -571,6 +574,9 @@ fn build<Msg>(
     animating: &mut bool,
     id: WidgetId,
     in_stack: bool,
+    // The parent grid's resolved name tables, for `grid_area` / named-line
+    // placement; `None` when the parent is not a named grid.
+    parent_grid: Option<&grid::ResolvedGrid>,
     path: &mut Vec<usize>,
     pending: &mut Vec<PendingOverlay>,
     // Canvas height: the materialization viewport for virtual lists.
@@ -583,7 +589,18 @@ fn build<Msg>(
     // has no record and uses the hint, then converges. See `expand_responsive`.
     if let Some(generated) = expand_responsive(el, id, state) {
         return build(
-            &generated, theme, fonts, tree, state, animating, id, in_stack, path, pending, viewport,
+            &generated,
+            theme,
+            fonts,
+            tree,
+            state,
+            animating,
+            id,
+            in_stack,
+            parent_grid,
+            path,
+            pending,
+            viewport,
         );
     }
     if el.autofocus && !el.disabled {
@@ -610,6 +627,27 @@ fn build<Msg>(
         let ch = fonts.ch_width(&resolve_text(&style.text, theme));
         style.resolve_ch(ch);
     }
+    // Named grid placement: resolve this element's `grid_area` / named-line
+    // placement against its parent grid into numeric lines for taffy. A no-op
+    // when the parent names nothing or this element places numerically.
+    if let Some(pg) = parent_grid {
+        let (col, row) = grid::place(&style, pg);
+        style.grid_column = col;
+        style.grid_row = row;
+    }
+    // `grid-template-areas` without explicit tracks implies a grid of `auto`
+    // tracks matching the area shape (CSS implicit grid).
+    if !style.grid_template_areas.is_empty() {
+        let (rows, cols) = grid::area_dims(&style.grid_template_areas);
+        if style.grid_template_columns.is_empty() && cols > 0 {
+            style.grid_template_columns = vec![GridTemplate::Single(Track::Auto); cols];
+        }
+        if style.grid_template_rows.is_empty() && rows > 0 {
+            style.grid_template_rows = vec![GridTemplate::Single(Track::Auto); rows];
+        }
+    }
+    // This element's own resolved grid, shared by its children for placement.
+    let my_grid = grid::resolve(&style);
     // Virtual containers swap their declared children for the materialized
     // window. Overlays inside virtual rows are unsupported (the overlay
     // path machinery indexes the declared tree).
@@ -641,7 +679,17 @@ fn build<Msg>(
             }
             path.push(i);
             let node = build(
-                c, theme, fonts, tree, state, animating, child_id, el.stack, path, pending,
+                c,
+                theme,
+                fonts,
+                tree,
+                state,
+                animating,
+                child_id,
+                el.stack,
+                my_grid.as_ref(),
+                path,
+                pending,
                 viewport,
             );
             path.pop();
@@ -1272,6 +1320,7 @@ pub fn build_frame<Msg>(
         &mut transitions_running,
         WidgetId::ROOT,
         false,
+        None,
         &mut path,
         &mut pending,
         size.1,
@@ -1392,6 +1441,7 @@ pub fn build_frame<Msg>(
                 &mut animating,
                 p.id,
                 false,
+                None,
                 &mut opath,
                 &mut nested,
                 size.1,

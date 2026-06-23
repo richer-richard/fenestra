@@ -286,6 +286,18 @@ pub struct GridPlace {
     pub span: Option<u16>,
 }
 
+/// A named-line placement on one grid axis: the start and end line names
+/// (CSS `grid-column: a / b`). Empty by default — numeric/auto placement. Names
+/// resolve against the parent grid's `grid-template-areas` (`<name>-start` /
+/// `<name>-end`) and explicit line names.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct GridLines {
+    /// Start line name (before the `/`).
+    pub start: Option<String>,
+    /// End line name (after the `/`).
+    pub end: Option<String>,
+}
+
 /// A gradient color stop: offset 0.0..=1.0 and a color.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct GradientStop {
@@ -805,6 +817,22 @@ pub struct Style {
     pub grid_column: GridPlace,
     /// Row placement when inside a grid.
     pub grid_row: GridPlace,
+    /// `grid-template-areas`: rows of cells, each `Some(name)` or `None` (an
+    /// empty `.` cell). Children placed with [`Style::grid_area`] occupy the
+    /// named rectangle. Empty when unused.
+    pub grid_template_areas: Vec<Vec<Option<String>>>,
+    /// Named-area placement (CSS `grid-area`): occupies the named area on both
+    /// axes, resolved against the parent's `grid_template_areas`.
+    pub grid_area: Option<String>,
+    /// Named-line column placement (CSS `grid-column: a / b`).
+    pub grid_column_lines: GridLines,
+    /// Named-line row placement (CSS `grid-row: a / b`).
+    pub grid_row_lines: GridLines,
+    /// Column line names, positional: the i-th entry names the (i+1)-th column
+    /// line. Empty when unused.
+    pub grid_col_line_names: Vec<Vec<String>>,
+    /// Row line names, positional: the i-th entry names the (i+1)-th row line.
+    pub grid_row_line_names: Vec<Vec<String>>,
     /// Horizontal overflow.
     pub overflow_x: Overflow,
     /// Vertical overflow.
@@ -912,6 +940,12 @@ impl Default for Style {
             grid_template_rows: Vec::new(),
             grid_column: GridPlace::default(),
             grid_row: GridPlace::default(),
+            grid_template_areas: Vec::new(),
+            grid_area: None,
+            grid_column_lines: GridLines::default(),
+            grid_row_lines: GridLines::default(),
+            grid_col_line_names: Vec::new(),
+            grid_row_line_names: Vec::new(),
             overflow_x: Overflow::Visible,
             overflow_y: Overflow::Visible,
             sticky_top: None,
@@ -1835,6 +1869,66 @@ impl Style {
             start: Some(start),
             span: (span > 1).then_some(span),
         };
+        self
+    }
+
+    /// `grid-template-areas`: each row is a string of whitespace-separated area
+    /// names, with `.` for an empty cell. Switches display to grid. Place
+    /// children with [`Style::grid_area`]. Without explicit
+    /// [`grid_cols`](Style::grid_cols)/[`grid_rows`](Style::grid_rows), an
+    /// implicit grid of `auto` tracks matching the area shape is created.
+    pub fn grid_template_areas<R: AsRef<str>>(mut self, rows: impl IntoIterator<Item = R>) -> Self {
+        self.display = Display::Grid;
+        self.grid_template_areas = rows
+            .into_iter()
+            .map(|row| {
+                row.as_ref()
+                    .split_whitespace()
+                    .map(|cell| (cell != ".").then(|| cell.to_string()))
+                    .collect()
+            })
+            .collect();
+        self
+    }
+
+    /// Places this element in a named grid area (CSS `grid-area: name`),
+    /// resolved against the parent's [`grid_template_areas`](Style::grid_template_areas).
+    pub fn grid_area(mut self, name: impl Into<String>) -> Self {
+        self.grid_area = Some(name.into());
+        self
+    }
+
+    /// Places this element's columns between two named grid lines
+    /// (CSS `grid-column: start / end`).
+    pub fn grid_col_lines(mut self, start: impl Into<String>, end: impl Into<String>) -> Self {
+        self.grid_column_lines = GridLines {
+            start: Some(start.into()),
+            end: Some(end.into()),
+        };
+        self
+    }
+
+    /// Places this element's rows between two named grid lines
+    /// (CSS `grid-row: start / end`).
+    pub fn grid_row_lines(mut self, start: impl Into<String>, end: impl Into<String>) -> Self {
+        self.grid_row_lines = GridLines {
+            start: Some(start.into()),
+            end: Some(end.into()),
+        };
+        self
+    }
+
+    /// Names the column grid lines positionally: the i-th name labels the
+    /// (i+1)-th line. Reference them from [`grid_col_lines`](Style::grid_col_lines).
+    pub fn grid_col_names<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
+        self.grid_col_line_names = names.into_iter().map(|n| vec![n.into()]).collect();
+        self
+    }
+
+    /// Names the row grid lines positionally: the i-th name labels the (i+1)-th
+    /// line. Reference them from [`grid_row_lines`](Style::grid_row_lines).
+    pub fn grid_row_names<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
+        self.grid_row_line_names = names.into_iter().map(|n| vec![n.into()]).collect();
         self
     }
 }

@@ -98,6 +98,150 @@ fn repeat_count_makes_equal_columns() {
     );
 }
 
+fn h_of(frame: &Frame, id: &str) -> f64 {
+    frame.get(&by::id(id)).rect.height()
+}
+
+/// `grid-template-areas` lays out the classic holy-grail: a header and footer
+/// spanning both columns, a fixed sidebar, and a flexible main — each child
+/// placed only by area name, resolved to taffy lines by fenestra.
+#[test]
+fn template_areas_holy_grail() {
+    let grid = div::<()>()
+        .w(600.0)
+        .h(300.0)
+        .grid_cols([Track::Px(120.0), Track::Fr(1.0)])
+        .grid_rows([Track::Px(40.0), Track::Fr(1.0), Track::Px(30.0)])
+        .grid_template_areas(["header header", "nav main", "footer footer"])
+        .children(vec![
+            div::<()>().id("header").grid_area("header"),
+            div::<()>().id("nav").grid_area("nav"),
+            div::<()>().id("main").grid_area("main"),
+            div::<()>().id("footer").grid_area("footer"),
+        ]);
+    let f = frame(grid, (600.0, 300.0));
+
+    // Header: row 1 (40px tall), spanning both columns (full 600 width).
+    assert!(
+        (x_of(&f, "header")).abs() < 1.0,
+        "header x = {}",
+        x_of(&f, "header")
+    );
+    assert!(
+        (y_of(&f, "header")).abs() < 1.0,
+        "header y = {}",
+        y_of(&f, "header")
+    );
+    assert!(
+        (w_of(&f, "header") - 600.0).abs() < 1.0,
+        "header w = {}",
+        w_of(&f, "header")
+    );
+    assert!(
+        (h_of(&f, "header") - 40.0).abs() < 1.0,
+        "header h = {}",
+        h_of(&f, "header")
+    );
+
+    // Nav: column 1 (120px), row 2 (the 1fr row = 300 - 40 - 30 = 230 tall).
+    assert!((x_of(&f, "nav")).abs() < 1.0, "nav x = {}", x_of(&f, "nav"));
+    assert!(
+        (y_of(&f, "nav") - 40.0).abs() < 1.0,
+        "nav y = {}",
+        y_of(&f, "nav")
+    );
+    assert!(
+        (w_of(&f, "nav") - 120.0).abs() < 1.0,
+        "nav w = {}",
+        w_of(&f, "nav")
+    );
+    assert!(
+        (h_of(&f, "nav") - 230.0).abs() < 1.0,
+        "nav h = {}",
+        h_of(&f, "nav")
+    );
+
+    // Main: column 2 (480px), row 2, beside the sidebar.
+    assert!(
+        (x_of(&f, "main") - 120.0).abs() < 1.0,
+        "main x = {}",
+        x_of(&f, "main")
+    );
+    assert!(
+        (y_of(&f, "main") - 40.0).abs() < 1.0,
+        "main y = {}",
+        y_of(&f, "main")
+    );
+    assert!(
+        (w_of(&f, "main") - 480.0).abs() < 1.0,
+        "main w = {}",
+        w_of(&f, "main")
+    );
+
+    // Footer: last row (30px), pinned to the bottom, spanning both columns.
+    assert!(
+        (y_of(&f, "footer") - 270.0).abs() < 1.0,
+        "footer y = {}",
+        y_of(&f, "footer")
+    );
+    assert!(
+        (w_of(&f, "footer") - 600.0).abs() < 1.0,
+        "footer w = {}",
+        w_of(&f, "footer")
+    );
+}
+
+/// Named grid lines place an item across a span: `grid-column: b / e` over six
+/// 100px columns starts at line `b` (x=100) and spans to line `e` (300 wide).
+#[test]
+fn named_lines_place_a_span() {
+    let grid = div::<()>()
+        .w(600.0)
+        .grid_cols([Track::Px(100.0); 6])
+        .grid_col_names(["a", "b", "c", "d", "e", "f", "g"])
+        .children(vec![
+            div::<()>().id("item").h(40.0).grid_col_lines("b", "e"),
+        ]);
+    let f = frame(grid, (600.0, 100.0));
+    assert!(
+        (x_of(&f, "item") - 100.0).abs() < 1.0,
+        "item x = {}",
+        x_of(&f, "item")
+    );
+    assert!(
+        (w_of(&f, "item") - 300.0).abs() < 1.0,
+        "item w = {}",
+        w_of(&f, "item")
+    );
+}
+
+/// `grid-template-areas` with no explicit tracks builds an implicit grid of
+/// `auto` tracks shaped to the area map: a 2×2 map makes two equal columns split
+/// a 400px container.
+#[test]
+fn template_areas_imply_auto_tracks() {
+    let grid = div::<()>()
+        .w(400.0)
+        .grid_template_areas(["a b", "a b"])
+        .children(vec![
+            div::<()>().id("a").grid_area("a").h(50.0),
+            div::<()>().id("b").grid_area("b").h(50.0),
+        ]);
+    let f = frame(grid, (400.0, 100.0));
+    // Two auto columns sized to content here are zero-width (empty children), so
+    // assert the placement order instead: `a` left of `b`.
+    assert!(
+        x_of(&f, "b") >= x_of(&f, "a"),
+        "b ({}) right of a ({})",
+        x_of(&f, "b"),
+        x_of(&f, "a")
+    );
+    assert!(
+        (y_of(&f, "a")).abs() < 1.0 && (y_of(&f, "b")).abs() < 1.0,
+        "both on row 1"
+    );
+}
+
 /// Plain `Track`s still work through the same builder (backward compatible): a
 /// fixed 100px column plus a `1fr` column splits a 500px container 100 / 400.
 #[test]

@@ -18,6 +18,7 @@ mod events;
 mod frame;
 mod frame_state;
 mod ghost;
+mod grid;
 mod id;
 mod input;
 mod layout;

@@ -15,6 +15,72 @@ fn desc(json: &str) -> Description {
 fn x_of(frame: &Frame, id: &str) -> f64 {
     frame.get(&by::id(id)).rect.x0
 }
+fn y_of(frame: &Frame, id: &str) -> f64 {
+    frame.get(&by::id(id)).rect.y0
+}
+fn w_of(frame: &Frame, id: &str) -> f64 {
+    frame.get(&by::id(id)).rect.width()
+}
+
+/// `grid-template-areas` authored in JSON: children placed only by `grid_area`
+/// resolve to the right cells through the describe boundary (the holy-grail).
+#[test]
+fn json_template_areas_holy_grail() {
+    let d = desc(
+        r#"{"schema":"fenestra/1","root":{"col":{
+            "style":{
+                "grid_cols":["120px","1fr"],
+                "grid_rows":["40px","1fr","30px"],
+                "grid_template_areas":["header header","nav main","footer footer"],
+                "w":600,"h":300
+            },
+            "children":[
+                {"col":{"id":"header","style":{"grid_area":"header"}}},
+                {"col":{"id":"nav","style":{"grid_area":"nav"}}},
+                {"col":{"id":"main","style":{"grid_area":"main"}}},
+                {"col":{"id":"footer","style":{"grid_area":"footer"}}}
+            ]}}}"#,
+    );
+    let frame = build(&d, &Theme::light(), (600, 300)).expect("builds");
+    assert!(
+        (x_of(&frame, "main") - 120.0).abs() < 2.0,
+        "main x = {}",
+        x_of(&frame, "main")
+    );
+    assert!(
+        (w_of(&frame, "header") - 600.0).abs() < 2.0,
+        "header w = {}",
+        w_of(&frame, "header")
+    );
+    assert!(
+        (y_of(&frame, "footer") - 270.0).abs() < 2.0,
+        "footer y = {}",
+        y_of(&frame, "footer")
+    );
+}
+
+/// Named grid lines author a span: `grid_col_lines: ["b","e"]` over six 100px
+/// columns named `a..g` starts at line `b` (x = 100) and spans to line `e`.
+#[test]
+fn json_named_line_span() {
+    let d = desc(
+        r#"{"schema":"fenestra/1","root":{"col":{
+            "style":{"grid_cols":["100px","100px","100px","100px","100px","100px"],
+                     "grid_col_names":["a","b","c","d","e","f","g"],"w":600},
+            "children":[{"col":{"id":"item","style":{"grid_col_lines":["b","e"]}}}]}}}"#,
+    );
+    let frame = build(&d, &Theme::light(), (600, 100)).expect("builds");
+    assert!(
+        (x_of(&frame, "item") - 100.0).abs() < 2.0,
+        "item x = {}",
+        x_of(&frame, "item")
+    );
+    assert!(
+        (w_of(&frame, "item") - 300.0).abs() < 2.0,
+        "item w = {}",
+        w_of(&frame, "item")
+    );
+}
 
 /// `"grid_cols": ["100px", "1fr"]` puts the second item at x = 100.
 #[test]

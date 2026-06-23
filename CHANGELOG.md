@@ -4,6 +4,17 @@
 
 ### Added
 
+- **Named grid lines + `grid-template-areas`.** The second responsive-grid layer.
+  Lay out by name: `grid_template_areas(["header header", "nav main", "footer
+  footer"])` on a container plus `grid_area("main")` on a child place the
+  holy-grail in two lines; or name the lines (`grid_col_names(["sidebar", …])`) and
+  place a span with `grid_col_lines("sidebar", "content")` (likewise `grid_row_*`).
+  fenestra resolves names to numeric taffy lines itself, deterministically: areas
+  validate as rectangles (a non-rectangular name falls back to numeric placement,
+  never a panic), and areas without explicit tracks imply an `auto` grid shaped to
+  the map. Authorable in JSON (`grid_template_areas`, `grid_area`, `grid_col_lines`/
+  `grid_row_lines`, `grid_col_names`/`grid_row_names`). Every prior grid golden is
+  byte-identical.
 - **Real frosted-glass backdrop blur.** `Surface::Glass` now genuinely blurs the
   content *behind* it (its `Material.blur_radius`, reserved since 0.22, is live) —
   a floating pane reads as frosted glass over live content, not a flat tint. It is

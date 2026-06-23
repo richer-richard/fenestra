@@ -1997,6 +1997,49 @@ impl<Msg> Element<Msg> {
         self.style = self.style.grid_row(start, span);
         self
     }
+
+    /// `grid-template-areas` (CSS): each row is a string of whitespace-separated
+    /// area names, `.` for an empty cell. Place children with
+    /// [`Element::grid_area`]. Implies a grid of `auto` tracks matching the area
+    /// shape when no explicit tracks are given.
+    pub fn grid_template_areas<R: AsRef<str>>(mut self, rows: impl IntoIterator<Item = R>) -> Self {
+        self.style = self.style.grid_template_areas(rows);
+        self
+    }
+
+    /// Places this element in a named grid area (CSS `grid-area`).
+    pub fn grid_area(mut self, name: impl Into<String>) -> Self {
+        self.style = self.style.grid_area(name);
+        self
+    }
+
+    /// Places this element's columns between two named grid lines
+    /// (CSS `grid-column: start / end`).
+    pub fn grid_col_lines(mut self, start: impl Into<String>, end: impl Into<String>) -> Self {
+        self.style = self.style.grid_col_lines(start, end);
+        self
+    }
+
+    /// Places this element's rows between two named grid lines
+    /// (CSS `grid-row: start / end`).
+    pub fn grid_row_lines(mut self, start: impl Into<String>, end: impl Into<String>) -> Self {
+        self.style = self.style.grid_row_lines(start, end);
+        self
+    }
+
+    /// Names the column grid lines positionally: the i-th name labels the
+    /// (i+1)-th line. Reference them from [`Element::grid_col_lines`].
+    pub fn grid_col_names<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
+        self.style = self.style.grid_col_names(names);
+        self
+    }
+
+    /// Names the row grid lines positionally: the i-th name labels the (i+1)-th
+    /// line. Reference them from [`Element::grid_row_lines`].
+    pub fn grid_row_names<S: Into<String>>(mut self, names: impl IntoIterator<Item = S>) -> Self {
+        self.style = self.style.grid_row_names(names);
+        self
+    }
 }
 
 #[cfg(test)]
