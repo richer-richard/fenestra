@@ -4,6 +4,19 @@
 
 ### Added
 
+- **RTL mirroring, Dynamic Type, and i18n.** Three locale/accessibility knobs on
+  the theme, plus a new i18n module.
+  - `Theme::rtl()` / `with_direction(WritingDir)` mirrors the realized layout
+    horizontally (a leading element lands on the right, a row's order reverses)
+    and flips `start`/`end` text alignment to the opposite edge. Applied as a
+    final geometry pass, so widths, container queries, and motion deltas are
+    unchanged — and LTR is byte-identical.
+  - `Theme::with_text_scale(f32)` — Dynamic Type — multiplies every resolved font
+    size (clamped 0.5–3.0); 1.0 is byte-identical.
+  - New `Locale` (RTL detection + locale-aware integer/decimal grouping, e.g.
+    `1,234.50` vs `1.234,50`) and `Catalog` (key → message with `{name}`
+    interpolation and key fallback). No ICU/heavy data. `Locale::direction()`
+    feeds straight into `Theme::with_direction`.
 - **Forms maturity: value semantics, adornments, multi-select, deeper validation.**
   - New ARIA roles surfaced through both the headless access tree and the live
     AccessKit write-path: `meter`, `spinbutton`, and `progressbar` (carrying

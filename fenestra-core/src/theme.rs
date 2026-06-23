@@ -110,6 +110,26 @@ impl std::fmt::Display for ContrastViolation {
     }
 }
 
+/// Writing direction for the UI — left-to-right (the default) or right-to-left.
+/// Set on the [`Theme`] ([`Theme::rtl`]); under `Rtl` the realized layout is
+/// mirrored horizontally and `start`-aligned text flips to the right edge.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WritingDir {
+    /// Left-to-right (Latin, CJK, …). The default.
+    #[default]
+    Ltr,
+    /// Right-to-left (Arabic, Hebrew, …).
+    Rtl,
+}
+
+impl WritingDir {
+    /// Whether this is right-to-left.
+    #[must_use]
+    pub fn is_rtl(self) -> bool {
+        matches!(self, Self::Rtl)
+    }
+}
+
 /// Design tokens resolved for one color mode.
 #[derive(Debug, Clone)]
 pub struct Theme {
@@ -198,6 +218,15 @@ pub struct Theme {
     /// to `Shadowed` (no change to the stock look); set via
     /// [`Theme::with_elevation`].
     pub elevation: Elevation,
+
+    /// Dynamic Type: a multiplier applied to every resolved font size (1.0 =
+    /// stock). Clamped to a sane range at resolution. Set via
+    /// [`Theme::with_text_scale`]; lets a whole UI grow or shrink its type for
+    /// accessibility without touching individual sizes.
+    pub text_scale: f32,
+    /// Writing direction (LTR default; RTL mirrors the layout). Set via
+    /// [`Theme::rtl`] / [`Theme::with_direction`].
+    pub direction: WritingDir,
 }
 
 /// `(L, C)` per ramp step 1..=12.
@@ -371,6 +400,8 @@ impl Theme {
             accents,
             radius: RadiusScale::default(),
             elevation: Elevation::default(),
+            text_scale: 1.0,
+            direction: WritingDir::default(),
         }
     }
 
@@ -391,6 +422,35 @@ impl Theme {
     pub fn with_elevation(mut self, elevation: Elevation) -> Self {
         self.elevation = elevation;
         self
+    }
+
+    /// Returns this theme with a Dynamic Type scale — a multiplier on every
+    /// resolved font size (1.0 = stock, 1.3 ≈ "large text"). Clamped to
+    /// `0.5..=3.0` at resolution.
+    #[must_use]
+    pub fn with_text_scale(mut self, scale: f32) -> Self {
+        self.text_scale = scale;
+        self
+    }
+
+    /// Returns this theme with a [`WritingDir`].
+    #[must_use]
+    pub fn with_direction(mut self, direction: WritingDir) -> Self {
+        self.direction = direction;
+        self
+    }
+
+    /// Returns this theme set right-to-left (sugar for
+    /// [`with_direction`](Self::with_direction)`(WritingDir::Rtl)`).
+    #[must_use]
+    pub fn rtl(self) -> Self {
+        self.with_direction(WritingDir::Rtl)
+    }
+
+    /// Whether this theme lays out right-to-left.
+    #[must_use]
+    pub fn is_rtl(&self) -> bool {
+        self.direction.is_rtl()
     }
 
     /// A duotone theme: the neutral field takes its own hue with a chroma

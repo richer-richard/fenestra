@@ -2176,6 +2176,39 @@ The forms follow-up closes the remaining gaps from the validation pass.
   message in order, for a field that lists all its problems) join the first-failure
   `validate`.
 
+## RTL mirroring, Dynamic Type, and i18n
+
+Three locale/accessibility settings ride on the `Theme` (the per-render config
+already threaded everywhere), plus a dependency-free i18n module. The AccessKit
+write-path that headlines this task already shipped (`fenestra-shell/src/access.rs`,
+`accesskit` + `accesskit_winit`); this is the rest of R5.
+
+- **RTL is a final mirror pass, not pervasive logical properties.** Under
+  `Theme::rtl()` the realized `FrameNode` tree is mirrored horizontally about the
+  canvas width as the *last* step of `build_frame` — every rect and clip flips
+  (`x' = w - x`), recursively. Because all layout/motion math runs first in
+  logical (unmirrored) space and `prev_rects` is recorded pre-mirror, widths are
+  preserved and FLIP magnitudes / container queries are unaffected; paint,
+  hit-testing, and the access tree all read the mirrored rects, so they agree.
+  Decision: a single geometric mirror (vs. taffy `RowReverse` + per-edge logical
+  start/end plumbing) gives *comprehensive* mirroring — flex, grid, absolute, and
+  nested subtrees all flip uniformly — for ~30 lines, and `start`/`end` text
+  alignment flips in `resolve_text` (where the theme is in hand). **Envelope:** a
+  FLIP slide's horizontal direction and a horizontal scrollbar's thumb are not
+  re-pointed, and intrinsically directional glyphs/icons are not swapped — noted,
+  not pretended. LTR (the default) never mirrors and is byte-identical.
+- **Dynamic Type.** `Theme::with_text_scale(f32)` multiplies the requested font
+  size inside `resolve_text` before sanitization, clamped `0.5..=3.0`. One point,
+  so token sizes and free-form `size_px` both scale, and `letter_spacing` (a
+  function of the resolved px) tracks. 1.0 is byte-identical.
+- **i18n (`fenestra-core::i18n`).** A `Locale` infers writing direction and
+  number separators from a BCP-47-ish tag (`Locale::direction()` → `WritingDir`),
+  and formats integers/decimals with locale grouping (`1,234.50` vs `1.234,50`).
+  A `Catalog` maps keys → messages with `{name}` interpolation and falls back to
+  the key (a view never renders blank). Deliberately ICU-free: enough to localize
+  strings, numbers, and direction without a megabyte of CLDR data. It is pure
+  utility — apps call it in their `view`, so it needs no framework plumbing.
+
 ## Horizontal scrolling + `position: sticky` (R3 layout)
 
 Scrolling was vertical-only; this pass makes it 2D and adds CSS sticky positioning

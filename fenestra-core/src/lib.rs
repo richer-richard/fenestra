@@ -19,6 +19,7 @@ mod frame;
 mod frame_state;
 mod ghost;
 mod grid;
+mod i18n;
 mod id;
 mod input;
 mod layout;
@@ -48,6 +49,7 @@ pub use element::{
 pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, refresh_hover};
 pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene};
 pub use frame_state::FrameState;
+pub use i18n::{Catalog, Locale};
 pub use id::WidgetId;
 pub use paint_plan::{MultiPassSpec, PassKind};
 pub use proxy::Proxy;
@@ -57,7 +59,7 @@ pub use surface::{Material, Surface, SurfaceBorder, SurfaceBundle, SurfaceFill, 
 pub use text::Fonts;
 pub use theme::{
     BaseField, Contrast, ContrastViolation, DeriveSpec, DuotoneSpec, Mode, Ramp, StatusColors,
-    Theme, ThemeSpec, oklch, oklch_of,
+    Theme, ThemeSpec, WritingDir, oklch, oklch_of,
 };
 pub use tokens::*;
 

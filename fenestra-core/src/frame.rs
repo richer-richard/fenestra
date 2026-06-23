@@ -1701,6 +1701,19 @@ pub fn build_frame<Msg>(
     state.editors.retain(|_, e| e.seen == frame_no);
     state.gc_scroll(frame_no);
 
+    // Right-to-left: mirror the realized geometry horizontally as a final pass.
+    // All motion math (FLIP deltas, `prev_rects` above) stays in logical,
+    // unmirrored space; the mirror preserves widths, so container queries and
+    // FLIP magnitudes are unaffected. Paint, hit-testing, and the access tree all
+    // read these mirrored rects, so they agree.
+    if theme.is_rtl() {
+        let w = canvas.x1;
+        mirror_rtl(&mut root_node, w);
+        for overlay in &mut overlays {
+            mirror_rtl(&mut overlay.node, w);
+        }
+    }
+
     Frame {
         root: root_node,
         overlays,
@@ -1722,6 +1735,26 @@ fn element_at<'a, Msg>(root: &'a Element<Msg>, path: &[usize]) -> Option<&'a Ele
         el = el.children.get(i)?;
     }
     Some(el)
+}
+
+/// Mirrors a realized subtree horizontally about width `w` (right-to-left): each
+/// node's rect and clip flip about the canvas, so a leading element on the left
+/// lands on the right and row children reverse order. Recurses; widths are
+/// preserved. Scroll offsets are content-relative (already baked into child
+/// rects), so they are left as-is.
+fn mirror_rtl(node: &mut FrameNode, w: f64) {
+    node.rect = Rect::new(
+        w - node.rect.x1,
+        node.rect.y0,
+        w - node.rect.x0,
+        node.rect.y1,
+    );
+    if let Some(v) = node.visible {
+        node.visible = Some(Rect::new(w - v.x1, v.y0, w - v.x0, v.y1));
+    }
+    for child in &mut node.children {
+        mirror_rtl(child, w);
+    }
 }
 
 /// Finds a node's rect within a realized subtree.

@@ -187,7 +187,10 @@ pub(crate) struct ResolvedText {
 
 /// Resolves the text style group against the theme and size tokens.
 pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
-    let px = sane_font_px(ts.size_px.unwrap_or_else(|| ts.size.px()), ts.size.px());
+    // Dynamic Type: scale the requested size, then sanitize. A scale of 1.0 is
+    // byte-identical to before.
+    let requested = ts.size_px.unwrap_or_else(|| ts.size.px()) * theme.text_scale.clamp(0.5, 3.0);
+    let px = sane_font_px(requested, ts.size.px());
     ResolvedText {
         px,
         weight: ts.weight.value(),
@@ -204,7 +207,13 @@ pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
         // sizes too); an explicit override still wins.
         letter_spacing: ts.letter_spacing.unwrap_or_else(|| tracking_em(px)) * px,
         family: ts.family,
-        align: ts.align,
+        // Right-to-left flips `start`/`end` alignment to the opposite edge so
+        // `start`-aligned text sits on the right (parley keeps `center`/`justify`).
+        align: match (theme.is_rtl(), ts.align) {
+            (true, TextAlign::Start) => TextAlign::End,
+            (true, TextAlign::End) => TextAlign::Start,
+            (_, a) => a,
+        },
         max_lines: ts.max_lines,
         color: ts.color.unwrap_or(theme.text),
         features: ts.features,
