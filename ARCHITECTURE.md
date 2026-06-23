@@ -2139,8 +2139,42 @@ value, calls `validate` in its `view`, and wires the result.
   the moat extends from "looks invalid" to "*is* invalid, provably". `invalid`
   serializes skip-if-false, so every prior tree/aria snapshot is byte-identical.
 - **Still deferred (logged on the forms task):** `aria-required` (needs a
-  `required` field on `Element`, which does not exist yet), date-range, and input
-  adornments. The validation engine + the `aria-invalid` surfacing ship complete.
+  `required` field on `Element`, which does not exist yet). The validation engine
+  + the `aria-invalid` surfacing ship complete.
+
+## Forms maturity: value semantics, adornments, multi-select
+
+The forms follow-up closes the remaining gaps from the validation pass.
+
+- **Value-bearing ARIA roles.** Three roles join the [`Semantics`] enum —
+  `Spinbutton { value, min, max }`, `Meter { value, min, max }`, and
+  `ProgressBar { value: Option<f32> }` (`None` = indeterminate). They project the
+  same way Slider does: numeric value/min/max into both the YAML access tree
+  (`[value=.. min=.. max=..]`, or `[indeterminate]`) and the live AccessKit
+  write-path (`Role::{SpinButton, Meter, ProgressIndicator}` + `set_numeric_value`).
+  `meter`, `spin_button`, `progress`, and `progress_indeterminate` set them, so a
+  measurement or a stepper is now verifiable, not just pixels.
+- **Accessible value, decoupled from inputs.** `Element::value(..)` sets an
+  explicit `access_value` (ARIA `valuetext`) on any element, overriding the
+  input-derived value — how a spinbutton exposes `"$5.00"` or a meter `"75%"`.
+  Serializes only when set, so prior snapshots are byte-identical.
+- **Interactive spinbutton.** `spin_button` keeps its app-formatted display
+  string but `.range(value, min, max)` publishes the numeric trio and ↑/↓ step it
+  (gated at the bounds) — a real ARIA spinbutton, not a pair of buttons.
+- **Input adornments.** `text_input(..).prefix(x)`/`.suffix(x)` overlay an
+  adornment (icon, `$`, unit) absolutely at one end of the *bordered, focusable*
+  input, which is padded clear of it. Decision: overlay rather than a
+  bordered-wrapper-with-focus-within, because the framework has no focus-within;
+  keeping the border + focus ring on the real input is correct and needs no new
+  focus machinery.
+- **`multi_select`.** A wrapping set of toggleable chips (each a `checkbox` with
+  its checked state), Space/Enter to toggle — the fixed-option-set complement to
+  `tag_input` (free text) and `select` (single choice). Built on chips rather than
+  a stay-open popup listbox, which the overlay system does not model.
+- **Validation engine.** `Constraint::Step { step, base }` (CSS `step`: value on
+  the `base + k·step` grid, non-numeric passes) and `validate_all` (every failing
+  message in order, for a field that lists all its problems) join the first-failure
+  `validate`.
 
 ## Horizontal scrolling + `position: sticky` (R3 layout)
 

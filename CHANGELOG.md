@@ -4,6 +4,23 @@
 
 ### Added
 
+- **Forms maturity: value semantics, adornments, multi-select, deeper validation.**
+  - New ARIA roles surfaced through both the headless access tree and the live
+    AccessKit write-path: `meter`, `spinbutton`, and `progressbar` (carrying
+    numeric value/min/max). `meter`, `spin_button`, `progress`, and
+    `progress_indeterminate` now expose them, so they are verifiable headlessly.
+  - `spin_button` is a real ARIA spinbutton: `.range(value, min, max)` publishes
+    the numeric value, and ↑/↓ step it from the keyboard.
+  - Text-input adornments — `text_input(..).prefix(x)` / `.suffix(x)` — place an
+    icon or unit inside the field at either end (the focus ring stays on the
+    input; the text is padded clear of the adornment).
+  - New `multi_select`: a toggleable chip set with checkbox semantics
+    (Space/Enter toggles, selected chips accent-fill with a check) — the
+    fixed-option-set complement to `tag_input` (free text) and `select` (single).
+  - Validation engine deepened: `Constraint::Step { step, base }` (value on a
+    `base + k·step` grid) and `validate_all` (every failing message, not just the
+    first). New `Element::value(..)` sets a non-input control's accessible value
+    (ARIA `valuetext`).
 - **Named grid lines + `grid-template-areas`.** The second responsive-grid layer.
   Lay out by name: `grid_template_areas(["header header", "nav main", "footer
   footer"])` on a container plus `grid_area("main")` on a child place the

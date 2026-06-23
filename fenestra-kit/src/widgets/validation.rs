@@ -42,6 +42,15 @@ pub enum Constraint {
     Integer,
     /// A finite decimal number (parses as `f64`).
     Number,
+    /// A number on the grid `base + k·step` (CSS `step`), e.g. `Step { step: 0.5,
+    /// base: 0.0 }` accepts `0`, `0.5`, `1.0`, … Non-numeric values pass (pair
+    /// with [`Self::Number`]).
+    Step {
+        /// The increment between valid values (must be non-zero to fire).
+        step: f64,
+        /// The value the grid is anchored at (often `0` or the minimum).
+        base: f64,
+    },
 }
 
 impl Constraint {
@@ -78,6 +87,20 @@ impl Constraint {
                     .map(|v| !v.is_finite())
                     .unwrap_or(true);
                 bad.then(|| "Enter a number.".to_string())
+            }
+            Self::Step { step, base } => {
+                if step == 0.0 {
+                    return None;
+                }
+                match trimmed.parse::<f64>() {
+                    Ok(v) if v.is_finite() => {
+                        let k = (v - base) / step;
+                        let off = (k - k.round()).abs() * step.abs();
+                        (off > 1e-6 * step.abs().max(1.0))
+                            .then(|| format!("Must be in steps of {step}."))
+                    }
+                    _ => None,
+                }
             }
         }
     }
@@ -118,6 +141,14 @@ pub fn validate(value: &str, constraints: &[Constraint]) -> Validity {
         }
     }
     Validity::valid()
+}
+
+/// Validates `value` against `constraints`, returning EVERY failing message in
+/// order (not just the first) — for a field that lists all of its problems at
+/// once. Empty when the value is valid.
+#[must_use]
+pub fn validate_all(value: &str, constraints: &[Constraint]) -> Vec<String> {
+    constraints.iter().filter_map(|c| c.check(value)).collect()
 }
 
 /// `""` for `1`, `"s"` otherwise — for pluralizing the count messages.
@@ -208,5 +239,37 @@ mod tests {
         // not the email one.
         let v = validate("", &[Constraint::Required, Constraint::Email]);
         assert_eq!(v.message.as_deref(), Some("This field is required."));
+    }
+
+    #[test]
+    fn step_grid() {
+        let half = Constraint::Step {
+            step: 0.5,
+            base: 0.0,
+        };
+        assert!(validate("0", &[half]).valid);
+        assert!(validate("1.5", &[half]).valid);
+        assert!(!validate("0.7", &[half]).valid);
+        // Non-numeric passes (a type check is a separate constraint); empty too.
+        assert!(validate("abc", &[half]).valid);
+        assert!(validate("", &[half]).valid);
+        // A base offsets the grid: 1, 3, 5, … on step 2 from base 1.
+        let odd = Constraint::Step {
+            step: 2.0,
+            base: 1.0,
+        };
+        assert!(validate("5", &[odd]).valid);
+        assert!(!validate("4", &[odd]).valid);
+    }
+
+    #[test]
+    fn validate_all_collects_every_failure() {
+        // "ab" is too short AND not an email — both messages, in order.
+        let msgs = validate_all("ab", &[Constraint::MinLen(3), Constraint::Email]);
+        assert_eq!(msgs.len(), 2, "{msgs:?}");
+        assert!(msgs[0].contains("at least 3"));
+        assert!(msgs[1].contains("email"));
+        // A valid value yields no messages.
+        assert!(validate_all("ada@example.com", &[Constraint::Email]).is_empty());
     }
 }

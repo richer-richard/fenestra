@@ -15,7 +15,7 @@
 //!     .into();
 //! ```
 
-use fenestra_core::{Element, SP3, Theme, Transition, raw_input};
+use fenestra_core::{Element, SP3, Theme, Transition, raw_input, row, stack};
 
 use super::{ControlSize, Density};
 
@@ -30,6 +30,8 @@ pub struct TextInput<Msg> {
     disabled: bool,
     on_input: Option<std::rc::Rc<dyn Fn(String) -> Msg>>,
     key: Option<String>,
+    prefix: Option<Element<Msg>>,
+    suffix: Option<Element<Msg>>,
 }
 
 /// A single-line text input showing the app-owned `value`.
@@ -44,6 +46,8 @@ pub fn text_input<Msg>(value: impl Into<String>) -> TextInput<Msg> {
         disabled: false,
         on_input: None,
         key: None,
+        prefix: None,
+        suffix: None,
     }
 }
 
@@ -96,12 +100,50 @@ impl<Msg> TextInput<Msg> {
         self.key = Some(key.to_owned());
         self
     }
+
+    /// A leading adornment (an icon or short text like `$`) shown inside the
+    /// field at the start edge; the text is padded clear of it.
+    pub fn prefix(mut self, adornment: impl Into<Element<Msg>>) -> Self {
+        self.prefix = Some(adornment.into());
+        self
+    }
+
+    /// A trailing adornment (an icon, unit, or affordance) shown inside the
+    /// field at the end edge; the text is padded clear of it.
+    pub fn suffix(mut self, adornment: impl Into<Element<Msg>>) -> Self {
+        self.suffix = Some(adornment.into());
+        self
+    }
+}
+
+/// Width of an adornment slot — a square the field's height, so the icon sits
+/// on the text's optical center and the text clears it.
+const ADORN_SLOT: f32 = 36.0;
+
+/// An adornment positioned absolutely at one edge of the field, filling the
+/// height so its content centers vertically.
+fn adornment_slot<Msg: 'static>(content: Element<Msg>, leading: bool) -> Element<Msg> {
+    let slot = row()
+        .absolute()
+        .top(0.0)
+        .bottom(0.0)
+        .w(ADORN_SLOT)
+        .items_center()
+        .justify_center();
+    let slot = if leading {
+        slot.left(0.0)
+    } else {
+        slot.right(0.0)
+    };
+    slot.children([content])
 }
 
 impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
     fn from(t: TextInput<Msg>) -> Self {
         let invalid = t.invalid;
         let placeholder = t.placeholder.clone();
+        let width = t.width;
+        let (prefix, suffix) = (t.prefix, t.suffix);
         // Density scales the field height on the shared grid; the text size is
         // held (density is spacing, not type).
         let m = t.size.metrics_at(t.density);
@@ -115,6 +157,13 @@ impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
             .transition(Transition::colors())
             .disabled(t.disabled)
             .invalid(invalid);
+        // Reserve room for adornments so the text clears them.
+        if prefix.is_some() {
+            el = el.pl(ADORN_SLOT);
+        }
+        if suffix.is_some() {
+            el = el.pr(ADORN_SLOT);
+        }
         if !placeholder.is_empty() {
             el = el.label(placeholder);
         }
@@ -143,6 +192,18 @@ impl<Msg: 'static> From<TextInput<Msg>> for Element<Msg> {
         if let Some(f) = t.on_input {
             el = el.on_input(move |s| f(s.to_owned()));
         }
-        el
+        if prefix.is_none() && suffix.is_none() {
+            return el;
+        }
+        // Adorned: the bordered, focusable input fills a sized wrapper; the
+        // adornments overlay its padded ends (the focus ring stays on the input).
+        let mut layers = vec![el.w_full()];
+        if let Some(p) = prefix {
+            layers.push(adornment_slot(p, true));
+        }
+        if let Some(s) = suffix {
+            layers.push(adornment_slot(s, false));
+        }
+        stack().w(width).shrink0().children(layers)
     }
 }

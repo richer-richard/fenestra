@@ -629,10 +629,21 @@ fn role_from_str(role: &str) -> Result<Semantics, String> {
         "alert" => Semantics::Alert,
         "text" => Semantics::Label,
         "image" => Semantics::Image,
+        "spinbutton" => Semantics::Spinbutton {
+            value: 0.0,
+            min: 0.0,
+            max: 1.0,
+        },
+        "meter" => Semantics::Meter {
+            value: 0.0,
+            min: 0.0,
+            max: 1.0,
+        },
+        "progressbar" => Semantics::ProgressBar { value: None },
         other => {
             return Err(format!(
                 "unknown role {other:?} (expected button/checkbox/switch/radio/slider/\
-                 textbox/combobox/dialog/tab/alert/text/image)"
+                 textbox/combobox/dialog/tab/alert/text/image/spinbutton/meter/progressbar)"
             ));
         }
     })

@@ -806,10 +806,10 @@ fn build<Msg>(
         Kind::Rich(spans) => Some(spans.iter().map(|s| s.text.as_str()).collect()),
         _ => None,
     });
-    let value = match &el.kind {
+    let value = el.access_value.clone().or_else(|| match &el.kind {
         Kind::Input(data) => Some(data.value.clone()),
         _ => None,
-    };
+    });
 
     BuiltNode {
         taffy,

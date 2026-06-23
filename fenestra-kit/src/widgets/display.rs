@@ -265,6 +265,7 @@ pub fn progress_indeterminate<Msg>() -> Element<Msg> {
         .h(4.0)
         .rounded(R_FULL)
         .overflow_hidden()
+        .semantics(Semantics::ProgressBar { value: None })
         .themed(|t: &Theme, s| s.bg(t.neutrals.step(4)))
         .children([div()
             .h_full()
@@ -285,6 +286,10 @@ pub fn progress<Msg>(fraction: f32) -> Element<Msg> {
         .w_full()
         .h(4.0)
         .rounded(R_FULL)
+        .semantics(Semantics::ProgressBar {
+            value: Some(fraction),
+        })
+        .value(format!("{:.0}%", fraction * 100.0))
         .themed(|t: &Theme, s| s.bg(t.neutrals.step(4)))
         .children([div()
             .id("fill")
@@ -427,12 +432,21 @@ impl<Msg> From<Meter> for Element<Msg> {
                 };
                 s.bg(c)
             });
-        let track = div()
+        let mut track = div()
             .w_full()
             .h(8.0)
             .rounded(R_FULL)
             .themed(|t: &Theme, s| s.bg(t.neutrals.step(4)))
-            .children([fill]);
+            .children([fill])
+            .semantics(Semantics::Meter {
+                value: m.value,
+                min: m.min,
+                max: m.max,
+            })
+            .value(format!("{:.0}%", frac * 100.0));
+        if let Some(label) = &m.label {
+            track = track.label(label.clone());
+        }
 
         match m.label {
             Some(label) => {

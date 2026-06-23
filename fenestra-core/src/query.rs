@@ -210,6 +210,9 @@ pub(crate) fn role_name(semantics: &Semantics) -> &'static str {
         Semantics::Alert => "alert",
         Semantics::Label => "text",
         Semantics::Image => "image",
+        Semantics::Spinbutton { .. } => "spinbutton",
+        Semantics::Meter { .. } => "meter",
+        Semantics::ProgressBar { .. } => "progressbar",
     }
 }
 
@@ -313,9 +316,15 @@ impl Frame {
                 Some(Semantics::Switch { on: true }) => out.push_str(" [on]"),
                 Some(Semantics::Radio { selected: true })
                 | Some(Semantics::Tab { selected: true }) => out.push_str(" [selected]"),
-                Some(Semantics::Slider { value, min, max }) => {
+                Some(Semantics::Slider { value, min, max })
+                | Some(Semantics::Spinbutton { value, min, max })
+                | Some(Semantics::Meter { value, min, max }) => {
                     out.push_str(&format!(" [value={value} min={min} max={max}]"));
                 }
+                Some(Semantics::ProgressBar { value: Some(v) }) => {
+                    out.push_str(&format!(" [value={v}]"));
+                }
+                Some(Semantics::ProgressBar { value: None }) => out.push_str(" [indeterminate]"),
                 Some(Semantics::TextInput { multiline: true }) => out.push_str(" [multiline]"),
                 _ => {}
             }

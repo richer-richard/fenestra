@@ -357,6 +357,30 @@ pub enum Semantics {
     Label,
     /// An image (automatic for image leaves).
     Image,
+    /// A numeric input stepped by buttons / arrow keys (CSS `<input type=number>`).
+    Spinbutton {
+        /// Current value.
+        value: f32,
+        /// Minimum value.
+        min: f32,
+        /// Maximum value.
+        max: f32,
+    },
+    /// A scalar measurement within a known range (the HTML `<meter>`).
+    Meter {
+        /// Current value.
+        value: f32,
+        /// Minimum value.
+        min: f32,
+        /// Maximum value.
+        max: f32,
+    },
+    /// Task completion. `value` is the fraction `0.0..=1.0`, or `None` when the
+    /// progress is indeterminate.
+    ProgressBar {
+        /// Completed fraction `0.0..=1.0`, or `None` for indeterminate.
+        value: Option<f32>,
+    },
 }
 
 impl Semantics {
@@ -506,6 +530,9 @@ pub struct Element<Msg> {
     pub(crate) responsive: Option<ResponsiveData<Msg>>,
     /// Accessible role and state (kit widgets set it; leaves auto-project).
     pub(crate) semantics: Option<Semantics>,
+    /// Explicit accessible value (ARIA `valuetext`), overriding the input-derived
+    /// one. Widgets like spinbutton/meter set it to a formatted value string.
+    pub(crate) access_value: Option<String>,
     /// Announce content changes to assistive technology (polite).
     pub(crate) live: bool,
     /// Static text: users can drag-select and copy it.
@@ -569,6 +596,7 @@ impl<Msg> Element<Msg> {
             virtual_rows: None,
             responsive: None,
             semantics: None,
+            access_value: None,
             live: false,
             selectable: false,
             enter: None,
@@ -963,6 +991,14 @@ impl<Msg> Element<Msg> {
     /// use their content automatically).
     pub fn label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Sets the accessible value (ARIA `valuetext`) for a non-input control —
+    /// e.g. a spinbutton's formatted "$5.00" or a meter's "75%". Text inputs
+    /// derive their value from the edited text; this overrides it.
+    pub fn value(mut self, value: impl Into<String>) -> Self {
+        self.access_value = Some(value.into());
         self
     }
 
@@ -1945,6 +1981,7 @@ impl<Msg: 'static> Element<Msg> {
                 }
             }),
             semantics: self.semantics,
+            access_value: self.access_value,
             live: self.live,
             selectable: self.selectable,
             enter: self.enter,

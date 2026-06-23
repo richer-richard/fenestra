@@ -49,10 +49,17 @@ fn push_node(nodes: &mut Vec<(NodeId, Node)>, an: &AccessNode, is_root: bool, sc
         Some(Semantics::Switch { on }) => node.set_toggled(toggled(on)),
         Some(Semantics::Radio { selected }) => node.set_toggled(toggled(selected)),
         Some(Semantics::Tab { selected }) => node.set_selected(selected),
-        Some(Semantics::Slider { value, min, max }) => {
+        Some(Semantics::Slider { value, min, max })
+        | Some(Semantics::Spinbutton { value, min, max })
+        | Some(Semantics::Meter { value, min, max }) => {
             node.set_numeric_value(f64::from(value));
             node.set_min_numeric_value(f64::from(min));
             node.set_max_numeric_value(f64::from(max));
+        }
+        Some(Semantics::ProgressBar { value: Some(v) }) => {
+            node.set_numeric_value(f64::from(v));
+            node.set_min_numeric_value(0.0);
+            node.set_max_numeric_value(1.0);
         }
         _ => {}
     }
@@ -99,6 +106,9 @@ fn role_of(an: &AccessNode) -> Role {
         Some(Semantics::Alert) => Role::Alert,
         Some(Semantics::Label) => Role::Label,
         Some(Semantics::Image) => Role::Image,
+        Some(Semantics::Spinbutton { .. }) => Role::SpinButton,
+        Some(Semantics::Meter { .. }) => Role::Meter,
+        Some(Semantics::ProgressBar { .. }) => Role::ProgressIndicator,
         None => Role::GenericContainer,
     }
 }

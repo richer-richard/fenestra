@@ -13,6 +13,7 @@ mod field;
 mod glass;
 mod kbd;
 mod menu;
+mod multi_select;
 mod navigation;
 mod overlay_widgets;
 mod palette;
@@ -51,6 +52,7 @@ pub use menu::{
     Menu, MenuItem, Menubar, context_menu, dropdown_menu, menu, menu_item, menu_items,
     menu_separator, menubar, popover,
 };
+pub use multi_select::{MultiSelect, multi_select};
 pub use navigation::{
     Breadcrumbs, Crumb, Pagination, Stepper, breadcrumbs, crumb, pagination, stepper,
 };
