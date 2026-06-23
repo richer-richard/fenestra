@@ -1,6 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.35.0 — 2026-06-24
+
+The maturity pass: responsive grid follow-up, forms depth, internationalization,
+and navigation/gestures — each taken to a complete, tested, web-grade feature.
 
 ### Added
 
