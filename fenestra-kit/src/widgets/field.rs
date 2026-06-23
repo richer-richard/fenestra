@@ -69,6 +69,17 @@ impl<Msg> Field<Msg> {
         self.required = required;
         self
     }
+
+    /// Shows a [`Validity`](crate::validation::Validity)'s failing message as the
+    /// field error (a no-op when valid). Pair with `.invalid(!v.valid)` on the
+    /// wrapped control for the matching danger ring.
+    #[must_use]
+    pub fn validity(mut self, v: &super::validation::Validity) -> Self {
+        if let Some(message) = &v.message {
+            self.error = Some(message.clone());
+        }
+        self
+    }
 }
 
 impl<Msg> From<Field<Msg>> for Element<Msg> {

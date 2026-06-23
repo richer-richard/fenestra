@@ -35,6 +35,12 @@
   (track strings like `"1fr"` / `"200px"`, or `minmax` / `fit_content` / `repeat`
   objects), so a responsive grid is describable and verifiable through the scenario
   loop. (Named grid lines + `grid-template-areas` are a tracked follow-up.)
+- **Form constraint validation.** A pure engine in `fenestra-kit::validation`:
+  `Constraint` (`Required` / `MinLen` / `MaxLen` / `Min` / `Max` / `Email` /
+  `Integer` / `Number`) + `validate(value, &[Constraint]) -> Validity` (valid +
+  the first failing message), plus `Field::validity(&v)` to show it. Elm-pure —
+  the app validates in `view` and wires `.invalid(..)` + the field error. Regex
+  `pattern` is intentionally out (the widget crate stays `regex`-free).
 
 ## 0.33.0 — 2026-06-22
 

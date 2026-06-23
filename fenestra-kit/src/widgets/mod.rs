@@ -29,6 +29,7 @@ mod text_input;
 mod toast;
 mod toolbar;
 mod tree;
+pub mod validation;
 mod virtual_list;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};

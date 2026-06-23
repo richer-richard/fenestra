@@ -2093,3 +2093,30 @@ CSS `<track-size>` / `<track-list>` grammar in fenestra's `Style` and mapping it
   describe-vocab pass. They are a separable second layer, tracked rather than
   half-built — the responsive core (the reason grids are "responsive") ships
   complete and standalone, in both the builders and the JSON vocabulary.
+
+## Form constraint validation (kit)
+
+A small, pure validation engine mirroring the web's Constraint Validation API,
+kept Elm-clean: validation logic never lives in a widget. The app holds the
+value, calls `validate` in its `view`, and wires the result.
+
+- **`Constraint` + `validate` + `Validity`.** `validate(value, &[Constraint])`
+  returns a `Validity { valid, message }` carrying the *first* failing
+  constraint's message (so list constraints most-fundamental-first — usually
+  `Required`). Constraints: `Required`, `MinLen`/`MaxLen` (Unicode scalar count),
+  `Min`/`Max` (numeric), `Email`, `Integer`, `Number`. Every constraint but
+  `Required` passes on an empty value, exactly like HTML — an optional field is
+  valid until filled.
+- **`Field::validity(&Validity)`** shows the failing message as the field's error
+  text; the app pairs it with `.invalid(!v.valid)` on the wrapped control for the
+  matching danger ring. A light/dark golden renders an invalid email field (the
+  message) above a valid one (muted help).
+- **No `regex` in the widget crate (a deliberate dependency boundary).**
+  `fenestra-kit` depends only on `fenestra-core` + `kurbo`; a general `pattern`
+  validator would pull in `regex`, so it is intentionally omitted — validate a
+  pattern app-side, or at the `fenestra-describe` boundary where `regex` already
+  lives. The regex-free constraints cover the practical bulk.
+- **Deferred (logged on the forms task):** surfacing `aria-invalid` / `required`
+  in the access tree (so validity is *verifiable* through the R2b scenario loop),
+  plus date-range and input adornments. The validation engine itself ships
+  complete and standalone.
