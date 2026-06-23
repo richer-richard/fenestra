@@ -68,6 +68,7 @@ fn interact_miss_is_self_explaining() {
             );
         }
         EngineError::Parse(e) => panic!("expected a Step error, got Parse: {e:?}"),
+        EngineError::Scenario(m) => panic!("expected a Step error, got Scenario: {m}"),
     }
 }
 

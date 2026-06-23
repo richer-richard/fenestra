@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **The verify loop is closed: unified scenario verification.** A `Scenario` — a
+  description, optional interaction steps, and a bundle of expectations — runs in
+  one pass and returns a single `VerifyReport` (overall `ok` + a per-check
+  breakdown). Expectations: `emitted` author intents, `a11y` (legible + every
+  control named), `aria` snapshot match, `screenshot` baseline diff, and `queries`
+  (selector → match count). The screenshot check compares the **post-interaction**
+  pixels — so "after this click, the screen looks like this baseline" is now
+  verifiable, not just the static render.
+- **`fenestra verify <scenario>`** drives the steps, asserts every expectation, and
+  signals one verdict through the exit code (`0` ok · `1` a check failed · `3` a
+  setup/IO error). `--bless` (re)writes the screenshot baseline from the current
+  render (capture once, then verify); `--out` writes the diff PNG on a mismatch.
+- **`run_scenario`** is a ninth `fenestra-mcp` tool: the same unified verify over
+  the MCP boundary, returning the structured report plus a preview (the diff on a
+  screenshot miss, else the final render). A failing verdict is a normal result.
+- **`fenestra-describe::inspect`** gains frame-level primitives so verification can
+  read a post-interaction frame, not only a static description: `frame_a11y`,
+  `match_aria_text`, and `query_tree`. `fenestra-render` gains public `diff_images`
+  (compare an already-rendered image to a baseline) and the `scenario` module
+  (`Scenario` / `verify` / `bless`). All additive — existing APIs are unchanged.
+
 ## 0.33.0 — 2026-06-22
 
 A craft pass that deepens the 0.32 vocabulary widgets from first-cut MVPs into

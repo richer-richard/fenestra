@@ -32,6 +32,11 @@ pub enum EngineError {
         /// The accessibility tree at the point of failure, for self-correction.
         tree: String,
     },
+    /// A scenario could not be set up: an unrecognized schema tag, an invalid
+    /// theme or size, an unreadable screenshot baseline, or a malformed expected
+    /// pattern. Distinct from a *verification failure* (a check that ran and did
+    /// not pass), which is a normal verify report the caller reads.
+    Scenario(String),
 }
 
 impl std::fmt::Display for EngineError {
@@ -49,6 +54,7 @@ impl std::fmt::Display for EngineError {
                 message,
                 tree,
             } => write!(f, "step {index}: {message}\naccessibility tree:\n{tree}"),
+            Self::Scenario(message) => write!(f, "scenario error: {message}"),
         }
     }
 }
@@ -155,23 +161,10 @@ pub fn interact(
     steps: &[Step],
     want_png: bool,
 ) -> Result<InteractOut, EngineError> {
-    // Validate first, so a parse error is reported before we drive anything.
-    to_element(desc, theme).map_err(EngineError::Parse)?;
-    let app = DescribedApp::new(desc.clone(), theme.clone());
-    let mut h = Harness::new(app, theme.clone(), size);
-    for (index, step) in steps.iter().enumerate() {
-        apply_step(&mut h, step, index)?;
-    }
+    let mut h = drive(desc, theme, size, steps)?;
     // Map the emitted actions: keep the inert author intents (the Elm-level
     // signal); the framework-owned Set actions are already applied to the state.
-    let emitted = h
-        .take_messages()
-        .into_iter()
-        .filter_map(|a| match a {
-            Action::Intent(s) => Some(s),
-            Action::SetBool(..) | Action::SetText(..) | Action::SetNumber(..) => None,
-        })
-        .collect();
+    let emitted = emitted_intents(&mut h);
     let state = h.app().state().clone();
     let tree = inspect::frame_access_tree(h.frame());
     let png = if want_png { Some(h.render()) } else { None };
@@ -181,6 +174,38 @@ pub fn interact(
         png,
         state,
     })
+}
+
+/// Validates the description (so a parse error is reported before anything is
+/// driven), then runs `steps` on a fresh headless harness and hands back the
+/// live harness for inspection — the post-interaction frame, state, and emitted
+/// messages. The shared spine of [`interact`] and scenario `verify`.
+pub(crate) fn drive(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+    steps: &[Step],
+) -> Result<Harness<DescribedApp>, EngineError> {
+    to_element(desc, theme).map_err(EngineError::Parse)?;
+    let app = DescribedApp::new(desc.clone(), theme.clone());
+    let mut h = Harness::new(app, theme.clone(), size);
+    for (index, step) in steps.iter().enumerate() {
+        apply_step(&mut h, step, index)?;
+    }
+    Ok(h)
+}
+
+/// Drains the harness's emitted messages down to the inert author intents (the
+/// Elm-level signal); the framework-owned `Set*` actions are already applied to
+/// the runtime state, so they are dropped here.
+pub(crate) fn emitted_intents(h: &mut Harness<DescribedApp>) -> Vec<String> {
+    h.take_messages()
+        .into_iter()
+        .filter_map(|a| match a {
+            Action::Intent(s) => Some(s),
+            Action::SetBool(..) | Action::SetText(..) | Action::SetNumber(..) => None,
+        })
+        .collect()
 }
 
 /// Resolves a selector against the harness's current frame, returning a
@@ -336,7 +361,7 @@ pub fn match_screenshot(
 ) -> Result<ScreenshotDiff, EngineError> {
     let el = to_element(desc, theme).map_err(EngineError::Parse)?;
     let actual = render_element(el, theme, size);
-    Ok(compare(baseline, &actual, channel_tol, budget, masks))
+    Ok(diff_images(baseline, &actual, channel_tol, budget, masks))
 }
 
 /// Whether `(x, y)` lies inside any mask rectangle.
@@ -347,8 +372,14 @@ fn masked(x: u32, y: u32, masks: &[Bounds]) -> bool {
     })
 }
 
-/// Compares two images, producing the diff stats and (on failure) a diff image.
-fn compare(
+/// Compares two images, producing the diff stats and (on failure) a diff image:
+/// offending pixels (those whose per-channel delta exceeds `channel_tol`) in red
+/// over the dimmed baseline, masked rectangles excluded. `ok` when the differing
+/// fraction is within `budget`. Exposed so a caller that already holds the actual
+/// pixels (e.g. a driven scenario's post-interaction render) can diff against a
+/// baseline without re-rendering.
+#[must_use]
+pub fn diff_images(
     golden: &RgbaImage,
     actual: &RgbaImage,
     channel_tol: u8,

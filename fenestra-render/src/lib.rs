@@ -5,10 +5,16 @@
 
 pub mod described_app;
 pub mod engine;
+pub mod scenario;
 pub mod theme_input;
 
 pub use described_app::DescribedApp;
 pub use engine::{
-    EngineError, InteractOut, RenderOut, ScreenshotDiff, Step, interact, match_screenshot, render,
+    EngineError, InteractOut, RenderOut, ScreenshotDiff, Step, diff_images, interact,
+    match_screenshot, render,
+};
+pub use scenario::{
+    AriaExpect, CheckOutcome, Expect, QueryExpect, Scenario, ScreenshotExpect, VerifyOut,
+    VerifyReport, bless, verify,
 };
 pub use theme_input::resolve_theme;

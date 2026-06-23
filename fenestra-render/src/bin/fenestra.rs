@@ -17,6 +17,7 @@ use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
 use fenestra_render::engine::{Step, interact, match_screenshot, render};
 use fenestra_render::resolve_theme;
+use fenestra_render::scenario::{Scenario, bless, verify};
 use serde_json::json;
 
 #[derive(Parser)]
@@ -117,6 +118,20 @@ enum Command {
     Vocabulary,
     /// Validate a description without rendering.
     Validate { desc: Option<PathBuf> },
+    /// Run a scenario: drive its steps, assert every expectation, one verdict.
+    /// The screenshot check compares the *post-interaction* pixels — the closed
+    /// verify loop.
+    Verify {
+        /// Scenario path, or `-`/omitted for stdin.
+        scenario: Option<PathBuf>,
+        /// Write the diff PNG here (on a screenshot mismatch).
+        #[arg(long)]
+        out: Option<PathBuf>,
+        /// (Re)write the scenario's screenshot baseline from the current render
+        /// instead of verifying against it.
+        #[arg(long)]
+        bless: bool,
+    },
 }
 
 const EXIT_VERIFY_FAILED: u8 = 1;
@@ -162,6 +177,11 @@ fn main() -> ExitCode {
         } => cmd_match_png(desc, &baseline, tolerance, budget, &size, theme, out),
         Command::Vocabulary => cmd_vocabulary(),
         Command::Validate { desc } => cmd_validate(desc),
+        Command::Verify {
+            scenario,
+            out,
+            bless,
+        } => cmd_verify(scenario, out.as_deref(), bless),
     }
 }
 
@@ -345,6 +365,39 @@ fn cmd_validate(desc: Option<PathBuf>) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(errs) => fail_parse(&errs),
+    }
+}
+
+fn cmd_verify(scenario: Option<PathBuf>, out: Option<&Path>, do_bless: bool) -> ExitCode {
+    let json = match read_input(scenario.as_deref()) {
+        Ok(j) => j,
+        Err(e) => return err(&format!("error reading scenario: {e}")),
+    };
+    let scenario: Scenario = match serde_json::from_str(&json) {
+        Ok(s) => s,
+        Err(e) => return err(&format!("invalid scenario json: {e}")),
+    };
+    if do_bless {
+        return match bless(&scenario) {
+            Ok(path) => {
+                eprintln!("blessed {}", path.display());
+                ExitCode::SUCCESS
+            }
+            Err(e) => fail(&e),
+        };
+    }
+    match verify(&scenario) {
+        Ok(v) => {
+            print_json(&v.report);
+            if let (Some(path), Some(diff)) = (out, v.diff_png.as_ref()) {
+                if let Err(e) = diff.save(path) {
+                    return err(&format!("error writing diff: {e}"));
+                }
+                eprintln!("wrote {}", path.display());
+            }
+            verdict(v.report.ok)
+        }
+        Err(e) => fail(&e),
     }
 }
 

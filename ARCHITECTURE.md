@@ -1982,3 +1982,62 @@ switch travels its knob.
 - **API note.** `segmented` and `wavy_progress` now return builders (`Segmented` /
   `WavyProgress`) to carry their new options; inside `children([..])` they coerce
   through `Into<Element>`, so most call sites are unchanged.
+
+## The verify loop closed (R2b): unified scenario verification
+
+The per-command engine (render / query / interact / check / match-aria / match-png)
+left two gaps an agent had to bridge by hand. R2b closes both with one declarative
+artifact — a `Scenario` — that `fenestra_render::scenario::verify` runs in a single
+pass, returning one `VerifyReport` (an overall `ok` plus a per-check breakdown).
+
+- **Scenario shot compares (the headline gap).** `match_screenshot` only diffed the
+  *static* render, so "after I click Submit, the screen looks like this baseline"
+  was unverifiable. A scenario's screenshot expectation is now diffed against the
+  *post-interaction* pixels when the scenario has steps: `verify` drives the steps
+  on the headless `Harness`, then compares `harness.render()` to the baseline. A
+  regression test proves it — the same bound-checkbox UI matches a blessed
+  after-click baseline but a static (pre-click) render does not.
+- **Unified verify.** One scenario replaces a hand-reconciled sequence of separate
+  commands and exit codes. Every requested expectation — `emitted` (exact intent
+  list), `a11y` (legible + every control named), `aria` (snapshot match, any mode),
+  `screenshot` (baseline + tolerance/budget/masks), and `queries` (selector → match
+  count) — runs against the *same* frame and folds into a single verdict. An empty
+  `expect` is a smoke gate (parses + renders). A failed *check* is a normal report
+  (`ok: false`), not an error.
+- **Checks read the post-interaction frame, uniformly.** With steps, every
+  structural check sees the driven state, not the static description. This needed
+  three pure-additive refactors in `fenestra-describe::inspect` so the same logic
+  runs against a live `Frame` as against a `Description`: `frame_a11y(frame, theme)`
+  (the a11y assembly `check_a11y` now delegates to), `match_aria_text(actual,
+  expected, mode)` (the matcher `match_aria` delegates to), and `query_tree(tree,
+  selector)` (the matcher `query` delegates to). The existing public functions are
+  byte-for-byte behavior-preserving; the new ones are the frame-level primitives.
+- **`engine::drive` + `diff_images`.** `interact` was refactored to share its
+  harness-driving spine (`drive`, `pub(crate)`) with `verify`, and the private
+  image comparator is now public as `diff_images`, so `verify` diffs an
+  already-rendered (post-interaction) image without re-rendering. `verify` itself
+  composes existing engine pieces; no interaction logic is duplicated.
+- **`bless`: the authoring affordance.** `bless(scenario)` renders the scenario's
+  final (post-interaction) frame and writes it to the `expect.screenshot.baseline`
+  path — so you capture a baseline once, then verify against it. The CLI exposes it
+  as `fenestra verify <scenario> --bless`; without `--bless` the command prints the
+  report and signals the verdict through the exit code (`0` ok, `1` a check failed,
+  `3` a setup/IO error), with `--out` writing the diff PNG on a screenshot miss.
+- **`EngineError::Scenario` separates setup from verdict.** A scenario that cannot
+  *run* (an unknown schema tag, a bad theme/size, an unreadable baseline, a
+  malformed expected pattern) is an `EngineError::Scenario` (exit 3 / an MCP
+  `invalid_params`), distinct from a check that ran and did not pass (a normal
+  report). This is the same "a verification mismatch is not an error" contract the
+  MCP `match_*` tools already follow.
+- **`run_scenario` is the ninth MCP tool.** It deserializes a scenario, runs
+  `verify` off the async runtime, and returns the structured `VerifyReport` plus a
+  preview — the diff image on a screenshot miss, else the final render. Like the
+  other image-bearing tools it returns a `CallToolResult` (no derived
+  `outputSchema`), and like `match_screenshot` a failing verdict is a normal
+  result, not `isError`.
+- **`verify` always renders pixels (a deliberate layering call).** Even a
+  structural-only scenario produces a final-render preview, because `fenestra-render`
+  *is* the GPU layer; an agent or CI gate that wants no-GPU structural checks calls
+  `fenestra-describe` (`query` / `check_a11y` / `match_aria`) directly, as before.
+  The committed `tests/scenarios/login.json` fixture exercises the full multi-step
+  flow (focus, type, toggle, submit) through both the engine and the CLI.

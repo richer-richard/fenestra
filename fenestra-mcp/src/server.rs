@@ -16,6 +16,7 @@ use fenestra_describe::inspect::{self, AriaMode, Selector};
 use fenestra_describe::vocabulary::Vocabulary;
 use fenestra_render::engine::{self, EngineError, Step};
 use fenestra_render::resolve_theme;
+use fenestra_render::scenario;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{ServerCapabilities, ServerInfo};
 use rmcp::{
@@ -236,6 +237,41 @@ impl FenestraServer {
             )),
         }
     }
+
+    #[tool(
+        name = "run_scenario",
+        description = "Run a verification scenario in one pass: a fenestra/1 description, optional interaction steps, and a bundle of expectations (emitted intents, a11y, an aria snapshot, a screenshot baseline, query match-counts). Drives the steps, then asserts every expectation against the resulting frame — the screenshot check compares the POST-interaction pixels. Returns a unified report (one `ok` plus a per-check breakdown) and a preview: the diff image on a screenshot mismatch, else the final render. A failed check is a normal result, not an error."
+    )]
+    async fn run_scenario(
+        &self,
+        Parameters(p): Parameters<RunScenarioParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let scenario: scenario::Scenario = serde_json::from_value(p.scenario.clone())
+            .map_err(|e| ErrorData::invalid_params(format!("invalid scenario: {e}"), None))?;
+        let out = blocking(move || scenario::verify(&scenario))
+            .await?
+            .map_err(engine_err)?;
+        let scenario::VerifyOut {
+            report,
+            png,
+            diff_png,
+        } = out;
+        let structured = serde_json::to_value(&report).map_err(|e| {
+            ErrorData::internal_error(format!("cannot serialize report: {e}"), None)
+        })?;
+        let passed = report.checks.iter().filter(|c| c.ok).count();
+        let mut text = format!(
+            "verify {}: {passed}/{} check(s) passed",
+            if report.ok { "PASS" } else { "FAIL" },
+            report.checks.len(),
+        );
+        for c in report.checks.iter().filter(|c| !c.ok) {
+            text.push_str(&format!("\n  ✗ {}: {}", c.name, c.detail));
+        }
+        // Lead the preview with the diff on a screenshot miss, else the final render.
+        let image = diff_png.as_ref().or(Some(&png));
+        Ok(content::ok(text, structured, image))
+    }
 }
 
 #[tool_handler]
@@ -252,8 +288,10 @@ impl ServerHandler for FenestraServer {
             "fenestra renders and verifies native UIs described as fenestra/1 JSON. Call \
              describe_vocabulary first to learn the format; render_ui to see a UI and its \
              accessibility warnings; query_ui, check_a11y, match_aria_snapshot, and \
-             match_screenshot to assert; interact to drive it; validate to check a \
-             description without rendering."
+             match_screenshot to assert; interact to drive it; run_scenario to drive steps \
+             and assert a whole bundle of expectations in one pass (the screenshot check \
+             compares the post-interaction pixels); validate to check a description without \
+             rendering."
                 .to_string(),
         );
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
@@ -351,6 +389,13 @@ struct ValidateParams {
     description: Value,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Default)]
+struct RunScenarioParams {
+    /// The scenario: a `fenestra/1` description, optional `steps`, and an `expect`
+    /// bundle (emitted/a11y/aria/screenshot/queries).
+    scenario: Value,
+}
+
 fn default_mode() -> String {
     "partial".to_string()
 }
@@ -398,7 +443,7 @@ where
 /// includes the access tree for selector misses).
 fn engine_err(e: EngineError) -> ErrorData {
     match e {
-        EngineError::Parse(_) | EngineError::Step { .. } => {
+        EngineError::Parse(_) | EngineError::Step { .. } | EngineError::Scenario(_) => {
             ErrorData::invalid_params(e.to_string(), None)
         }
     }
@@ -432,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_list_has_all_eight_with_schemas() {
+    fn tool_list_has_all_nine_with_schemas() {
         let tools = FenestraServer::tool_router().list_all();
         let names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
         for expected in [
@@ -444,13 +489,14 @@ mod tests {
             "match_screenshot",
             "describe_vocabulary",
             "validate",
+            "run_scenario",
         ] {
             assert!(
                 names.iter().any(|n| n == expected),
                 "missing {expected}; have {names:?}"
             );
         }
-        assert_eq!(names.len(), 8, "exactly eight tools");
+        assert_eq!(names.len(), 9, "exactly nine tools");
         // Every tool advertises an input schema object.
         for t in &tools {
             assert!(!t.input_schema.is_empty(), "{} has no input schema", t.name);
@@ -553,5 +599,52 @@ mod tests {
     fn server_identifies_as_fenestra() {
         let info = FenestraServer::new().get_info();
         assert_eq!(info.server_info.name, "fenestra-mcp");
+    }
+
+    #[tokio::test]
+    async fn run_scenario_passes_and_fails_as_normal_results() {
+        let s = FenestraServer::new();
+
+        // A passing scenario: a labeled button clears a11y and the button query.
+        let pass = json!({
+            "schema": "fenestra/1",
+            "description": good(),
+            "size": "300x120",
+            "expect": { "a11y": true, "queries": [ { "selector": { "role": "button" }, "count": 1 } ] }
+        });
+        let r = s
+            .run_scenario(Parameters(RunScenarioParams { scenario: pass }))
+            .await
+            .unwrap();
+        assert_ne!(r.is_error, Some(true), "a passing scenario is not an error");
+        let structured = r.structured_content.as_ref().expect("structured content");
+        assert_eq!(
+            structured.get("ok").and_then(serde_json::Value::as_bool),
+            Some(true),
+            "{structured}"
+        );
+
+        // A failing check (wrong query count) is a normal result, not isError.
+        let fail = json!({
+            "schema": "fenestra/1",
+            "description": good(),
+            "size": "300x120",
+            "expect": { "queries": [ { "selector": { "role": "button" }, "count": 5 } ] }
+        });
+        let r = s
+            .run_scenario(Parameters(RunScenarioParams { scenario: fail }))
+            .await
+            .unwrap();
+        assert_ne!(
+            r.is_error,
+            Some(true),
+            "a failed check is a normal result, not a protocol error"
+        );
+        let structured = r.structured_content.as_ref().expect("structured content");
+        assert_eq!(
+            structured.get("ok").and_then(serde_json::Value::as_bool),
+            Some(false),
+            "{structured}"
+        );
     }
 }

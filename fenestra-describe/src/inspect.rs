@@ -209,10 +209,27 @@ pub fn query(
         )]);
     }
     let tree = access_tree(desc, theme, size)?;
+    query_tree(&tree, selector).map_err(|e| vec![e])
+}
+
+/// Finds nodes matching the selector in an already-captured access `tree` — the
+/// primitive [`query`] builds on, exposed so a caller that already holds a tree
+/// (e.g. a driven scenario's post-interaction after-tree) can query it without
+/// re-rendering. On a miss, returns the nearest candidates.
+///
+/// # Errors
+/// An empty selector (set at least one of role, name, value, or id).
+pub fn query_tree(tree: &AccessNodeDto, selector: &Selector) -> Result<QueryResult, DescribeError> {
+    if selector.is_empty() {
+        return Err(DescribeError::new(
+            "selector",
+            "empty selector: set role, name, value, or id",
+        ));
+    }
     let mut matches = Vec::new();
-    collect_matching(&tree, selector, &mut matches);
+    collect_matching(tree, selector, &mut matches);
     let nearest = if matches.is_empty() {
-        nearest_candidates(&tree, selector, 5)
+        nearest_candidates(tree, selector, 5)
     } else {
         Vec::new()
     };
@@ -374,10 +391,25 @@ pub fn match_aria(
     mode: AriaMode,
 ) -> Result<AriaDiff, Vec<DescribeError>> {
     let actual = aria_snapshot(desc, theme, size)?;
+    match_aria_text(&actual, expected, mode).map_err(|e| vec![e])
+}
+
+/// Matches an expected aria snapshot against an `actual` snapshot string — the
+/// frame-level primitive [`match_aria`] builds on, exposed so a caller that
+/// already holds a snapshot (e.g. a driven scenario's post-interaction
+/// `Frame::access_yaml`) can match without re-rendering.
+///
+/// # Errors
+/// In [`AriaMode::Regex`], an invalid regular expression in `expected`.
+pub fn match_aria_text(
+    actual: &str,
+    expected: &str,
+    mode: AriaMode,
+) -> Result<AriaDiff, DescribeError> {
     match mode {
-        AriaMode::Strict => Ok(strict_diff(expected, &actual)),
-        AriaMode::Partial => Ok(literal_subsequence_diff(expected, &actual)),
-        AriaMode::Regex => regex_subsequence_diff(expected, &actual).map_err(|e| vec![e]),
+        AriaMode::Strict => Ok(strict_diff(expected, actual)),
+        AriaMode::Partial => Ok(literal_subsequence_diff(expected, actual)),
+        AriaMode::Regex => regex_subsequence_diff(expected, actual),
     }
 }
 
@@ -492,7 +524,16 @@ pub fn check_a11y(
     theme: &Theme,
     size: (u32, u32),
 ) -> Result<A11yReport, Vec<DescribeError>> {
-    let frame = build(desc, theme, size)?;
+    Ok(frame_a11y(&build(desc, theme, size)?, theme))
+}
+
+/// The accessibility report read from an already-built [`Frame`] — the same
+/// evidence as [`check_a11y`], but for a frame the caller already has (e.g. the
+/// *post-interaction* frame of a driven scenario, whose state differs from the
+/// static description). `theme` supplies the contrast contract and window
+/// background the per-node legibility measures against.
+#[must_use]
+pub fn frame_a11y(frame: &Frame, theme: &Theme) -> A11yReport {
     let tree = node_to_dto(&frame.access_tree(), &[]);
 
     let contrast_violations: Vec<ContrastDto> = theme
@@ -538,12 +579,12 @@ pub fn check_a11y(
     // marginal control-label miss does not flip the whole screen to illegible.
     let legible = contrast_violations.is_empty();
 
-    Ok(A11yReport {
+    A11yReport {
         legible,
         contrast_violations,
         unlabeled,
         node_legibility,
-    })
+    }
 }
 
 /// Collects interactive nodes that lack an accessible name.

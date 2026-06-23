@@ -1,0 +1,42 @@
+{
+  "schema": "fenestra/1",
+  "description": {
+    "schema": "fenestra/1",
+    "state": { "email": "", "remember": false },
+    "root": {
+      "col": {
+        "style": { "p": 24, "gap": 16, "bg": "surface", "rounded": 12 },
+        "children": [
+          { "text": { "content": "Sign in", "style": { "size_px": 22, "weight": 600 } } },
+          { "text_input": { "bind": "email", "placeholder": "Email", "id": "email" } },
+          { "checkbox": { "bind": "remember", "label": "Remember me", "id": "remember" } },
+          {
+            "row": {
+              "style": { "gap": 8, "justify": "end" },
+              "children": [
+                { "button": { "label": "Cancel", "on_click": "cancel" } },
+                { "button": { "label": "Sign in", "on_click": "submit" } }
+              ]
+            }
+          }
+        ]
+      }
+    }
+  },
+  "size": "480x320",
+  "steps": [
+    { "click": { "id": "email" } },
+    { "type": "ada@example.com" },
+    { "click": { "id": "remember" } },
+    { "click": { "role": "button", "name": "Sign in" } }
+  ],
+  "expect": {
+    "emitted": ["submit"],
+    "a11y": true,
+    "aria": { "snapshot": "- button \"Sign in\"" },
+    "queries": [
+      { "selector": { "role": "button" }, "count": 2 },
+      { "selector": { "role": "textbox", "value": "ada@example.com" }, "count": 1 }
+    ]
+  }
+}
