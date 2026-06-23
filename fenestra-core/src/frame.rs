@@ -17,6 +17,7 @@ use crate::ghost::{GhostNode, GhostPaint};
 use crate::id::WidgetId;
 use crate::input::{EditorState, InputPaint};
 use crate::layout;
+use crate::paint_plan::{MultiPassSpec, PaintMode, PassKind};
 use crate::painter;
 use crate::style::{AlignItems, Direction, Display, Overflow, Paint, Position, Style};
 use crate::text::{Fonts, ResolvedText, resolve_text};
@@ -1698,12 +1699,63 @@ pub fn build_scene<Msg>(
 
 impl Frame {
     /// Paints the frame into a fresh scene (logical coordinates). Needs the
-    /// retained state for editor layouts and caret blink phase.
+    /// retained state for editor layouts and caret blink phase. This is the
+    /// single-pass look: glass renders as its translucent tint and foreground
+    /// filters are inert, exactly as before backdrop blur existed.
     pub fn paint(&self, fonts: &mut Fonts, state: &mut FrameState) -> Scene {
+        self.paint_with(fonts, state, &mut PaintMode::Full)
+    }
+
+    /// The first of the two backdrop-blur passes: a scene with every glass
+    /// subtree painted as *nothing* (so the pixels behind each pane survive a
+    /// read-back), plus the [`MultiPassSpec`]s describing each region to filter.
+    /// When the returned plan is empty the scene is identical to [`paint`](Self::paint)
+    /// and is the final image — the shell's fast path.
+    pub fn paint_backdrop(
+        &self,
+        fonts: &mut Fonts,
+        state: &mut FrameState,
+    ) -> (Scene, Vec<MultiPassSpec>) {
+        let mut specs = Vec::new();
+        let scene = self.paint_with(fonts, state, &mut PaintMode::Backdrop(&mut specs));
+        (scene, specs)
+    }
+
+    /// The second backdrop-blur pass: the composited scene, with each filtered
+    /// element drawing the image the shell produced for it (`injected`, keyed by
+    /// [`WidgetId`]) — a glass pane lays its blurred backdrop under the tint, a
+    /// foreground-filtered element draws its filtered content in place. Elements
+    /// with no entry paint normally, so this matches [`paint`](Self::paint)
+    /// everywhere except the filtered regions.
+    pub fn paint_final(
+        &self,
+        fonts: &mut Fonts,
+        state: &mut FrameState,
+        injected: &std::collections::HashMap<WidgetId, peniko::ImageData>,
+    ) -> Scene {
+        self.paint_with(fonts, state, &mut PaintMode::Final(injected))
+    }
+
+    /// The frame's device scale factor (logical → physical). The shell uses it
+    /// to map logical spec rects onto the physical read-back image.
+    pub fn scale(&self) -> f64 {
+        self.scale
+    }
+
+    /// The shared paint walk, with the multi-pass `mode` threaded through it.
+    /// The root, overlays, and exit ghosts are painted identically in every
+    /// mode; only filtered nodes (glass / `element_filter`) read `mode`, so a
+    /// frame with none renders byte-for-byte the same in all three.
+    fn paint_with(
+        &self,
+        fonts: &mut Fonts,
+        state: &mut FrameState,
+        mode: &mut PaintMode<'_>,
+    ) -> Scene {
         // Recomputed below when a focused editor paints its caret.
         state.ime_caret = None;
         let mut scene = Scene::new();
-        self.paint_node(&mut scene, fonts, state, &self.root);
+        self.paint_node(&mut scene, fonts, state, &self.root, mode);
         for overlay in &self.overlays {
             if overlay.backdrop {
                 let alpha = 0.4 * overlay.progress;
@@ -1725,7 +1777,7 @@ impl Frame {
                     &self.canvas,
                 );
             }
-            self.paint_node(&mut scene, fonts, state, &overlay.node);
+            self.paint_node(&mut scene, fonts, state, &overlay.node, mode);
             if faded {
                 scene.pop_layer();
             }
@@ -1842,7 +1894,9 @@ impl Frame {
     /// the frozen content by kind, then children. No focus ring, scrollbars,
     /// selection, or caret — a ghost is an inert snapshot.
     fn paint_ghost_node_unscaled(&self, scene: &mut Scene, fonts: &mut Fonts, node: &GhostNode) {
-        let layers = painter::push_box(scene, &node.style, node.rect, self.canvas, self.scale);
+        // Exit ghosts are inert snapshots — never glass — so no backdrop image.
+        let layers =
+            painter::push_box(scene, &node.style, node.rect, self.canvas, self.scale, None);
         match &node.paint {
             GhostPaint::Text { text, style } => {
                 fonts.paint(scene, text, style, node.rect, None);
@@ -1878,6 +1932,7 @@ impl Frame {
         fonts: &mut Fonts,
         state: &mut FrameState,
         node: &FrameNode,
+        mode: &mut PaintMode<'_>,
     ) {
         if node.style.display == Display::None {
             return;
@@ -1895,7 +1950,7 @@ impl Frame {
             || s.skew.1.abs() > 1e-4;
         if has_transform {
             let mut sub = Scene::new();
-            self.paint_node_unscaled(&mut sub, fonts, state, node);
+            self.paint_node_unscaled(&mut sub, fonts, state, node, mode);
             let c = node.rect.center();
             // origin = center: T(translate) · T(c) · R · Skew · S · T(-c)
             let mut a =
@@ -1921,7 +1976,7 @@ impl Frame {
             scene.append(&sub, Some(a));
             return;
         }
-        self.paint_node_unscaled(scene, fonts, state, node);
+        self.paint_node_unscaled(scene, fonts, state, node, mode);
     }
 
     fn paint_node_unscaled(
@@ -1930,8 +1985,60 @@ impl Frame {
         fonts: &mut Fonts,
         state: &mut FrameState,
         node: &FrameNode,
+        mode: &mut PaintMode<'_>,
     ) {
-        let layers = painter::push_box(scene, &node.style, node.rect, self.canvas, self.scale);
+        // Multi-pass dispatch. In `Full` mode none of this fires, so the walk is
+        // byte-identical to the plain single-pass paint.
+        if let PaintMode::Backdrop(specs) = mode {
+            // Glass: record the blur and paint the subtree as nothing, so the
+            // content behind the pane survives in the read-back.
+            if let Some(radius) = node.style.backdrop_blur {
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "DPI scale × logical blur radius fits in f32"
+                )]
+                let std_dev = (f64::from(radius) * self.scale) as f32;
+                specs.push(MultiPassSpec {
+                    id: node.id,
+                    rect: node.rect,
+                    kind: PassKind::BackdropBlur { std_dev },
+                });
+                return;
+            }
+            // Foreground filter: record it, then paint normally so the element's
+            // own content lands in the backdrop for the shell to filter.
+            if let Some(filter) = node.style.element_filter {
+                specs.push(MultiPassSpec {
+                    id: node.id,
+                    rect: node.rect,
+                    kind: PassKind::ElementFilter(filter),
+                });
+            }
+        }
+        // Final pass: a foreground-filtered element draws its filtered image in
+        // place of its whole content (its box, content, and children are baked
+        // into the image already).
+        if node.style.element_filter.is_some()
+            && let Some(image) = mode.injected(node.id)
+        {
+            painter::draw_image(scene, image, node.rect, node.style.corner_radius);
+            return;
+        }
+        // A glass pane composites its blurred backdrop under the box in the
+        // final pass; every other element (and every other mode) gets `None`.
+        let backdrop = if node.style.backdrop_blur.is_some() {
+            mode.injected(node.id)
+        } else {
+            None
+        };
+        let layers = painter::push_box(
+            scene,
+            &node.style,
+            node.rect,
+            self.canvas,
+            self.scale,
+            backdrop,
+        );
         if node.meta.focus_ring {
             let ring = if node.meta.invalid {
                 self.ring_color_invalid
@@ -1991,10 +2098,10 @@ impl Frame {
         }
         // Non-sticky children first, then sticky children on top.
         for child in node.children.iter().filter(|c| !c.is_sticky) {
-            self.paint_node(scene, fonts, state, child);
+            self.paint_node(scene, fonts, state, child, mode);
         }
         for child in node.children.iter().filter(|c| c.is_sticky) {
-            self.paint_node(scene, fonts, state, child);
+            self.paint_node(scene, fonts, state, child, mode);
         }
         if let Some(scroll) = &node.scroll {
             let color = self.thumb_color.multiply_alpha(scroll.alpha * 0.6);

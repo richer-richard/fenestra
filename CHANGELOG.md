@@ -4,6 +4,18 @@
 
 ### Added
 
+- **Real frosted-glass backdrop blur.** `Surface::Glass` now genuinely blurs the
+  content *behind* it (its `Material.blur_radius`, reserved since 0.22, is live) —
+  a floating pane reads as frosted glass over live content, not a flat tint. It is
+  an opt-in two-pass CPU pipeline: render with glass panes skipped, read the pixels
+  back, blur the region behind each pane with a deterministic integer box blur
+  (bit-identical on Metal and lavapipe), then composite the frost under the vibrancy
+  tint. A frame with no glass renders in a single pass exactly as before (every
+  prior golden byte-identical). Also adds `Element::element_filter(Blur/Brightness/
+  Saturate)` (foreground filter of an element's own content) on the same machinery,
+  the raw `Element::backdrop_blur(px)` builder, and `kit::{glass_surface, glass_panel}`
+  one-call frosted panes. Realized in headless rendering (the golden source of truth);
+  the live window currently falls back to the tint-only look.
 - **Constraints-aware layout: window breakpoints + container queries.** Two opt-in
   tiers for layout that reacts to *size*. Tier 1: `App::view_at(key, size)` hands the
   window's logical size to the view, so an app can switch layout on width breakpoints

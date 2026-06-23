@@ -508,9 +508,21 @@ where
         );
         let bg = self.theme.bg;
         let slot = self.slots.get_mut(key).expect("checked above");
-        let scene = with_fonts(|fonts| slot.frame.paint(fonts, &mut slot.state));
-        with_headless(|h| h.render(&scene, slot.size.0, slot.size.1, bg))
+        // Two-pass planner (fonts → headless lock order) so frosted glass blurs;
+        // glass-free frames fast-path to a single pass.
+        with_fonts(|fonts| {
+            with_headless(|h| {
+                h.render_plan(
+                    &slot.frame,
+                    fonts,
+                    &mut slot.state,
+                    slot.size.0,
+                    slot.size.1,
+                    bg,
+                )
+            })
             .expect("headless renderer unavailable")
-            .expect("headless render failed")
+        })
+        .expect("headless render failed")
     }
 }

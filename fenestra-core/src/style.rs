@@ -731,6 +731,26 @@ pub struct TextStyle {
     pub optical: OpticalSizing,
 }
 
+/// A foreground filter applied to an element's *own* rendered content (CSS
+/// `filter:`), as opposed to [`Style::backdrop_blur`] which filters what shows
+/// *through* a translucent element. Resolved by the shell's two-pass renderer:
+/// the element's pixels are read back, filtered on the CPU (deterministically),
+/// and composited in place. Each variant carries one lever in logical px (blur
+/// radius) or as a unit multiplier (`1.0` = identity).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ElementFilter {
+    /// Gaussian-approximating blur; the value is the blur radius in logical px
+    /// (a standard deviation), realized as a deterministic 3-pass integer box
+    /// blur. `0.0` is a no-op.
+    Blur(f32),
+    /// Brightness multiplier on each color channel (`1.0` unchanged, `0.5`
+    /// half-bright, `>1.0` brighter, clamped at the channel ceiling).
+    Brightness(f32),
+    /// Saturation multiplier about each pixel's luma (`1.0` unchanged, `0.0`
+    /// grayscale, `>1.0` more saturated, clamped into gamut).
+    Saturate(f32),
+}
+
 /// The complete style of an element: layout, paint, and text groups.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Style {
@@ -846,6 +866,18 @@ pub struct Style {
     /// Draw progress of path elements, 0.0..=1.0 (animatable; this is how
     /// check marks draw on).
     pub path_trim: f32,
+    /// Backdrop blur radius in logical px: when set (`> 0`), the content
+    /// *behind* this (translucent) element is read back and blurred before the
+    /// element's fill composites over it — a real frosted-glass pane. `None`
+    /// (the default) paints with no backdrop pass, byte-identically to a plain
+    /// fill. Carried by [`Surface::Glass`](crate::Surface::Glass); realized by
+    /// the shell's two-pass renderer (deterministic CPU box blur). Inert in the
+    /// single-pass live-window path (renders as the translucent tint alone).
+    pub backdrop_blur: Option<f32>,
+    /// A foreground filter on this element's *own* content (blur / brightness /
+    /// saturate). `None` (the default) paints the content unfiltered. Realized
+    /// by the shell's two-pass renderer alongside [`backdrop_blur`](Self::backdrop_blur).
+    pub element_filter: Option<ElementFilter>,
 
     // -- text --
     /// Text properties (used by text elements; inherited defaults elsewhere).
@@ -901,6 +933,8 @@ impl Default for Style {
             skew: (0.0, 0.0),
             clip: false,
             path_trim: 1.0,
+            backdrop_blur: None,
+            element_filter: None,
             text: TextStyle::default(),
         }
     }
@@ -1607,6 +1641,22 @@ impl Style {
     /// Draw progress for path elements (0 = nothing, 1 = full path).
     pub fn trim(mut self, v: f32) -> Self {
         self.path_trim = v.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Frosted-glass backdrop blur: the content behind this (translucent)
+    /// element is blurred by `radius` logical px before the fill composites
+    /// over it. A non-positive radius clears it (no backdrop pass). See
+    /// [`Style::backdrop_blur`].
+    pub fn backdrop_blur(mut self, radius: f32) -> Self {
+        self.backdrop_blur = (radius > 0.0).then_some(radius);
+        self
+    }
+
+    /// A foreground filter on this element's own content. See
+    /// [`Style::element_filter`].
+    pub fn element_filter(mut self, filter: ElementFilter) -> Self {
+        self.element_filter = Some(filter);
         self
     }
 

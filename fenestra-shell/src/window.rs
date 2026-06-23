@@ -603,6 +603,11 @@ impl StaticApp {
             (lw as f32, lh as f32),
             scale,
         );
+        // Live-window limitation: the swapchain path renders a single pass, so
+        // frosted glass shows its translucent tint without the CPU backdrop
+        // blur (which needs a read-back). Headless rendering — the golden source
+        // of truth — uses the two-pass `render_plan`. See ARCHITECTURE.md
+        // ("Real frosted-glass backdrop blur").
         let scene = frame.paint(&mut self.fonts, &mut self.state);
         self.shell.present(&scene);
         if frame.animating {
@@ -839,6 +844,8 @@ impl<A: App> AppRunner<A> {
             logical,
             scale,
         );
+        // Single-pass live window: glass is tint-only here (see the `run_app`
+        // redraw note); two-pass blur is the headless golden path.
         let scene = frame.paint(&mut self.fonts, &mut self.state);
         self.shell.present(&scene);
         // The frame is clean until something changes it; animation and
@@ -1041,6 +1048,8 @@ impl<A: App> AppRunner<A> {
             logical,
             scale,
         );
+        // Single-pass live window: glass is tint-only here (see the `run_app`
+        // redraw note); two-pass blur is the headless golden path.
         let scene = frame.paint(&mut self.fonts, &mut bundle.state);
         bundle.shell.present(&scene);
         if refresh_hover(&view, &frame, &mut bundle.state)

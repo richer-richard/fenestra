@@ -321,6 +321,10 @@ where
             logical,
             scale,
         );
+        // Single-pass embedded path: glass renders as its translucent tint
+        // (no CPU backdrop blur, which needs a read-back). Headless rendering —
+        // the golden source of truth — uses the two-pass `render_plan`. See
+        // ARCHITECTURE.md ("Real frosted-glass backdrop blur").
         let scene: Scene = frame.paint(&mut self.fonts, &mut self.state);
 
         if self

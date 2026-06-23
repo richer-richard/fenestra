@@ -3,6 +3,7 @@
 
 use std::num::NonZeroUsize;
 
+use fenestra_core::{Fonts, Frame, FrameState};
 use image::RgbaImage;
 use vello::peniko::Color;
 use vello::util::RenderContext;
@@ -155,5 +156,36 @@ impl Headless {
 
         Ok(RgbaImage::from_raw(width, height, pixels)
             .expect("readback buffer matches image dimensions"))
+    }
+
+    /// Renders `frame` with real frosted-glass backdrop blur and foreground
+    /// [`ElementFilter`](fenestra_core::ElementFilter)s via the two-pass
+    /// pipeline, falling back to a single pass when the frame has neither.
+    ///
+    /// The fast path is byte-for-byte identical to [`render`](Self::render): a
+    /// frame with no filtered node produces an empty plan, so the backdrop scene
+    /// *is* the final image and nothing is read back or reprocessed. Otherwise
+    /// the backdrop scene (every glass subtree skipped) is rendered and read
+    /// back, each region is blurred/filtered on the CPU
+    /// ([`process_specs`](crate::multi_pass::process_specs)), and the final scene
+    /// composites those images. `width`/`height` are physical pixels.
+    pub fn render_plan(
+        &mut self,
+        frame: &Frame,
+        fonts: &mut Fonts,
+        state: &mut FrameState,
+        width: u32,
+        height: u32,
+        base_color: Color,
+    ) -> Result<RgbaImage, ShellError> {
+        let (backdrop_scene, specs) = frame.paint_backdrop(fonts, state);
+        if specs.is_empty() {
+            // Fast path: one pass, identical to `render`.
+            return self.render(&backdrop_scene, width, height, base_color);
+        }
+        let backdrop = self.render(&backdrop_scene, width, height, base_color)?;
+        let injected = crate::multi_pass::process_specs(&backdrop, &specs, frame.scale());
+        let final_scene = frame.paint_final(fonts, state, &injected);
+        self.render(&final_scene, width, height, base_color)
     }
 }

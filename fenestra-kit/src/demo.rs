@@ -496,10 +496,11 @@ pub fn ai_chat<Msg: 'static>(_theme: &Theme) -> Element<Msg> {
 /// A frosted-glass command palette floating over a vivid accent-gradient
 /// backdrop: the flagship for the [`Surface::Glass`](fenestra_core::Surface::Glass)
 /// translucent [`Material`](fenestra_core::Material). The colorful gradient and
-/// the in-flow backdrop card it overlaps are clearly modulated *through* the
-/// translucent panel (the status chips sit above it), which itself reads as a
-/// distinct frosted surface (vibrancy tint + hairline edge + 1px top sheen +
-/// deep shadow) with crisp, legible body text. Shared by the glass golden test.
+/// the in-flow backdrop card it overlaps are blurred and vibrancy-tinted
+/// *through* the panel — a real backdrop blur in headless rendering (the status
+/// chips sit above it) — which reads as a distinct frosted surface (hairline
+/// edge + 1px top sheen + deep shadow) with crisp, legible body text. Shared by
+/// the glass golden test.
 pub fn glass_showcase<Msg>(theme: &Theme) -> Element<Msg> {
     use fenestra_core::{SP6, Surface};
 

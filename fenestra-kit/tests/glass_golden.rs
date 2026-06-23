@@ -1,13 +1,12 @@
 //! Glass material eyeball golden: a frosted command palette
 //! ([`glass_showcase`]) floating over a vivid accent-gradient backdrop, light +
 //! dark. The PNG must show three things at once — the colorful backdrop and the
-//! in-flow backdrop card it overlaps are clearly modulated *through* the pane
-//! (translucency reads; the status chips sit above it), the panel reads as a
-//! distinct frosted surface (vibrancy tint +
-//! hairline edge + 1px top sheen + `Lg` shadow), and the panel's body text
-//! stays crisp and legible. The shipped look is a translucent, vibrancy-tinted
-//! fill (no live backdrop blur — vello 0.9 has no backdrop filter; see
-//! ARCHITECTURE.md "0.22").
+//! in-flow backdrop card it overlaps are blurred and vibrancy-tinted *through*
+//! the pane (the frosting reads; the status chips sit above it), the panel reads
+//! as a distinct frosted surface (hairline edge + 1px top sheen + `Lg` shadow),
+//! and the panel's body text stays crisp and legible. The backdrop blur is a
+//! real two-pass CPU blur in headless rendering; see ARCHITECTURE.md ("Real
+//! frosted-glass backdrop blur").
 
 use std::path::PathBuf;
 

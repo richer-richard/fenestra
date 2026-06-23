@@ -322,15 +322,21 @@ pub(crate) fn fill_rounded(scene: &mut Scene, rect: Rect, radius: f32, color: pe
     );
 }
 
-/// Paints the box decoration (shadows, fill, border) and pushes any clip and
-/// alpha layers. Returns how many layers were pushed; the caller paints
-/// children, then pops that many.
+/// Paints the box decoration (shadows, optional frosted backdrop, fill, border)
+/// and pushes any clip and alpha layers. Returns how many layers were pushed;
+/// the caller paints children, then pops that many.
+///
+/// `backdrop` is the pre-blurred image a frosted-glass pane composites under its
+/// translucent fill (between the drop shadow and the tint, clipped to the same
+/// rounded silhouette). It is `None` for every non-glass element and for the
+/// single-pass paths, which then render byte-identically to before glass blur.
 pub(crate) fn push_box(
     scene: &mut Scene,
     style: &Style,
     rect: Rect,
     canvas: Rect,
     scale: f64,
+    backdrop: Option<&peniko::ImageData>,
 ) -> usize {
     let mut layers = 0;
     if style.opacity < 1.0 {
@@ -352,6 +358,23 @@ pub(crate) fn push_box(
     }
 
     let path = corner_path(rect, style.corner_radius, style.corner_smoothing);
+    // A frosted-glass pane composites its CPU-blurred backdrop here — over the
+    // drop shadow, under the translucent tint — clipped to the same rounded
+    // silhouette as the fill. Scaled into `rect` like `draw_image` (the image
+    // is in physical px, so it down-scales by 1/scale on a HiDPI frame).
+    if let Some(image) = backdrop
+        && image.width > 0
+        && image.height > 0
+    {
+        let transform = Affine::translate((rect.x0, rect.y0))
+            * Affine::scale_non_uniform(
+                rect.width() / f64::from(image.width),
+                rect.height() / f64::from(image.height),
+            );
+        scene.push_clip_layer(Fill::NonZero, Affine::IDENTITY, &path);
+        scene.draw_image(image, transform);
+        scene.pop_layer();
+    }
     if let Some(paint) = &style.fill {
         let fill_rect = snap_hairline_rect(rect, scale);
         scene.fill(

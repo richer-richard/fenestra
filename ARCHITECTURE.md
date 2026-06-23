@@ -2323,3 +2323,90 @@ a container's own measured size.
   flattens it to an empty box — graceful degradation, never a stack overflow
   (regression: `responsive_self_wrapping_is_capped_not_a_stack_overflow`).
   `Breakpoint`/`Breakpoints` are the natural threshold vocabulary for both tiers.
+
+## Real frosted-glass backdrop blur (two-pass CPU)
+
+`Material.blur_radius` was reserved since 0.22 (vello 0.9 has no GPU backdrop
+filter). It is now a real frosted-glass pane: the content *behind* the glass is
+read back and blurred, then composited under the vibrancy tint. The same
+machinery also renders a foreground `ElementFilter` (blur / brightness /
+saturate of an element's *own* content). The decisions:
+
+- **One walk, three modes — `PaintMode` threaded through `paint_node`
+  (`paint_plan.rs`, `frame.rs`).** `Frame::paint()` is now `paint_with(Full)`;
+  two siblings join it: `paint_backdrop() -> (Scene, Vec<MultiPassSpec>)` walks in
+  `Backdrop` mode, `paint_final(&injected) -> Scene` walks in `Final` mode. A
+  node only reads the mode when `style.backdrop_blur` or `style.element_filter`
+  is set, so the walk is otherwise the same code. **Fast-path byte-identity:** a
+  frame with no filtered node records no specs, the backdrop walk paints exactly
+  what `Full` would, and the shell returns that single render untouched — every
+  pre-existing golden still passes (verified: only the glass goldens moved). The
+  non-glass path is never branched.
+
+- **Two passes, in the shell (`headless.rs::render_plan` →
+  `multi_pass.rs::process_specs` → `blur.rs`).** `render_plan` calls
+  `paint_backdrop`; if the plan is empty it is the fast path above. Otherwise it
+  renders the backdrop scene (every glass subtree painted as *nothing*, so the
+  pixels behind survive), reads it back with the existing 256-byte-padded
+  staging-buffer template, blurs/filters each spec's region, and renders
+  `paint_final`, where each glass pane draws its blurred backdrop image (clipped
+  to its rounded silhouette, between the drop shadow and the tint — a new
+  `backdrop: Option<&ImageData>` arg on `push_box`) and each filtered element
+  draws its processed image in place. All headless render entry points
+  (`render_element*`, `Harness::render_window`) route through `render_plan`; the
+  font→headless lock nesting is uniform across them.
+
+- **Determinism (the non-negotiable).** Goldens are referenced on macOS/Metal and
+  re-run on Linux/lavapipe, so the blur is a pure **integer** box blur — three
+  separable running-sum passes (the 3-box ≈ Gaussian construction) with rounded
+  means and edge clamping — bit-identical on any platform for identical input.
+  The GPU-rendered *input* differs slightly across rasterizers, but blurring only
+  shrinks those high-frequency differences, and the golden compare is
+  tolerance-based (and budget-widened on lavapipe). The kernel is unit-tested
+  against an exact hand-verified literal (`[0,0,90] →(r=1)→ [17,30,43]`).
+  Brightness/saturate use per-pixel IEEE-754 `f32`, also platform-stable (Rust
+  never fuses to FMA implicitly).
+
+- **`element_filter` captures its own content (deviation from the literal
+  brief).** The brief had the backdrop walk *skip* filtered subtrees like glass;
+  but a foreground filter must filter the element's *own* pixels, so a filtered
+  node is painted **normally** in the backdrop pass (its spec is still recorded),
+  its rect is read back, filtered, and drawn in its place in the final pass. The
+  `PassKind::BackdropBlur` `corner` field from the brief was dropped as
+  redundant: the rounded clip is applied at composite time from the glass node's
+  own `corner_radius`, so the plan needn't carry it.
+
+- **Live window: documented single-pass fallback.** The swapchain path
+  (`window.rs`, `embed.rs`) still renders one pass — glass shows its translucent
+  tint without the CPU blur (which needs a mid-frame GPU read-back/stall). This
+  was a deliberate scope call: the headless golden is the source of truth, the
+  windowed read-back could not be visually verified in this environment, and a
+  wrong unverified read-back would ship a broken live window. The fallback is
+  `paint()` (`Full`), so it is exactly the prior look — no regression — and the
+  call sites carry the limitation note. Lifting it later means a `present`-time
+  read-back feeding the same `process_specs`/`paint_final`.
+
+- **Ergonomics.** `Surface::Glass` resolves `blur_radius` into
+  `style.backdrop_blur` (so the existing `glass_showcase` frosts for free);
+  `Element::backdrop_blur(px)` / `Element::element_filter(..)` are the raw
+  builders; `kit::{glass_surface, glass_panel}` wrap `Surface::Glass` with a
+  rounded clip (and concentric padding) for one-call frosted panes.
+
+- **Supported envelope (the plan is one level deep, in layout space).** The
+  blur region is the pane's *layout* rect, recorded once per filtered node, so
+  three exotic compositions are deliberately out of scope (a frosted floating
+  panel over content — what glass is for — hits none of them; none are exercised
+  by the goldens):
+  - *A glass pane with a paint transform* (translate/scale/rotate from
+    `animate_layout`, press-scale, or a static transform): the backdrop is
+    sampled at the pane's untransformed layout rect, so the frost can lag the
+    pane's transformed position. A blurred panel should be untransformed.
+  - *Glass nested inside glass*: the inner pane is painted (its tint shows over
+    the outer pane's already-blurred backdrop) but its own `backdrop_blur`
+    radius is dropped — no second, independent blur pass.
+  - *Glass inside a foreground-`element_filter` subtree*: unsupported — the
+    filtered ancestor bakes its subtree into one image and the nested pane,
+    which painted nothing into the backdrop, is omitted. (A backdrop-blur pane
+    inside a foreground blur is a contradictory request.)
+  Lifting any of these means tracking the accumulated transform and/or a
+  recursive multi-level plan; the single-level design covers the real use cases.

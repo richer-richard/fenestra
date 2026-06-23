@@ -126,19 +126,24 @@ pub enum SurfaceBorder {
 /// by [`Material::tint`], and carried by a [`SurfaceBundle`] via the
 /// [`Surface::Glass`] role.
 ///
-/// Renderer note (v0.22): vello 0.9 exposes no backdrop filter, so `blur_radius`
-/// is RESERVED — recorded as the intended gaussian for a future true-backdrop-
-/// blur renderer pass, but not yet rendered. The shipped look is a translucent,
-/// vibrancy-tinted fill that reads as glass-over-content without a live blur.
-/// See ARCHITECTURE.md ("0.22 / deferred true backdrop blur").
+/// Renderer note: `blur_radius` now drives a real backdrop blur. vello 0.9
+/// still exposes no GPU backdrop filter, so the shell renders glass in two
+/// passes — it reads the scene back with the pane skipped and blurs the region
+/// behind it on the CPU (a deterministic integer box blur), then composites the
+/// frosted backdrop under the vibrancy tint. It is realized in headless
+/// rendering (the golden source of truth); the single-pass live-window path
+/// falls back to the translucent tint alone. See ARCHITECTURE.md
+/// ("Real frosted-glass backdrop blur").
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Material {
     /// Fill opacity `0.0..=1.0`: how much of the content behind shows through.
     /// Lower is glassier; higher protects legibility of text painted on the
     /// pane (especially important while the backdrop blur is unrendered).
     pub fill_alpha: f32,
-    /// Backdrop blur radius in logical px the content behind WOULD be blurred
-    /// by. RESERVED (not yet rendered in v0.22); see the type-level note.
+    /// Backdrop blur radius in logical px applied to the content behind the
+    /// pane. Resolved into [`Style::backdrop_blur`](crate::Style::backdrop_blur)
+    /// by [`SurfaceBundle::apply`] and realized by the shell's two-pass renderer;
+    /// see the type-level note.
     pub blur_radius: f32,
     /// Vibrancy: OKLCH chroma multiplier on the tint (`>= 1.0` re-saturates what
     /// a real backdrop blur washes out). `1.0` leaves the tint's chroma alone.
@@ -336,6 +341,11 @@ impl SurfaceBundle {
         style.highlight_top = self
             .highlight
             .map(|a| crate::theme::oklch(1.0, 0.0, 0.0).with_alpha(a));
+        // A material's blur_radius is no longer reserved: it drives the
+        // backdrop-blur pass (the shell reads back the content behind the pane
+        // and blurs it). A zero radius leaves `backdrop_blur` None, so an opaque
+        // role or a flat-tint material renders single-pass exactly as before.
+        style.backdrop_blur = self.material.map(|m| m.blur_radius).filter(|r| *r > 0.0);
         style
     }
 }

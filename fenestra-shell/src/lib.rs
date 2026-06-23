@@ -10,6 +10,8 @@ use std::fmt;
 #[cfg(not(target_arch = "wasm32"))]
 mod access;
 #[cfg(not(target_arch = "wasm32"))]
+mod blur;
+#[cfg(not(target_arch = "wasm32"))]
 mod element_render;
 #[cfg(not(target_arch = "wasm32"))]
 mod embed;
@@ -17,6 +19,8 @@ mod embed;
 mod harness;
 #[cfg(not(target_arch = "wasm32"))]
 mod headless;
+#[cfg(not(target_arch = "wasm32"))]
+mod multi_pass;
 #[cfg(not(target_arch = "wasm32"))]
 mod os_clipboard;
 #[cfg(not(target_arch = "wasm32"))]
@@ -28,6 +32,8 @@ pub mod testing;
 mod window;
 
 #[cfg(not(target_arch = "wasm32"))]
+pub use blur::{apply_element_filter, box_blur_rgba8};
+#[cfg(not(target_arch = "wasm32"))]
 pub use element_render::{
     render_element, render_element_with, render_element_with_state, with_fonts, with_headless,
 };
@@ -37,6 +43,8 @@ pub use embed::{Embedded, EventResponse};
 pub use harness::Harness;
 #[cfg(not(target_arch = "wasm32"))]
 pub use headless::Headless;
+#[cfg(not(target_arch = "wasm32"))]
+pub use multi_pass::process_specs;
 #[cfg(not(target_arch = "wasm32"))]
 pub use os_clipboard::OsClipboard;
 #[cfg(not(target_arch = "wasm32"))]

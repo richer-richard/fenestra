@@ -10,6 +10,7 @@ mod date_picker;
 mod disclosure;
 mod display;
 mod field;
+mod glass;
 mod kbd;
 mod menu;
 mod navigation;
@@ -44,6 +45,7 @@ pub use display::{
     stat_card, status, table, tabs, wavy_progress,
 };
 pub use field::{Field, field};
+pub use glass::{glass_panel, glass_surface};
 pub use kbd::{kbd, kbd_raised};
 pub use menu::{
     Menu, MenuItem, Menubar, context_menu, dropdown_menu, menu, menu_item, menu_items,

@@ -22,6 +22,7 @@ mod id;
 mod input;
 mod layout;
 pub mod optical;
+mod paint_plan;
 mod painter;
 mod proxy;
 mod query;
@@ -47,6 +48,7 @@ pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, re
 pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene};
 pub use frame_state::FrameState;
 pub use id::WidgetId;
+pub use paint_plan::{MultiPassSpec, PassKind};
 pub use proxy::Proxy;
 pub use query::{Query, QueryError, TextMatch, by};
 pub use style::*;

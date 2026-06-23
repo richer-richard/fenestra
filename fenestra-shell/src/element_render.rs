@@ -78,10 +78,13 @@ pub fn render_element_with<Msg>(
         (size.0 as f32, size.1 as f32),
         1.0,
     );
-    let scene = frame.paint(fonts, &mut state);
-    with_headless(|headless| headless.render(&scene, size.0, size.1, theme.bg))
-        .expect("headless renderer unavailable")
-        .expect("headless render failed")
+    // Route through the two-pass planner so frosted glass shows real backdrop
+    // blur; frames with no glass / filter fast-path to a single pass.
+    with_headless(|headless| {
+        headless.render_plan(&frame, fonts, &mut state, size.0, size.1, theme.bg)
+    })
+    .expect("headless renderer unavailable")
+    .expect("headless render failed")
 }
 
 /// Like [`render_element`], but with caller-provided retained state, so
@@ -99,7 +102,9 @@ pub fn render_element_with_state<Msg>(
     // Clamp before layout so the frame and the texture agree on the size.
     let size =
         with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
-    let scene = with_fonts(|fonts| {
+    // Hold the font lock across both passes, then nest the headless lock for the
+    // render (fonts → headless ordering, matching every other render site).
+    with_fonts(|fonts| {
         #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
         let frame = build_frame(
             &el,
@@ -109,9 +114,10 @@ pub fn render_element_with_state<Msg>(
             (size.0 as f32, size.1 as f32),
             1.0,
         );
-        frame.paint(fonts, state)
-    });
-    with_headless(|headless| headless.render(&scene, size.0, size.1, theme.bg))
+        with_headless(|headless| {
+            headless.render_plan(&frame, fonts, state, size.0, size.1, theme.bg)
+        })
         .expect("headless renderer unavailable")
-        .expect("headless render failed")
+    })
+    .expect("headless render failed")
 }

@@ -1506,6 +1506,22 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Frosted-glass backdrop blur in logical px: blurs the content *behind*
+    /// this translucent element (see [`Style::backdrop_blur`](crate::Style::backdrop_blur)).
+    /// [`Surface::Glass`](crate::Surface::Glass) sets this for you; reach for
+    /// this builder to tune the radius or frost a custom translucent pane.
+    pub fn backdrop_blur(mut self, radius: f32) -> Self {
+        self.style = self.style.backdrop_blur(radius);
+        self
+    }
+
+    /// A foreground [`ElementFilter`](crate::ElementFilter) on this element's
+    /// own content (blur / brightness / saturate).
+    pub fn element_filter(mut self, filter: crate::ElementFilter) -> Self {
+        self.style = self.style.element_filter(filter);
+        self
+    }
+
     /// Text size.
     pub fn size(mut self, size: TextSize) -> Self {
         self.style = self.style.size(size);
