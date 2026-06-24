@@ -2,8 +2,8 @@
 //! spec order: shadows, fill, border, clip layer, alpha layer, children.
 
 use kurbo::{
-    Affine, BezPath, ParamCurve, ParamCurveArclen, Point, Rect, RoundedRect, RoundedRectRadii,
-    Shape, Stroke, Vec2,
+    Affine, BezPath, CurveFitSample, ParamCurve, ParamCurveArclen, ParamCurveFit, Point, Rect,
+    RoundedRect, RoundedRectRadii, Shape, Stroke, Vec2, fit_to_bezpath,
 };
 use peniko::{Color, ColorStop, ColorStops, Fill, Gradient};
 use vello::Scene;
@@ -40,9 +40,14 @@ pub(crate) fn rounded_rect(rect: Rect, corners: CornerRadius) -> RoundedRect {
 /// near-square. A perceptual calibration constant, not a spec token.
 const N_MAX: f64 = 5.0;
 
-/// Straight-line samples per quarter-corner of a squircle. ~24 is sub-pixel at
-/// the 6–30px radii the kit uses and matches vello's own arc flattening.
-const SQUIRCLE_SEGMENTS: usize = 24;
+/// Fréchet tolerance, in logical px, for fitting each squircle corner to cubic
+/// Béziers. ~0.08 stays well under a device pixel even at 2× scale, so the fit
+/// reads as exact; kurbo returns the minimal cubic count that holds it.
+const SQUIRCLE_ACCURACY: f64 = 0.08;
+
+/// Corners at or below this radius (logical px) collapse to a sharp vertex: the
+/// superellipse quadrant is degenerate there and the difference is sub-pixel.
+const SQUIRCLE_MIN_RADIUS: f64 = 0.25;
 
 /// The box silhouette: the exact kurbo rounded rect at `smoothing <= 0` (the
 /// default — keeps goldens byte-identical) or a continuous-curvature squircle
@@ -126,11 +131,83 @@ fn superellipse_point(center: Point, u: Vec2, v: Vec2, r: f64, n: f64, theta: f6
     center + u * (r * cx) + v * (r * sy)
 }
 
+/// One rounded corner as a superellipse quadrant, sampled for cubic-Bézier
+/// fitting. It runs from the join on one straight edge (`t == 0`, the point
+/// `center + r·u`) to the join on the adjacent edge (`t == 1`, `center + r·v`),
+/// tracing `center + r·cos(θ)^(2/n)·u + r·sin(θ)^(2/n)·v` with `θ = t·π/2`.
+/// `u`/`v` are unit edge directions and `n` is the Lamé exponent from
+/// [`squircle_exponent`]. Feeding this to [`fit_to_bezpath`] yields the minimal
+/// run of cubics that tracks the corner to [`SQUIRCLE_ACCURACY`].
+struct SuperellipseQuadrant {
+    center: Point,
+    u: Vec2,
+    v: Vec2,
+    r: f64,
+    n: f64,
+}
+
+impl SuperellipseQuadrant {
+    /// Pulls sampling this far (radians) inside the joins, where the parametric
+    /// derivative of the superellipse is unbounded for `n > 2`. Far below a
+    /// device pixel of arc at any real radius.
+    const EPS: f64 = 1e-6;
+
+    fn point(&self, theta: f64) -> Point {
+        superellipse_point(self.center, self.u, self.v, self.r, self.n, theta)
+    }
+
+    /// The unit tangent in the direction of increasing `t`. Exact at the joins
+    /// — `+v` leaving the start edge, `-u` entering the end edge — so the
+    /// straight edges meet the curve with matched tangents (G1 continuity).
+    fn tangent(&self, theta: f64) -> Vec2 {
+        if theta <= Self::EPS {
+            return self.v;
+        }
+        if theta >= std::f64::consts::FRAC_PI_2 - Self::EPS {
+            return -self.u;
+        }
+        let (s, c) = theta.sin_cos();
+        let du = -c.powf(2.0 / self.n - 1.0) * s;
+        let dv = s.powf(2.0 / self.n - 1.0) * c;
+        (self.u * du + self.v * dv).normalize()
+    }
+}
+
+impl ParamCurveFit for SuperellipseQuadrant {
+    fn sample_pt_tangent(&self, t: f64, _sign: f64) -> CurveFitSample {
+        let theta = t * std::f64::consts::FRAC_PI_2;
+        CurveFitSample {
+            p: self.point(theta),
+            tangent: self.tangent(theta),
+        }
+    }
+
+    fn sample_pt_deriv(&self, t: f64) -> (Point, Vec2) {
+        // Clamp away from the joins so the (otherwise unbounded) parametric
+        // derivative stays finite. The fitter samples only interior points for
+        // its area/arc-length integrals, so the clamp never moves the result.
+        let theta = (t * std::f64::consts::FRAC_PI_2)
+            .clamp(Self::EPS, std::f64::consts::FRAC_PI_2 - Self::EPS);
+        let (s, c) = theta.sin_cos();
+        let du = -c.powf(2.0 / self.n - 1.0) * s;
+        let dv = s.powf(2.0 / self.n - 1.0) * c;
+        let scale = self.r * (2.0 / self.n) * std::f64::consts::FRAC_PI_2;
+        (self.point(theta), (self.u * du + self.v * dv) * scale)
+    }
+
+    fn break_cusp(&self, _range: std::ops::Range<f64>) -> Option<f64> {
+        // The quadrant is smooth end to end — no cusps to split on.
+        None
+    }
+}
+
 /// Builds a continuous-curvature squircle `BezPath` for `rect`, clamping each
-/// corner radius to half the short side exactly like [`rounded_rect`], then
-/// flattening each quarter into [`SQUIRCLE_SEGMENTS`] line segments. The walk
-/// is clockwise: top edge → TR corner → right edge → BR → bottom → BL → left →
-/// TL, then `close_path`.
+/// corner radius to half the short side exactly like [`rounded_rect`]. Each
+/// corner is the superellipse quadrant fitted to cubic Béziers (via
+/// [`fit_to_bezpath`]); a near-zero corner collapses to a sharp vertex. The
+/// walk is clockwise — TR → right edge → BR → bottom → BL → left → TL — and the
+/// closing segment forms the top edge, so fill, border, and clip share one
+/// silhouette.
 fn build_squircle(rect: Rect, corners: CornerRadius, smoothing: f32) -> BezPath {
     let n = squircle_exponent(smoothing);
     let max = (0.5 * rect.width().min(rect.height())).max(0.0);
@@ -143,63 +220,71 @@ fn build_squircle(rect: Rect, corners: CornerRadius, smoothing: f32) -> BezPath 
     );
     let (x0, y0, x1, y1) = (rect.x0, rect.y0, rect.x1, rect.y1);
 
-    // SEGMENTS+1 samples from theta=0 (the `center + r·u` join) to theta=pi/2
-    // (the `center + r·v` join), inclusive.
-    let corner = |center: Point, u: Vec2, v: Vec2, r: f64| -> Vec<Point> {
-        (0..=SQUIRCLE_SEGMENTS)
-            .map(|i| {
-                #[expect(clippy::cast_precision_loss, reason = "segment counts are tiny")]
-                let theta = (i as f64 / SQUIRCLE_SEGMENTS as f64) * std::f64::consts::FRAC_PI_2;
-                superellipse_point(center, u, v, r, n, theta)
-            })
-            .collect()
-    };
-
-    let tr_pts = corner(
+    let mut path = BezPath::new();
+    append_corner(
+        &mut path,
         Point::new(x1 - tr, y0 + tr),
         Vec2::new(0.0, -1.0),
         Vec2::new(1.0, 0.0),
         tr,
+        n,
+        true,
     );
-    let br_pts = corner(
+    append_corner(
+        &mut path,
         Point::new(x1 - br, y1 - br),
         Vec2::new(1.0, 0.0),
         Vec2::new(0.0, 1.0),
         br,
+        n,
+        false,
     );
-    let bl_pts = corner(
+    append_corner(
+        &mut path,
         Point::new(x0 + bl, y1 - bl),
         Vec2::new(0.0, 1.0),
         Vec2::new(-1.0, 0.0),
         bl,
+        n,
+        false,
     );
-    let tl_pts = corner(
+    append_corner(
+        &mut path,
         Point::new(x0 + tl, y0 + tl),
         Vec2::new(-1.0, 0.0),
         Vec2::new(0.0, -1.0),
         tl,
+        n,
+        false,
     );
-
-    let mut path = BezPath::new();
-    path.move_to(tr_pts[0]);
-    for p in &tr_pts[1..] {
-        path.line_to(*p);
-    }
-    path.line_to(br_pts[0]);
-    for p in &br_pts[1..] {
-        path.line_to(*p);
-    }
-    path.line_to(bl_pts[0]);
-    for p in &bl_pts[1..] {
-        path.line_to(*p);
-    }
-    path.line_to(tl_pts[0]);
-    for p in &tl_pts[1..] {
-        path.line_to(*p);
-    }
-    path.line_to(tr_pts[0]);
     path.close_path();
     path
+}
+
+/// Appends one corner to `path`, running from `center + r·u` to `center + r·v`.
+/// With `r > SQUIRCLE_MIN_RADIUS` it is the superellipse quadrant fitted to
+/// cubic Béziers; otherwise it collapses to the sharp rectangle vertex. `first`
+/// opens the subpath with a `move_to`; later corners connect along the straight
+/// edge with a `line_to`.
+fn append_corner(path: &mut BezPath, center: Point, u: Vec2, v: Vec2, r: f64, n: f64, first: bool) {
+    let start = center + u * r;
+    if first {
+        path.move_to(start);
+    } else {
+        path.line_to(start);
+    }
+    if r <= SQUIRCLE_MIN_RADIUS {
+        // Degenerate corner: `start` already sits on the rectangle vertex, and
+        // the next corner connects straight from here.
+        return;
+    }
+    let quad = SuperellipseQuadrant { center, u, v, r, n };
+    // `fit_to_bezpath` opens with a `move_to` at our `start`; replay only its
+    // curve/line segments so the corner continues the existing subpath.
+    let fitted = fit_to_bezpath(&quad, SQUIRCLE_ACCURACY);
+    for el in fitted.elements().iter().skip(1) {
+        path.push(*el);
+    }
 }
 
 /// Average corner radius, used where vello takes a single radius (shadows).
@@ -807,5 +892,105 @@ mod squircle_tests {
             (squircle - c).hypot() > r + 1e-6,
             "squircle bisector must push past r toward the geometric corner"
         );
+    }
+
+    #[test]
+    fn squircle_path_is_cubic_beziers() {
+        // Corners are real cubic Béziers now, not a flattened polyline.
+        let rect = Rect::new(0.0, 0.0, 120.0, 120.0);
+        let path = build_squircle(rect, CornerRadius::all(32.0), 0.6);
+        let curves = path
+            .elements()
+            .iter()
+            .filter(|e| matches!(e, kurbo::PathEl::CurveTo(..)))
+            .count();
+        assert!(curves >= 4, "every corner fits to cubics, got {curves}");
+    }
+
+    #[test]
+    fn squircle_bbox_matches_rect() {
+        // The squircle is inscribed — its joins touch the straight edges — so
+        // the bounding box is the rect, within the sub-pixel fit tolerance.
+        let rect = Rect::new(10.0, 20.0, 130.0, 100.0);
+        let bb = build_squircle(rect, CornerRadius::all(24.0), 0.6).bounding_box();
+        assert!(
+            (bb.x0 - rect.x0).abs() < 0.2 && (bb.y0 - rect.y0).abs() < 0.2,
+            "{bb:?}"
+        );
+        assert!(
+            (bb.x1 - rect.x1).abs() < 0.2 && (bb.y1 - rect.y1).abs() < 0.2,
+            "{bb:?}"
+        );
+    }
+
+    #[test]
+    fn squircle_opens_on_the_top_edge_join() {
+        // The walk opens at the top-right join, `r` in from the corner along
+        // the top edge — exactly where the straight top edge hands off.
+        let rect = Rect::new(0.0, 0.0, 100.0, 80.0);
+        let r = 20.0_f32;
+        let path = build_squircle(rect, CornerRadius::all(r), 0.7);
+        match path.elements()[0] {
+            kurbo::PathEl::MoveTo(p) => assert!(
+                (p.x - (rect.x1 - f64::from(r))).abs() < 1e-9 && (p.y - rect.y0).abs() < 1e-9,
+                "{p:?}"
+            ),
+            other => panic!("path must open with MoveTo, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn squircle_fit_tracks_the_superellipse() {
+        // Each fitted anchor in the top-right quadrant lies on the analytic
+        // superellipse (nearest of a dense sampling is within tolerance).
+        let rect = Rect::new(0.0, 0.0, 100.0, 100.0);
+        let r = 30.0_f32;
+        let rf = f64::from(r);
+        let n = squircle_exponent(0.6);
+        let c = Point::new(rect.x1 - rf, rect.y0 + rf);
+        let (u, v) = (Vec2::new(0.0, -1.0), Vec2::new(1.0, 0.0));
+        let dense: Vec<Point> = (0..=4000)
+            .map(|i| {
+                let theta = (f64::from(i) / 4000.0) * std::f64::consts::FRAC_PI_2;
+                superellipse_point(c, u, v, rf, n, theta)
+            })
+            .collect();
+        for el in build_squircle(rect, CornerRadius::all(r), 0.6).elements() {
+            let p = match el {
+                kurbo::PathEl::MoveTo(p)
+                | kurbo::PathEl::LineTo(p)
+                | kurbo::PathEl::CurveTo(_, _, p) => *p,
+                _ => continue,
+            };
+            // Restrict to the TR quadrant's region.
+            if p.x >= rect.x1 - rf - 1e-6 && p.y <= rect.y0 + rf + 1e-6 {
+                let nearest = dense
+                    .iter()
+                    .map(|q| (p - *q).hypot())
+                    .fold(f64::INFINITY, f64::min);
+                assert!(nearest < 0.05, "anchor {p:?} off the curve by {nearest}");
+            }
+        }
+    }
+
+    #[test]
+    fn squircle_zero_radius_is_a_rectangle() {
+        let rect = Rect::new(0.0, 0.0, 50.0, 40.0);
+        let path = build_squircle(rect, CornerRadius::all(0.0), 0.8);
+        let bb = path.bounding_box();
+        assert!(
+            (bb.x0 - rect.x0).abs() < 1e-9 && (bb.x1 - rect.x1).abs() < 1e-9,
+            "{bb:?}"
+        );
+        assert!(
+            (bb.y0 - rect.y0).abs() < 1e-9 && (bb.y1 - rect.y1).abs() < 1e-9,
+            "{bb:?}"
+        );
+        let curves = path
+            .elements()
+            .iter()
+            .filter(|e| matches!(e, kurbo::PathEl::CurveTo(..)))
+            .count();
+        assert_eq!(curves, 0, "a zero-radius squircle is a plain rectangle");
     }
 }
