@@ -1547,7 +1547,12 @@ pub fn build_frame<Msg>(
                     } else {
                         anchor_rect.y0 - gap - h
                     };
-                    Point::new(anchor_rect.x0.clamp(canvas.x0, (canvas.x1 - w).max(0.0)), y)
+                    // Rise up 8px as the menu materializes (it fades in too).
+                    let dy = 8.0 * (1.0 - f64::from(progress));
+                    Point::new(
+                        anchor_rect.x0.clamp(canvas.x0, (canvas.x1 - w).max(0.0)),
+                        y + dy,
+                    )
                 }
                 OverlayPlacement::BelowCenter { gap } => {
                     let gap = f64::from(gap);
@@ -1561,7 +1566,9 @@ pub fn build_frame<Msg>(
                     } else {
                         anchor_rect.y0 - gap - h
                     };
-                    Point::new(x.clamp(canvas.x0, (canvas.x1 - w).max(0.0)), y)
+                    // Tooltips rise the same 8px as they fade in.
+                    let dy = 8.0 * (1.0 - f64::from(progress));
+                    Point::new(x.clamp(canvas.x0, (canvas.x1 - w).max(0.0)), y + dy)
                 }
                 OverlayPlacement::TopRight { margin } => {
                     let m = f64::from(margin);
@@ -1584,9 +1591,11 @@ pub fn build_frame<Msg>(
                         .entry(p.id)
                         .or_insert_with(|| state_pointer.unwrap_or(fallback));
                     let g = f64::from(gap);
+                    // Context menus rise the same 8px as they fade in.
+                    let dy = 8.0 * (1.0 - f64::from(progress));
                     Point::new(
                         (f64::from(px) + g).clamp(canvas.x0, (canvas.x1 - w).max(canvas.x0)),
-                        (f64::from(py) + g).clamp(canvas.y0, (canvas.y1 - h).max(canvas.y0)),
+                        (f64::from(py) + g + dy).clamp(canvas.y0, (canvas.y1 - h).max(canvas.y0)),
                     )
                 }
                 OverlayPlacement::Center => {
@@ -1619,10 +1628,12 @@ pub fn build_frame<Msg>(
                     } else {
                         anchor_rect.x0 - gap - w
                     };
+                    // Submenu flyouts rise the same 8px as they fade in.
+                    let dy = 8.0 * (1.0 - f64::from(progress));
                     let y = anchor_rect
                         .y0
                         .clamp(canvas.y0, (canvas.y1 - h).max(canvas.y0));
-                    Point::new(x, y)
+                    Point::new(x, y + dy)
                 }
             };
 
