@@ -4,8 +4,8 @@
 //!
 //! `cargo run --example gallery`
 
-use fenestra::shell::render_element;
-use fenestra::{BaseField, Contrast, Elevation, Mode, RadiusScale, Theme};
+use fenestra::shell::{render_element, render_element_with};
+use fenestra::{Mode, Theme};
 
 fn main() {
     let out = std::path::Path::new("gallery");
@@ -28,26 +28,18 @@ fn main() {
             .save(out.join(format!("feedback_{suffix}.png")))
             .expect("write feedback");
 
-        // The sharp/minimal "console" look — design range beyond the soft default.
-        let console_theme = Theme::derive(
-            BaseField {
-                hue: 250.0,
-                chroma: 1.5,
-            },
-            130.0,
-            Contrast::High,
-            mode,
-        )
-        .with_radius(RadiusScale::sharp())
-        .with_elevation(Elevation::Flat);
-        let console = render_element(
-            fenestra::kit::console_showcase(&console_theme),
-            &console_theme,
+        // The sharp/minimal "console" look — straight from fenestra-looks (with
+        // its own faces), instead of re-deriving the palette by hand.
+        let console = fenestra_looks::console(mode);
+        let mut console_fonts = console.fonts();
+        render_element_with(
+            fenestra::kit::console_showcase(&console.theme),
+            &console.theme,
             (1200, 760),
-        );
-        console
-            .save(out.join(format!("console_{suffix}.png")))
-            .expect("write console");
+            &mut console_fonts,
+        )
+        .save(out.join(format!("console_{suffix}.png")))
+        .expect("write console");
 
         println!("wrote gallery/{{controls,display,feedback,console}}_{suffix}.png");
     }

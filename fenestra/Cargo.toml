@@ -22,6 +22,8 @@ fenestra-shell.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+# Examples only (the `looks` showcase); not part of the published facade.
+fenestra-looks = { path = "../fenestra-looks" }
 
 # Native-only example deps (file dialogs).
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]

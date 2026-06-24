@@ -1036,6 +1036,7 @@ version = "0.36.0"
 dependencies = [
  "fenestra-core",
  "fenestra-kit",
+ "fenestra-looks",
  "fenestra-shell",
  "image",
  "pollster",
