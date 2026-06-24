@@ -54,7 +54,8 @@ impl<Msg> ToastStack<Msg> {
         self
     }
 
-    /// Maps a toast's dismiss button to a message carrying its index.
+    /// Maps a toast's dismissal — the close button or a swipe/flick on the
+    /// toast — to a message carrying its index.
     pub fn on_dismiss(mut self, f: impl Fn(usize) -> Msg + 'static) -> Self {
         self.on_dismiss = Some(std::rc::Rc::new(f));
         self
@@ -80,9 +81,16 @@ fn toast_row<Msg: 'static>(
         .w_full()
         .surface(Surface::Popover)
         .shrink0()
+        // Keyed by message so a dismissed toast keeps its identity through the
+        // exit animation, and the survivors FLIP up into the gap it leaves.
+        .id(&message)
         .semantics(Semantics::Alert)
         .live()
+        // Full motion: fade/scale in on arrival, fade + shrink + drop away on
+        // dismissal, and glide up when a toast above is removed.
         .enter(Transition::all().duration(MotionDuration::Base))
+        .exit_to(0.0, 0.94, 0.0, 8.0)
+        .animate_layout()
         .label(message.clone())
         .children([
             div()
@@ -94,6 +102,10 @@ fn toast_row<Msg: 'static>(
             text(message).size(TextSize::Sm).grow(),
         ]);
     if let Some(f) = on_dismiss {
+        // Flick the toast away in any direction to dismiss it...
+        let swipe = std::rc::Rc::clone(&f);
+        el = el.on_swipe(move |_dir| swipe(index));
+        // ...or tap the explicit close button.
         el = el.child(
             div()
                 .p(2.0)
