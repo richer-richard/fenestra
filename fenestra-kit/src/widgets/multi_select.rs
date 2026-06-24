@@ -123,7 +123,9 @@ impl<Msg: 'static> From<MultiSelect<Msg>> for Element<Msg> {
                 chip = chip
                     .focusable(true)
                     .cursor(Cursor::Pointer)
-                    .state_layer(|t| t.text);
+                    .state_layer(|t| t.text)
+                    // Tappable pills get the button-style tactile press-shrink.
+                    .press_scale();
                 if let Some(f) = &ms.on_toggle {
                     let (click, press) = (Rc::clone(f), Rc::clone(f));
                     chip = chip.on_click(click(i)).on_key(move |k| match k.key {

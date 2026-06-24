@@ -194,7 +194,9 @@ impl<Msg: 'static> From<Select<Msg>> for Element<Msg> {
             // would otherwise also fade the container) is for the live trigger.
             trigger = trigger.opacity(0.5);
         } else {
-            trigger = trigger.state_layer(|t| t.text);
+            // A button-like trigger: the tactile press-shrink reads like the
+            // kit's buttons (state layer for hover, scale for the press).
+            trigger = trigger.state_layer(|t| t.text).press_scale();
         }
         if let Some(key) = &sel.key {
             trigger = trigger.id(key);

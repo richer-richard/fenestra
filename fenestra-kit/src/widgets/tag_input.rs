@@ -121,6 +121,7 @@ fn chip<Msg: 'static>(
         .cursor(Cursor::Pointer)
         .transition(Transition::colors())
         .state_layer(|t| t.text)
+        .press_scale()
         .semantics(Semantics::Button)
         .label(remove_label)
         .children([icons::x()
