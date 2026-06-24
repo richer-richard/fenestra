@@ -456,6 +456,7 @@ impl<Msg> From<Meter> for Element<Msg> {
                         .themed(|t: &Theme, s| s.color(t.text)),
                     text(format!("{:.0}%", frac * 100.0))
                         .size(TextSize::Sm)
+                        .tabular()
                         .themed(|t: &Theme, s| s.color(t.text_muted)),
                 ]);
                 col().w_full().gap(SP1).children([caption, track])

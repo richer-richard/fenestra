@@ -439,8 +439,9 @@ impl<Msg: Clone + 'static> From<DatePicker<Msg>> for Element<Msg> {
                     _ => false,
                 };
 
-                // Build the day number label (plain text child).
-                let day_text = text(day.to_string()).size(TextSize::Sm);
+                // Build the day number label (plain text child). Tabular so the
+                // day digits stay column-aligned across the calendar grid.
+                let day_text = text(day.to_string()).size(TextSize::Sm).tabular();
 
                 let mut cell = row()
                     .w(30.0)

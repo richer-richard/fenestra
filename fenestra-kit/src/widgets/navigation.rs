@@ -239,6 +239,7 @@ fn page_cell<Msg>(n: usize, current: bool, msg: Option<Msg>) -> Element<Msg> {
         })
         .children([text(label)
             .size(TextSize::Sm)
+            .tabular()
             .weight(if current {
                 Weight::Medium
             } else {
@@ -416,6 +417,7 @@ fn step_disc<Msg>(state: StepState, number: usize) -> Element<Msg> {
     } else {
         text(number.to_string())
             .size(TextSize::Xs)
+            .tabular()
             .weight(Weight::Medium)
             .themed(move |t: &Theme, s| {
                 s.color(if state == StepState::Upcoming {

@@ -158,6 +158,7 @@ impl<Msg: Clone + 'static> From<SpinButton<Msg>> for Element<Msg> {
             .shrink0()
             .children([text(sb.value)
                 .size(TextSize::Sm)
+                .tabular()
                 .weight(Weight::Medium)
                 .themed(|t: &Theme, s| s.color(t.text))]);
 
