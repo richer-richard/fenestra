@@ -471,6 +471,11 @@ fn resolve<Msg>(
     if style.text.color.is_none() {
         style.text.color = Some(theme.text);
     }
+    // Optical sizing inherits the theme default (`Auto` out of the box) unless
+    // the element set its own — the kit-wide `font-optical-sizing` knob.
+    if style.text.optical == crate::style::OpticalSizing::Inherit {
+        style.text.optical = theme.optical_sizing;
+    }
 
     let mut animating = false;
     let transition = match (el.transition, el.enter) {

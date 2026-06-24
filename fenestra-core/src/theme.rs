@@ -5,7 +5,7 @@
 use color::{AlphaColor, Oklch, Srgb};
 use peniko::Color;
 
-use crate::style::Shadow;
+use crate::style::{OpticalSizing, Shadow};
 use crate::tokens::{Elevation, RadiusScale, ShadowToken};
 
 /// Light or dark color mode. Both are always generated from the same hue.
@@ -231,6 +231,16 @@ pub struct Theme {
     /// [`Style::corner_smoothing`]: crate::Style::corner_smoothing
     pub corner_smoothing: f32,
 
+    /// Kit-wide optical sizing — how a variable font's `opsz` axis is driven for
+    /// text that doesn't set its own. Defaults to [`OpticalSizing::Auto`] (the
+    /// CSS default `font-optical-sizing: auto`): a variable text face tracks its
+    /// optical-size master to the rendered size, with no per-element setup. A
+    /// no-op on the static stock faces (Inter, JetBrains Mono), so the stock look
+    /// is unchanged; set via [`Theme::with_optical_sizing`], and an element may
+    /// still override or opt out with [`Style::optical`](crate::Style) /
+    /// `OpticalSizing::Default`.
+    pub optical_sizing: OpticalSizing,
+
     /// How resting, same-plane cards convey separation — [`Elevation::Shadowed`]
     /// (stock: a subtle shadow) or [`Elevation::Flat`] (border + surface
     /// tone-step, no shadow). Floating surfaces always cast a shadow. Defaults
@@ -419,6 +429,7 @@ impl Theme {
             accents,
             radius: RadiusScale::default(),
             corner_smoothing: DEFAULT_CORNER_SMOOTHING,
+            optical_sizing: OpticalSizing::Auto,
             elevation: Elevation::default(),
             text_scale: 1.0,
             direction: WritingDir::default(),
@@ -444,6 +455,16 @@ impl Theme {
     #[must_use]
     pub fn with_corner_smoothing(mut self, smoothing: f32) -> Self {
         self.corner_smoothing = smoothing.clamp(0.0, 1.0);
+        self
+    }
+
+    /// Returns this theme with a different kit-wide [`OpticalSizing`] default.
+    /// `Auto` (the stock value) tracks a variable face's `opsz` axis to the
+    /// rendered size; `OpticalSizing::Default` turns optical sizing off kit-wide.
+    /// Per-element [`Style::optical`](crate::Style) still overrides it.
+    #[must_use]
+    pub fn with_optical_sizing(mut self, optical: OpticalSizing) -> Self {
+        self.optical_sizing = optical;
         self
     }
 

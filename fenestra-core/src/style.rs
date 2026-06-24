@@ -673,14 +673,21 @@ impl FontFeatures {
 ///
 /// This only affects faces that carry an `opsz` axis (e.g. the bundled Fraunces
 /// text serif); static faces — the embedded Inter, JetBrains Mono — have no
-/// such axis, so it is a no-op for them. The default ([`OpticalSizing::Default`])
-/// sets *no* variation, so every element renders byte-identically to before this
-/// knob existed; opt in per element.
+/// such axis, so it is a no-op for them. The default ([`OpticalSizing::Inherit`])
+/// follows the theme's [`Theme::optical_sizing`], which is `Auto` out of the box
+/// (the CSS default `font-optical-sizing: auto`), so a variable text face tracks
+/// its `opsz` axis with no per-element setup; opt out per element with `Default`.
+///
+/// [`Theme::optical_sizing`]: crate::Theme::optical_sizing
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum OpticalSizing {
-    /// Leave the font's own default `opsz` (emit no variation). The default,
-    /// so existing output is unchanged.
+    /// Inherit the theme default ([`Theme::optical_sizing`](crate::Theme::optical_sizing)).
+    /// The default; an unresolved style (e.g. before theme resolution) treats it
+    /// as [`Auto`](Self::Auto).
     #[default]
+    Inherit,
+    /// Leave the font's own default `opsz` (emit no variation) — opt this element
+    /// out of optical sizing entirely.
     Default,
     /// `opsz` tracks the rendered size in px (CSS `font-optical-sizing: auto`):
     /// small text picks up the text-optical master, large sizes the display
@@ -700,8 +707,10 @@ impl OpticalSizing {
     #[must_use]
     pub fn opsz_at(self, px: f32) -> Option<f32> {
         match self {
+            // Unresolved `Inherit` falls back to `Auto` (the stock theme value),
+            // so text shaped without theme resolution still tracks `opsz`.
+            OpticalSizing::Inherit | OpticalSizing::Auto => Some(px.max(0.0)),
             OpticalSizing::Default => None,
-            OpticalSizing::Auto => Some(px.max(0.0)),
             OpticalSizing::Fixed(v) => Some(v.max(0.0)),
         }
     }
@@ -738,8 +747,9 @@ pub struct TextStyle {
     /// line-break passes inside shaping for this element only.
     pub wrap: TextWrap,
     /// Optical sizing: how the `opsz` variation axis of a variable font is set.
-    /// Defaults to [`OpticalSizing::Default`] (no variation), so static faces
-    /// and existing output are untouched.
+    /// Defaults to [`OpticalSizing::Inherit`] — the theme's
+    /// [`Theme::optical_sizing`](crate::Theme::optical_sizing) (`Auto` out of the
+    /// box). A no-op on static faces; opt out per element with `Default`.
     pub optical: OpticalSizing,
 }
 
@@ -2201,14 +2211,16 @@ mod gradient_tests {
         assert_eq!(OpticalSizing::Fixed(72.0).opsz_at(48.0), Some(72.0));
         // Negatives clamp to 0 (a valid axis floor, never a negative coord).
         assert_eq!(OpticalSizing::Fixed(-5.0).opsz_at(16.0), Some(0.0));
-        // The default of the typed value is `Default` (no behavior change).
-        assert_eq!(OpticalSizing::default(), OpticalSizing::Default);
+        // Unresolved `Inherit` falls back to `Auto` (the stock theme value).
+        assert_eq!(OpticalSizing::Inherit.opsz_at(16.0), Some(16.0));
+        // The default of the typed value is `Inherit` (follows the theme).
+        assert_eq!(OpticalSizing::default(), OpticalSizing::Inherit);
     }
 
     #[test]
     fn optical_builders_set_the_axis() {
         // The ergonomic builders flow into the text style group.
-        assert_eq!(Style::default().text.optical, OpticalSizing::Default);
+        assert_eq!(Style::default().text.optical, OpticalSizing::Inherit);
         assert_eq!(
             Style::default().optical_auto().text.optical,
             OpticalSizing::Auto

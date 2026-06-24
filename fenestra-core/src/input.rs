@@ -725,8 +725,14 @@ mod tests {
             "opsz variation is set under Auto"
         );
 
-        // Re-apply the default style (feature off, opsz Default): both must clear.
-        apply_style(&mut editor, &resolve_text(&TextStyle::default(), &theme));
+        // Re-apply a cleared style (features off, opsz explicitly off): both must
+        // clear. opsz is `Default` (not the new `Inherit`, which would track the
+        // theme's `Auto` and keep the variation set).
+        let off = TextStyle {
+            optical: OpticalSizing::Default,
+            ..Default::default()
+        };
+        apply_style(&mut editor, &resolve_text(&off, &theme));
         assert!(
             !editor.edit_styles().inner().contains_key(&feat_key),
             "feature property is removed when toggled off"

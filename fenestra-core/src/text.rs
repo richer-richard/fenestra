@@ -218,7 +218,11 @@ pub(crate) fn resolve_text(ts: &TextStyle, theme: &Theme) -> ResolvedText {
         color: ts.color.unwrap_or(theme.text),
         features: ts.features,
         wrap: ts.wrap,
-        optical: ts.optical,
+        // Optical sizing inherits the theme default unless the run set its own.
+        optical: match ts.optical {
+            OpticalSizing::Inherit => theme.optical_sizing,
+            other => other,
+        },
     }
 }
 
@@ -584,7 +588,7 @@ impl Fonts {
                 // Under Auto, re-track this span's `opsz` to its own size so a
                 // large display span and small body span in one paragraph each
                 // get their right optical master.
-                if matches!(style.optical, OpticalSizing::Auto)
+                if matches!(style.optical, OpticalSizing::Auto | OpticalSizing::Inherit)
                     && let Some(opsz) = style.optical.opsz_at(px)
                 {
                     builder.push(
@@ -903,6 +907,34 @@ mod tests {
             },
             &Theme::light(),
         )
+    }
+
+    #[test]
+    fn optical_sizing_inherits_the_theme() {
+        // The stock theme drives `opsz` (`Auto`); a bare run inherits it.
+        assert_eq!(Theme::light().optical_sizing, OpticalSizing::Auto);
+        assert_eq!(
+            resolve_text(&TextStyle::default(), &Theme::light()).optical,
+            OpticalSizing::Auto
+        );
+        // An explicit per-run value wins over the theme.
+        assert_eq!(
+            resolve_text(
+                &TextStyle {
+                    optical: OpticalSizing::Default,
+                    ..TextStyle::default()
+                },
+                &Theme::light(),
+            )
+            .optical,
+            OpticalSizing::Default
+        );
+        // The theme knob turns it off kit-wide; a bare run then emits no opsz.
+        let off = Theme::light().with_optical_sizing(OpticalSizing::Default);
+        assert_eq!(
+            resolve_text(&TextStyle::default(), &off).optical,
+            OpticalSizing::Default
+        );
     }
 
     /// Sums the glyph advances of `text` shaped in `style` (no caching, no
