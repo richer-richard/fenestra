@@ -130,9 +130,12 @@ impl WritingDir {
     }
 }
 
-/// The stock kit-wide [corner smoothing](Theme::corner_smoothing). `0.0` keeps
-/// exact circular arcs; this is the default the stock themes ship.
-pub const DEFAULT_CORNER_SMOOTHING: f32 = 0.0;
+/// The stock kit-wide [corner smoothing](Theme::corner_smoothing): `0.6` blends
+/// every rounded surface into an Apple-style squircle (continuous-curvature
+/// corners) instead of a plain circular arc. Calibrated by eye as the point
+/// where the squircle reads clearly without over-squaring small controls; set
+/// `0.0` for exact circular corners via [`Theme::with_corner_smoothing`].
+pub const DEFAULT_CORNER_SMOOTHING: f32 = 0.6;
 
 /// Design tokens resolved for one color mode.
 #[derive(Debug, Clone)]
