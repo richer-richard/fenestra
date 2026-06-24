@@ -200,17 +200,17 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                 }
             };
             let mut block: Element<Msg> = if !has_links {
-                // Fast path: one paragraph, full text wrapping. Headings
+                // Fast path: one paragraph, one layout to refine. Headings
                 // balance their line lengths (even lines instead of a
-                // full-then-short ragged break); body text stays greedy.
-                // (A heading with an inline link falls through to the
-                // wrap-row path below, which has no single layout to
-                // balance.)
+                // full-then-short ragged break); body prose uses pretty
+                // wrapping to avoid a stranded one-word last line (orphan).
+                // (A paragraph with an inline link falls through to the
+                // wrap-row path below, which has no single layout to refine.)
                 let para = rich_text(style_spans(&specs)).selectable();
                 if heading.is_some() {
                     para.balance()
                 } else {
-                    para
+                    para.pretty()
                 }
             } else {
                 // Inline emulation: word-level pieces flow in a wrap
