@@ -107,6 +107,10 @@ fn chip<Msg: 'static>(
     on_remove: Option<Rc<dyn Fn(usize) -> Msg>>,
 ) -> Element<Msg> {
     let remove_label = format!("Remove {tag}");
+    // Stable identity (the tag itself) so a chip keeps its identity when a
+    // sibling is removed — the survivors FLIP into the gap, the removed chip
+    // shrinks away.
+    let key = tag.clone();
     let label = text(tag)
         .size(TextSize::Sm)
         .themed(|t: &Theme, s| s.color(t.text));
@@ -141,6 +145,9 @@ fn chip<Msg: 'static>(
         .py(2.0)
         .rounded_full()
         .shrink0()
+        .id(&key)
+        .animate_layout()
+        .exit_to(0.0, 0.8, 0.0, 0.0)
         .themed(|t: &Theme, s| s.bg(t.element))
         .children([label])
         .children([remove])

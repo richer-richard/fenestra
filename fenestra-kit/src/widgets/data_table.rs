@@ -511,12 +511,19 @@ impl<Msg: Clone + 'static> From<DataTable<Msg>> for Element<Msg> {
         };
 
         if !scrolled {
-            // Inline: header + (filter) + rows as direct children. With no new
-            // features this is byte-identical to the classic small table.
+            // Inline: header + (filter) + rows as direct children. Each row keeps
+            // a content-stable identity and animates its layout, so re-sorting
+            // (or a filtered-out row above it) glides it into its new position
+            // instead of jumping. Virtualized bodies recycle rows, so FLIP is
+            // inline-only. Under reduced motion the slide snaps, so the resting
+            // table is byte-identical to the classic small table.
             let mut kids: Vec<Element<Msg>> = Vec::with_capacity(n_rows + 2);
             kids.push(header);
             kids.extend(filter_row);
-            kids.extend((0..n_rows).map(|i| ctx.row(i)));
+            kids.extend((0..n_rows).map(|i| {
+                let key = ctx.rows[i].join("\u{1f}");
+                ctx.row(i).id(&key).animate_layout()
+            }));
             return frame().w_full().children(kids);
         }
 
