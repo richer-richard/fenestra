@@ -130,6 +130,10 @@ impl WritingDir {
     }
 }
 
+/// The stock kit-wide [corner smoothing](Theme::corner_smoothing). `0.0` keeps
+/// exact circular arcs; this is the default the stock themes ship.
+pub const DEFAULT_CORNER_SMOOTHING: f32 = 0.0;
+
 /// Design tokens resolved for one color mode.
 #[derive(Debug, Clone)]
 pub struct Theme {
@@ -211,6 +215,18 @@ pub struct Theme {
     /// tech chrome, [`RadiusScale::soft`] for a friendlier feel, set via
     /// [`Theme::with_radius`]. Pills/avatars stay round regardless.
     pub radius: RadiusScale,
+
+    /// Continuous-curvature corner smoothing applied kit-wide, `0.0..=1.0`
+    /// (Figma's "corner smoothing"). Defaults to [`DEFAULT_CORNER_SMOOTHING`]:
+    /// every rounded surface then reads as an Apple-style squircle rather than a
+    /// plain circular arc; `0.0` restores exact circular corners. The single
+    /// knob that re-curves the whole kit — set via
+    /// [`Theme::with_corner_smoothing`]. An element may still override it
+    /// per-corner with [`Style::corner_smoothing`]. Applied only where a corner
+    /// radius is present, so square elements are unaffected.
+    ///
+    /// [`Style::corner_smoothing`]: crate::Style::corner_smoothing
+    pub corner_smoothing: f32,
 
     /// How resting, same-plane cards convey separation — [`Elevation::Shadowed`]
     /// (stock: a subtle shadow) or [`Elevation::Flat`] (border + surface
@@ -399,6 +415,7 @@ impl Theme {
             neutrals,
             accents,
             radius: RadiusScale::default(),
+            corner_smoothing: DEFAULT_CORNER_SMOOTHING,
             elevation: Elevation::default(),
             text_scale: 1.0,
             direction: WritingDir::default(),
@@ -412,6 +429,18 @@ impl Theme {
     #[must_use]
     pub fn with_radius(mut self, radius: RadiusScale) -> Self {
         self.radius = radius;
+        self
+    }
+
+    /// Returns this theme with a different kit-wide corner smoothing — the
+    /// single knob that re-curves every rounded surface, from circular arcs
+    /// (`0.0`) to a fuller Apple-style squircle (toward `1.0`). Clamped to
+    /// `0.0..=1.0`. Per-element [`Style::corner_smoothing`] still overrides it.
+    ///
+    /// [`Style::corner_smoothing`]: crate::Style::corner_smoothing
+    #[must_use]
+    pub fn with_corner_smoothing(mut self, smoothing: f32) -> Self {
+        self.corner_smoothing = smoothing.clamp(0.0, 1.0);
         self
     }
 

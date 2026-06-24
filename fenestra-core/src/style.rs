@@ -855,17 +855,19 @@ pub struct Style {
     pub side_borders: EdgeBorders,
     /// Per-corner radii.
     pub corner_radius: CornerRadius,
-    /// Continuous-curvature corner smoothing, `0.0..=1.0` (Figma's "corner
-    /// smoothing"). `0.0` (the default) draws exact circular arcs, so every
-    /// element renders byte-identically to before this knob existed. As it
-    /// rises toward `1.0` the corners blend toward a fuller superellipse (an
-    /// Apple-style squircle): the curve hugs each straight edge longer and
-    /// turns more gradually, removing the curvature discontinuity ("kink")
-    /// where the edge meets a circular arc. Opt in per element; the painter
-    /// clamps to `0.0..=1.0`. Fill, border, and clip share one path so they
-    /// stay aligned. Structural, not animated: it is never lerped, so a target
-    /// state's smoothing simply wins.
-    pub corner_smoothing: f32,
+    /// Continuous-curvature corner smoothing (Figma's "corner smoothing").
+    /// `None` (the default) inherits [`Theme::corner_smoothing`]; `Some(s)` with
+    /// `s` in `0.0..=1.0` overrides it for this element, and `Some(0.0)` forces
+    /// exact circular arcs. As smoothing rises toward `1.0` the corners blend
+    /// toward a fuller superellipse (an Apple-style squircle): the curve hugs
+    /// each straight edge longer and turns more gradually, removing the
+    /// curvature discontinuity ("kink") where a straight edge meets a circular
+    /// arc. Fill, border, and clip share one path so they stay aligned.
+    /// Structural, not animated: it is never lerped, so a target state's
+    /// smoothing simply wins.
+    ///
+    /// [`Theme::corner_smoothing`]: crate::Theme::corner_smoothing
+    pub corner_smoothing: Option<f32>,
     /// A shadow elevation token, expanded against the theme at resolution.
     pub shadow_token: Option<crate::tokens::ShadowToken>,
     /// Concrete drop shadow layers, painted bottom-up. Filled from
@@ -956,7 +958,7 @@ impl Default for Style {
             border: None,
             side_borders: EdgeBorders::default(),
             corner_radius: CornerRadius::default(),
-            corner_smoothing: 0.0,
+            corner_smoothing: None,
             shadow_token: None,
             shadows: Vec::new(),
             highlight_top: None,
@@ -1620,11 +1622,12 @@ impl Style {
         self
     }
 
-    /// Continuous-curvature corner smoothing, `0.0..=1.0` (see
-    /// [`Style::corner_smoothing`]). `0.0` keeps exact circular arcs; higher
-    /// values blend toward a fuller squircle. Clamped to `0.0..=1.0`.
+    /// Overrides continuous-curvature corner smoothing for this element (see
+    /// [`Style::corner_smoothing`]), opting out of the theme default. `0.0`
+    /// keeps exact circular arcs; higher values blend toward a fuller squircle.
+    /// Clamped to `0.0..=1.0`.
     pub fn corner_smoothing(mut self, s: f32) -> Self {
-        self.corner_smoothing = s.clamp(0.0, 1.0);
+        self.corner_smoothing = Some(s.clamp(0.0, 1.0));
         self
     }
 
@@ -1965,13 +1968,20 @@ mod corner_smoothing_tests {
     use super::*;
 
     #[test]
-    fn corner_smoothing_defaults_zero_and_clamps() {
-        assert_eq!(Style::default().corner_smoothing, 0.0);
-        assert_eq!(Style::default().corner_smoothing(0.6).corner_smoothing, 0.6);
-        assert_eq!(Style::default().corner_smoothing(5.0).corner_smoothing, 1.0);
+    fn corner_smoothing_defaults_none_and_clamps() {
+        // None ⇒ inherit the theme; the builder sets an explicit, clamped Some.
+        assert_eq!(Style::default().corner_smoothing, None);
+        assert_eq!(
+            Style::default().corner_smoothing(0.6).corner_smoothing,
+            Some(0.6)
+        );
+        assert_eq!(
+            Style::default().corner_smoothing(5.0).corner_smoothing,
+            Some(1.0)
+        );
         assert_eq!(
             Style::default().corner_smoothing(-1.0).corner_smoothing,
-            0.0
+            Some(0.0)
         );
     }
 }

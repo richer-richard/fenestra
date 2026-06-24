@@ -60,8 +60,8 @@ pub use style::*;
 pub use surface::{Material, Surface, SurfaceBorder, SurfaceBundle, SurfaceFill, SurfaceRadius};
 pub use text::Fonts;
 pub use theme::{
-    BaseField, Contrast, ContrastViolation, DeriveSpec, DuotoneSpec, Mode, Ramp, StatusColors,
-    Theme, ThemeSpec, WritingDir, oklch, oklch_of,
+    BaseField, Contrast, ContrastViolation, DEFAULT_CORNER_SMOOTHING, DeriveSpec, DuotoneSpec,
+    Mode, Ramp, StatusColors, Theme, ThemeSpec, WritingDir, oklch, oklch_of,
 };
 pub use tokens::*;
 

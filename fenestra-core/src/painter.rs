@@ -424,6 +424,9 @@ pub(crate) fn push_box(
     backdrop: Option<&peniko::ImageData>,
 ) -> usize {
     let mut layers = 0;
+    // `None` means "inherit the theme default"; resolution fills it in before
+    // paint, so an unresolved style simply falls back to exact circular arcs.
+    let smoothing = style.corner_smoothing.unwrap_or(0.0);
     if style.opacity < 1.0 {
         // CSS group semantics: the element's own shadows, fill, and border
         // fade together with its children. Bounded by the canvas so
@@ -442,7 +445,7 @@ pub(crate) fn push_box(
         shadow_layer(scene, rect, style.corner_radius, shadow);
     }
 
-    let path = corner_path(rect, style.corner_radius, style.corner_smoothing);
+    let path = corner_path(rect, style.corner_radius, smoothing);
     // A frosted-glass pane composites its CPU-blurred backdrop here — over the
     // drop shadow, under the translucent tint — clipped to the same rounded
     // silhouette as the fill. Scaled into `rect` like `draw_image` (the image
@@ -467,7 +470,7 @@ pub(crate) fn push_box(
             Affine::IDENTITY,
             &brush_for(paint, fill_rect),
             None,
-            &corner_path(fill_rect, style.corner_radius, style.corner_smoothing),
+            &corner_path(fill_rect, style.corner_radius, smoothing),
         );
     }
 
@@ -502,7 +505,7 @@ pub(crate) fn push_box(
             Affine::IDENTITY,
             border.color,
             None,
-            &corner_path(inset_rect, corners, style.corner_smoothing),
+            &corner_path(inset_rect, corners, smoothing),
         );
     }
 
@@ -567,6 +570,7 @@ pub(crate) fn draw_image(
     image: &peniko::ImageData,
     rect: Rect,
     corners: CornerRadius,
+    smoothing: f32,
 ) {
     if image.width == 0 || image.height == 0 || rect.width() <= 0.0 || rect.height() <= 0.0 {
         return;
@@ -579,7 +583,7 @@ pub(crate) fn draw_image(
     scene.push_clip_layer(
         Fill::NonZero,
         Affine::IDENTITY,
-        &rounded_rect(rect, corners),
+        &corner_path(rect, corners, smoothing),
     );
     scene.draw_image(image, transform);
     scene.pop_layer();
@@ -589,7 +593,13 @@ pub(crate) fn draw_image(
 /// (3px) at the ring color, sitting flush just outside the element edge so it
 /// reads as a glow around the (ring-colored) border. The border swap itself
 /// happens during style resolution.
-pub(crate) fn focus_ring(scene: &mut Scene, rect: Rect, corners: CornerRadius, color: Color) {
+pub(crate) fn focus_ring(
+    scene: &mut Scene,
+    rect: Rect,
+    corners: CornerRadius,
+    smoothing: f32,
+    color: Color,
+) {
     let offset = f64::from(FOCUS_RING.offset) + f64::from(FOCUS_RING.width) * 0.5;
     let ring_rect = rect.inflate(offset, offset);
     let mut ring_corners = corners;
@@ -606,7 +616,7 @@ pub(crate) fn focus_ring(scene: &mut Scene, rect: Rect, corners: CornerRadius, c
         Affine::IDENTITY,
         color,
         None,
-        &rounded_rect(ring_rect, ring_corners),
+        &corner_path(ring_rect, ring_corners, smoothing),
     );
 }
 

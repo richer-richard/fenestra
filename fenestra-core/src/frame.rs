@@ -398,6 +398,20 @@ fn resolve<Msg>(
             style = f(theme, style);
         }
     }
+    // Continuous (squircle) corners are a theme-wide default: an element that
+    // set no smoothing of its own inherits the theme's — but only where it has
+    // a finite rounded corner. Square boxes keep the exact circular-arc path,
+    // and pills/avatars (R_FULL, an infinite radius) stay perfectly round.
+    if style.corner_smoothing.is_none() {
+        let radii = [
+            style.corner_radius.tl,
+            style.corner_radius.tr,
+            style.corner_radius.br,
+            style.corner_radius.bl,
+        ];
+        let rounded = radii.iter().any(|&r| r > 0.0) && radii.iter().all(|&r| r.is_finite());
+        style.corner_smoothing = Some(if rounded { theme.corner_smoothing } else { 0.0 });
+    }
     // The uniform Material state layer: a translucent veil of the content
     // color, baked into the fill so it animates as a color change. One recipe
     // for every control that opts in, replacing per-state color swaps.
@@ -1999,7 +2013,13 @@ impl Frame {
                 );
             }
             GhostPaint::Image(data) => {
-                painter::draw_image(scene, &data.image, node.rect, node.style.corner_radius);
+                painter::draw_image(
+                    scene,
+                    &data.image,
+                    node.rect,
+                    node.style.corner_radius,
+                    node.style.corner_smoothing.unwrap_or(0.0),
+                );
             }
             GhostPaint::Box | GhostPaint::InputBox => {}
         }
@@ -2104,7 +2124,13 @@ impl Frame {
         if node.style.element_filter.is_some()
             && let Some(image) = mode.injected(node.id)
         {
-            painter::draw_image(scene, image, node.rect, node.style.corner_radius);
+            painter::draw_image(
+                scene,
+                image,
+                node.rect,
+                node.style.corner_radius,
+                node.style.corner_smoothing.unwrap_or(0.0),
+            );
             return;
         }
         // A glass pane composites its blurred backdrop under the box in the
@@ -2128,7 +2154,13 @@ impl Frame {
             } else {
                 self.ring_color
             };
-            painter::focus_ring(scene, node.rect, node.style.corner_radius, ring);
+            painter::focus_ring(
+                scene,
+                node.rect,
+                node.style.corner_radius,
+                node.style.corner_smoothing.unwrap_or(0.0),
+                ring,
+            );
         }
         match &node.kind {
             PaintKind::Text { text, style } => {
@@ -2175,7 +2207,13 @@ impl Frame {
                 }
             }
             PaintKind::Image(data) => {
-                painter::draw_image(scene, &data.image, node.rect, node.style.corner_radius);
+                painter::draw_image(
+                    scene,
+                    &data.image,
+                    node.rect,
+                    node.style.corner_radius,
+                    node.style.corner_smoothing.unwrap_or(0.0),
+                );
             }
             PaintKind::Box => {}
         }
