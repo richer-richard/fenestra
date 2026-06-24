@@ -24,6 +24,8 @@ mod multi_pass;
 #[cfg(not(target_arch = "wasm32"))]
 mod os_clipboard;
 #[cfg(not(target_arch = "wasm32"))]
+mod reduce_motion;
+#[cfg(not(target_arch = "wasm32"))]
 mod scenario;
 #[cfg(not(target_arch = "wasm32"))]
 mod synthetic;

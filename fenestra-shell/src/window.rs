@@ -542,6 +542,22 @@ impl ApplicationHandler for SceneApp {
     }
 }
 
+/// A [`FrameState`] for a live window, seeded with the OS "reduce motion"
+/// accessibility setting so animations snap for users who asked for it.
+#[cfg(not(target_arch = "wasm32"))]
+fn live_state() -> FrameState {
+    let mut state = FrameState::new();
+    state.reduced_motion = crate::reduce_motion::os_reduce_motion();
+    state
+}
+
+/// The wasm build reads `prefers-reduced-motion` through the browser, so the
+/// live state is the plain default here.
+#[cfg(target_arch = "wasm32")]
+fn live_state() -> FrameState {
+    FrameState::new()
+}
+
 // ------------------------------------------------------------- run_static
 
 /// Opens a window showing a message-free element view. The view is rebuilt
@@ -563,7 +579,7 @@ pub fn run_static(
         shell: WindowShell::new(options, background),
         theme,
         fonts,
-        state: FrameState::new(),
+        state: live_state(),
         view: Box::new(view),
         cursor: Point::ORIGIN,
         started: Instant::now(),
@@ -735,9 +751,9 @@ where
         fonts.register(*role, data.clone());
     }
     #[cfg(target_arch = "wasm32")]
-    let state = FrameState::new();
+    let state = live_state();
     #[cfg(not(target_arch = "wasm32"))]
-    let mut state = FrameState::new();
+    let mut state = live_state();
     #[cfg(not(target_arch = "wasm32"))]
     state.set_clipboard(Box::new(crate::OsClipboard::default()));
     let runner = AppRunner {
@@ -1003,7 +1019,7 @@ impl<A: App> AppRunner<A> {
                         w.set_ime_allowed(true);
                         w.request_redraw();
                     }
-                    let mut state = FrameState::new();
+                    let mut state = live_state();
                     state.set_clipboard(Box::new(crate::OsClipboard::default()));
                     self.secondary.insert(
                         desc.key.clone(),
@@ -1495,6 +1511,21 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                 self.dirty = true;
                 if let Some(w) = self.shell.window() {
                     w.request_redraw();
+                }
+            }
+            WindowEvent::Focused(true) => {
+                // Re-read the OS "reduce motion" setting on focus, so a change
+                // made while the app was in the background takes effect.
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let reduce = crate::reduce_motion::os_reduce_motion();
+                    if reduce != self.state.reduced_motion {
+                        self.state.reduced_motion = reduce;
+                        self.dirty = true;
+                        if let Some(w) = self.shell.window() {
+                            w.request_redraw();
+                        }
+                    }
                 }
             }
             WindowEvent::ModifiersChanged(mods) => {
