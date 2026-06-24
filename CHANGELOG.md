@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- **Apple-style squircle corners, kit-wide.** Every rounded surface now draws
+  continuous-curvature corners (a superellipse "squircle") instead of a plain
+  circular arc, removing the curvature kink where a straight edge meets a
+  circular corner and giving the whole UI a softer, web-grade silhouette.
+  - The corners are built from **true cubic Béziers**, fitted to the
+    superellipse quadrant with `kurbo::fit_to_bezpath` (no flattened polyline,
+    no magic constants). Fill, border, clip, focus ring, and image clip all
+    share the one silhouette.
+  - `Theme::corner_smoothing` (default `DEFAULT_CORNER_SMOOTHING` = `0.6`) is the
+    single knob that re-curves the kit, mirroring `Theme::with_radius`. Set it
+    with `Theme::with_corner_smoothing`, or override per element with
+    `Style::corner_smoothing` / `Element::corner_smoothing` (`0.0` restores
+    exact circular arcs). Square boxes, and pills/avatars (an `R_FULL` radius),
+    are left perfectly circular by construction.
+
 ## 0.35.0 — 2026-06-24
 
 The maturity pass: responsive grid follow-up, forms depth, internationalization,

@@ -2524,3 +2524,55 @@ saturate of an element's *own* content). The decisions:
     inside a foreground blur is a contradictory request.)
   Lifting any of these means tracking the accumulated transform and/or a
   recursive multi-level plan; the single-level design covers the real use cases.
+
+## Squircle corners (continuous-curvature, kit-wide)
+
+The kit's rounded corners are continuous-curvature **squircles** rather than
+circular arcs. A circular corner is only tangent-continuous (G1) with the
+straight edge it joins: curvature jumps from `1/r` to `0` at the join, a
+discontinuity the eye reads as a faint "kink." A squircle ramps curvature
+smoothly to zero at the join (G2), which is the softness Apple's hardware and
+UI corners are known for.
+
+- **Shape: a superellipse, not the Figma cubic recipe.** Each corner is a Lamé
+  superellipse quadrant, `center + r·cos(θ)^(2/n)·u + r·sin(θ)^(2/n)·v`. It is
+  fully derivable (no reverse-engineered magic constants), reduces to the exact
+  circle at `n = 2`, and for `n > 2` has *zero* curvature where it meets the
+  straight edge — genuine G2 continuity. Smoothing `s ∈ 0..=1` maps to the
+  exponent `n = 2 + s·(5−2)`; `N_MAX = 5` is Apple-icon territory.
+
+- **Emitted as true cubic Béziers.** `build_squircle` feeds a
+  `SuperellipseQuadrant` (a `kurbo::ParamCurveFit`) to `kurbo::fit_to_bezpath`,
+  which returns the minimal run of cubics holding a `0.08`px Fréchet tolerance —
+  not a flattened polyline. The quadrant guards the parametric singularity at
+  the joins (the superellipse's `dθ`-derivative is unbounded there for `n > 2`):
+  endpoint tangents are returned exactly (`+v` / `−u`, the edge directions) and
+  the interior derivative is clamped a hair inside `[0, π/2]`. Fill, border,
+  clip, focus ring, and image clip all build from the one path so they stay
+  aligned. `smoothing <= 0` still takes the exact `kurbo::RoundedRect` arc path,
+  so circular rendering is byte-identical to before the knob existed.
+
+- **Theme-wide default, opt-out per element.** `Theme::corner_smoothing`
+  (default `DEFAULT_CORNER_SMOOTHING = 0.6`, picked by eye) is the single knob
+  that re-curves the kit, mirroring `Theme::with_radius`.
+  `Style::corner_smoothing` is an `Option<f32>`: `None` inherits the theme,
+  `Some(x)` overrides (and `Some(0.0)` forces circles). `resolve()` fills an
+  unset element's smoothing from the theme **only where it has a finite rounded
+  corner** — so square boxes keep the exact arc path, and pills/avatars (an
+  `R_FULL` = infinite radius) stay perfectly circular. Smoothing is structural,
+  never animated: a target state's value simply wins (the lerp carries it
+  through unchanged).
+
+- **Supported envelope (what stays circular).** Three paths can't take the
+  squircle silhouette and are left as-is by design:
+  - *Drop shadows* go through vello's `draw_blurred_rounded_rect`, which takes a
+    single uniform radius, so a shadow's silhouette has circular corners. It is
+    a blurred penumbra under the element, so the difference is imperceptible.
+  - *Per-side hairline borders* (`side_borders`) are straight edge strokes with
+    square corners (unchanged); a rounded full edge should use the uniform
+    `border`, which does follow the squircle.
+  - *A perfect circle expressed as a large finite radius* (half the short side)
+    rather than `R_FULL` still receives smoothing, since only the `R_FULL` idiom
+    is auto-excluded; pass `corner_smoothing(0.0)` if an exact circle is needed.
+  The fit runs per rounded element per frame (a few cubics each — cheap, not
+  cached); a glyph-cache-style memo is the obvious lever if it ever shows up.
