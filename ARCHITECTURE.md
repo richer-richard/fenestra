@@ -2576,3 +2576,44 @@ UI corners are known for.
     is auto-excluded; pass `corner_smoothing(0.0)` if an exact circle is needed.
   The fit runs per rounded element per frame (a few cubics each — cheap, not
   cached); a glyph-cache-style memo is the obvious lever if it ever shows up.
+
+## Unlocking built-but-off defaults
+
+A pass over capabilities that were implemented and tested but shipped off by
+default (or unreachable). Each was verified to keep the stock goldens
+byte-identical except where the change *is* the improvement.
+
+- **Optical sizing defaults to `Auto`.** `Style.optical` gained an
+  `OpticalSizing::Inherit` default that `resolve()` / `resolve_text()` replace
+  with `Theme.optical_sizing` (stock `Auto`, the CSS default); an unresolved
+  `Inherit` falls back to `Auto`. The static stock faces (Inter, JetBrains Mono)
+  carry no `opsz` axis, so the variation is a proven no-op there — exactly one
+  golden moved (the `warm_editorial` look's variable Fraunces, now tracking its
+  optical master), so no font-axis gating was needed.
+
+- **Reduced-motion OS bridge.** The honoring logic existed; the live window
+  never set `FrameState.reduced_motion`. `shell::reduce_motion` reads the OS
+  setting through each platform's own CLI — `defaults` (macOS),
+  `gsettings` (Linux/GNOME), `reg` (Windows) — rather than `objc2`/Win32 FFI, so
+  `unsafe_code = forbid` holds. `live_state()` seeds every live window from it
+  and `WindowEvent::Focused(true)` re-reads it. *Envelope:* a read failure or an
+  unrecognized platform reports `false` (full motion); the wasm build defers to
+  the browser's `prefers-reduced-motion` (not this path).
+
+- **FLIP needs stable keys, so it is applied where identity is natural.**
+  `animate_layout` is wired into tag-input chips (keyed by tag), inline
+  `data_table` rows (keyed by joined cell content), and toasts (keyed by
+  message). *Envelope:* virtualized `data_table` bodies recycle rows, so FLIP is
+  inline-only; duplicate keys (identical chips/rows) collide and won't animate
+  distinctly. All of it snaps under reduced motion, so resting goldens are
+  unchanged.
+
+- **Overlay enter motion, not exit.** Anchored pop overlays (menus, dropdowns,
+  tooltips, submenus, context menus) now rise 8px as they fade in, via the
+  existing openness `progress` (modals and drawers already moved). *Envelope:*
+  overlays still close instantly — the openness progress is enter-only, and a
+  closing-overlay lifecycle (to fade/slide *out*) is follow-up work.
+
+- **Toast motion** reuses `enter` + `exit_to` + `animate_layout`: fade/scale in,
+  fade + shrink + drop out, FLIP-reflow the survivors, and `on_swipe` so a flick
+  dismisses. Keyed by message; duplicate-message toasts share identity.

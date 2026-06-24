@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+The "unlock the defaults" pass — quality features that were built but shipped
+off by default are now on (or finally reachable), each verified to keep the
+stock goldens byte-identical except where the improvement is the point.
+
+### Added
+
+- **Optical sizing on by default.** `Theme::optical_sizing` (default
+  `OpticalSizing::Auto`, the CSS default) drives a variable font's `opsz` axis
+  to the rendered size kit-wide; `Style::optical` now defaults to a new
+  `OpticalSizing::Inherit` that follows the theme. A no-op on the static stock
+  faces (verified byte-identical), so only variable text faces change — e.g. the
+  `warm_editorial` look's Fraunces now tracks its optical master at body size.
+  `Theme::with_optical_sizing` opts the whole kit out; `Style::optical(Default)`
+  opts one element out.
+- **Reduced-motion now honored on real windows.** The live window reads the OS
+  "Reduce Motion" setting (macOS / Linux-GNOME / Windows, via each platform's CLI
+  so `unsafe_code = forbid` holds) and re-reads it on focus, so a user who asked
+  for reduced motion gets it (WCAG 2.3.3) — previously this engaged only in
+  headless/tests.
+- **Toast motion.** Toasts swipe-to-dismiss (`on_dismiss` now fires on a flick),
+  animate out (fade + shrink + drop), and the survivors FLIP up into the gap.
+- **FLIP layout animation, finally wired.** Tag-input chips and inline
+  `data_table` rows carry stable keys and `animate_layout`, so removing a chip or
+  re-sorting a table glides instead of jumping.
+- **Runnable `looks` example.** `cargo run --example looks` renders all six
+  design languages (each with its own faces) — the showcase the aesthetic range
+  was missing; the `gallery` example now uses `fenestra_looks::console`.
+
+### Changed
+
+- **Tabular figures for numeric widgets.** Spin-button values, meter percentages,
+  pagination, stepper numbers, and calendar days use tabular (`tnum`) figures so
+  digits stay column-aligned and don't jitter — matching `data_table`/`stat_card`.
+- **Anchored pop overlays rise as they fade in.** Menus, select/combobox
+  dropdowns, tooltips, submenu flyouts, and context menus now rise 8px on enter
+  (the motion modals and drawers already had), snapping under reduced motion.
+- **Tactile press feedback on more controls.** The select trigger, multi-select
+  chips, and the tag-input remove button gain the button-style press-shrink.
+- **Markdown body paragraphs use pretty wrapping** (no stranded one-word last
+  line); headings were already balanced.
+
 ## 0.36.0 — 2026-06-24
 
 ### Added
