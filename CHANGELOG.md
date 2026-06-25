@@ -1,5 +1,44 @@
 # Changelog
 
+## [Unreleased]
+
+The Liquid Glass optics pass — a multi-agent research survey of Apple Liquid
+Glass (WWDC25 / iOS 26 / macOS Tahoe 26), Material 3 Expressive, Microsoft Fluent
+(Acrylic/Mica), and visionOS, distilled to the distinctive, deterministic,
+golden-lockable gaps fenestra could close on vello. Every piece is orthogonal and
+default-off, so all non-glass elements and opaque `Surface` roles stay
+byte-identical; `Surface::Glass` lights them up with no API change.
+
+### Added
+
+- **Specular edge rim.** `SpecularEdge { light_deg, intensity, shade }` (new
+  `Style::specular_edge` / `Element::specular_edge`, default `None`) paints a
+  hairline (~1.5px) linear-gradient stroke just inside a pane's silhouette — a
+  shaded underside grading through clear to a bright white top — so the perimeter
+  reads as a lit bevel (a lens), not a flat outline. `SpecularEdge::glass()` is the
+  stock recipe (top light, intensity `0.6`, shade `0.18`).
+- **Directional body sheen.** `Sheen { light_deg, top, bottom }` (new
+  `Style::sheen` / `Element::sheen`, default `None`) washes a soft linear gradient
+  over the face — white at the lit corner, through clear, to a faint shade at the
+  far corner — so a translucent pane reads as lit glass instead of a uniform tint.
+  `Sheen::glass()` is a 135° rake (`top` `0.12`, `bottom` `0.06`).
+- **Edge lensing (refraction) — the rounded-rim "crown."** The headless
+  backdrop-blur pass now bends the blurred backdrop into the rim: within a bevel
+  band along the rounded-rect SDF, each pixel resamples from further inside along
+  the corner normal, so straight backdrop lines compress and curve through the
+  edge. Pure IEEE-754 `f32` (no FMA fusion), so it stays bit-stable across
+  macOS/Metal and Linux/lavapipe like the box blur, and the interior beyond the
+  band is byte-identical. *Headless only* — the live single-pass window keeps the
+  flat tint (the standing glass envelope).
+- **`Surface::Glass` wears all three for free.** The rim and sheen are derived from
+  the role's `Material` in `SurfaceBundle::apply`, so the stock frosted pane gains
+  them with no new call; new `tokens::GLASS_LIGHT_DEG` (`0` = top) is the shared
+  light direction.
+- **Flagship example `liquid_glass`.** `cargo run --example liquid_glass` floats a
+  *vibrant* 0.5-alpha glass pane (glassier than the legibility-first stock
+  `Surface::Glass` at 0.82α) over bold accent stripes, so the rim, sheen, and
+  lensing all read at once. Output is gitignored.
+
 ## 0.37.0 — 2026-06-25
 
 The "unlock the defaults" pass — quality features that were built but shipped
