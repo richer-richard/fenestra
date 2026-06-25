@@ -5,7 +5,8 @@
 # Local Claude guidance stays out of the repo.
 CLAUDE.local.md
 
-# Headless example output (the `gallery` and `looks` showcases).
+# Headless example output (the `gallery`, `looks`, and `liquid_glass` showcases).
 /gallery/
 /looks/
+/liquid_glass/
 \n# mdBook build output\nbook/book/\n
