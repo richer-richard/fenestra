@@ -2617,3 +2617,67 @@ byte-identical except where the change *is* the improvement.
 - **Toast motion** reuses `enter` + `exit_to` + `animate_layout`: fade/scale in,
   fade + shrink + drop out, FLIP-reflow the survivors, and `on_swipe` so a flick
   dismisses. Keyed by message; duplicate-message toasts share identity.
+
+## Liquid Glass optics: specular rim, body sheen, edge lensing
+
+A multi-agent research pass (plan → six web-research strands → synthesis) surveyed
+Apple Liquid Glass (WWDC25 / iOS 26 / macOS Tahoe 26), Material 3 Expressive,
+Microsoft Fluent (Acrylic/Mica), and visionOS, then ranked the gaps fenestra could
+close on vello. This implements the top distinctive, deterministic,
+golden-lockable ones: a luminous specular **rim**, a directional body **sheen**,
+and edge **lensing** (refraction) at the rounded rim. The first two are pure style
+composition in the core painter; the third extends the headless backdrop-blur pass
+in the shell. Verified against vello 0.9 before building: `Scene::stroke` takes a
+gradient brush, and `push_layer` / `Mix` exist for the clipped washes.
+
+Both rim and sheen are orthogonal `Option` fields on `Style`
+(`specular_edge`, `sheen`), default `None`, so every non-glass element and every
+opaque `Surface` role stays byte-identical. They are switched on in exactly one
+place — `SurfaceBundle::apply`, gated on the role carrying a `Material` (today only
+`Surface::Glass`) — so the stock frosted pane gains them with no new call, and
+`SpecularEdge::glass()` / `Sheen::glass()` hold the calibrated recipes (top-lit rim
+at intensity `0.6` / shade `0.18`; a 135° sheen at `0.12` / `0.06`). The painter
+draws the rim as a hairline (~1.5px) gradient-brushed stroke just inside the
+silhouette — a dark underside at gradient offset `0`, through clear, to bright white
+at offset `1` — and the sheen as a full-face gradient wash, both source-over and
+clipped to the rounded path. New `tokens::GLASS_LIGHT_DEG` (`0` = top) is the shared
+light direction.
+
+- **DECISION — the rim is a linear vertical gradient, not the true angular
+  sweep.** The research described a `cos(normal·light)` rim that brightens
+  continuously around the perimeter toward the light. The shipped rim is a single
+  bright-top / dark-bottom linear gradient — a deliberate, tasteful approximation
+  chosen for convention-robustness and fenestra's calm aesthetic. A per-segment /
+  angular-sweep variant is a clean later upgrade; the `light_deg` field already
+  anticipates it.
+- **DECISION — lensing rides the existing headless two-pass, pure f32.**
+  `PassKind::BackdropBlur` gained a `radius` (the pane's uniform corner radius in
+  logical px; `frame.rs` averages the four corners — `0.25·(tl+tr+br+bl)` — into one
+  bevel radius). After the deterministic integer box blur, `blur.rs::refract_edges`
+  resamples each pixel in a bevel band along the rounded-rect SDF from further
+  *inside* along the corner normal (edge-clamped bilinear), so straight backdrop
+  lines bend and compress into the rim. It is pure IEEE-754 `f32` with no implicit
+  FMA fusion, so it is bit-stable across Metal and lavapipe exactly like the box
+  blur, and the interior beyond the band is byte-identical. `multi_pass.rs` runs it
+  for every glass region.
+- **Envelope — lensing is headless-only; subtle through the stock glass.** Like the
+  backdrop blur it extends, lensing lives in the headless two-pass; the live
+  single-pass window keeps the flat tint (the standing glass envelope). Through the
+  legibility-first `Surface::Glass` (0.82α) the bend is subtle; it is vivid on a
+  glassier pane, which is why the new `liquid_glass` flagship floats a vibrant
+  0.5-alpha pane over bold accent stripes so the rim, sheen, and lensing all read at
+  once (output gitignored).
+- **Reverted — contact / umbra shadow.** A token-level negative-spread occlusion
+  layer on `Lg` / `Xl` was implemented, then reverted: fenestra's shadows are
+  already multi-layer and surface-hue-tinted, the 0.82 glass is too opaque for an
+  inset occlusion to show through, and the layer is hidden under opaque surfaces — a
+  barely-perceptible payoff against broad golden churn.
+- **Deferred — backdrop-adaptive tint (and adaptive shadow opacity).** Invasive as
+  designed: the tint is resolved during style resolution, *before* the backdrop is
+  rendered, so adapting it to backdrop luminance needs the measured luminance
+  plumbed back into the core paint/fill path. The blur read-back already
+  computes-and-discards that luminance, so it is feasible as a later pass.
+- **Deferred — lower-ranked research recs.** An SDF bevel-band giving the rim finite
+  thickness, capsule-first control shapes with radius-by-size, an inset/recessed
+  shadow primitive, and an explicit elevation-tier token model — all recorded, none
+  shipped this pass.
