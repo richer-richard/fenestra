@@ -2738,3 +2738,24 @@ schema: the half of the moat that makes the web-grade visuals agent-reachable.
   (it advertises nodes + color roles, not the style-property grammar or the closed
   enum tokens). Authoring works and is golden-proven; making the vocabulary
   self-documenting so an agent can *discover* these props is the remaining gap.
+
+## Headless interaction-state verification (selection, live regions)
+
+The agent-native VERIFY half: an agent should be able to drive input and then assert
+the *interaction state* — caret/selection, live-region announcements — straight off
+the inspected access tree, no pixels. The core `AccessNode` already carried
+`selection: Option<(usize,usize)>` (the editor's caret/selection range) and
+`live: bool` (a polite live region), but the agent-facing `AccessNodeDto` dropped both
+in `node_to_dto`, so they were unreachable.
+
+- **Exposed in the DTO.** `AccessNodeDto` gains `selection: Option<[usize; 2]>` (the
+  `(start, end)` range as a JSON array; collapsed = caret) and `live: bool` (skipped
+  when false, like `invalid`), populated in `inspect::node_to_dto`. Both flow through
+  `render::interact`'s after-tree, so a `Type` step then a tree read asserts the
+  caret — proven in `typed_input_exposes_caret_selection`.
+- **Fixed a real a11y gap surfaced by the test.** A `status` with `live: true` only
+  drew the visual sonar ring; its container was never marked an aria-live region
+  (`Element::live()`), so nothing set `AccessNode.live` for it (only toasts did). The
+  `StatusIndicator` `From` impl now calls `Element::live()` when live — the semantic,
+  not just the decoration. No pixels change (the ring was already there); the access
+  tree now carries the flag, asserted in `live_region_surfaces_in_the_after_tree`.

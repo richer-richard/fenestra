@@ -165,3 +165,45 @@ fn bound_checkbox_toggles_state_and_tree() {
         "the after-tree checkbox is checked"
     );
 }
+
+#[test]
+fn typed_input_exposes_caret_selection() {
+    // Drive input, then read the caret/selection straight off the after-tree —
+    // headless interaction-state verification, no pixels needed.
+    let theme = resolve_theme(None).unwrap();
+    let d = desc(
+        r#"{"schema":"fenestra/1","state":{"name":""},"root":{"text_input":{"bind":"name","placeholder":"name","id":"inp"}}}"#,
+    );
+    let steps = vec![
+        Step::Click(Selector {
+            id: Some("inp".into()),
+            ..Default::default()
+        }),
+        Step::Type("Ada".into()),
+    ];
+    let out = interact(&d, &theme, (300, 120), &steps, false).unwrap();
+    let textbox = find_role(&out.tree, "textbox").expect("a textbox");
+    assert_eq!(
+        textbox.selection,
+        Some([3, 3]),
+        "after typing 3 chars the caret sits collapsed at offset 3"
+    );
+}
+
+fn any_live(node: &AccessNodeDto) -> bool {
+    node.live || node.children.iter().any(any_live)
+}
+
+#[test]
+fn live_region_surfaces_in_the_after_tree() {
+    // A status with `live:true` is a polite live region — assertable headlessly.
+    let theme = resolve_theme(None).unwrap();
+    let d = desc(
+        r#"{"schema":"fenestra/1","root":{"status":{"label":"Operational","status":"success","live":true}}}"#,
+    );
+    let out = render(&d, &theme, (300, 120)).unwrap();
+    assert!(
+        any_live(&out.tree),
+        "the live status must surface in the access tree"
+    );
+}

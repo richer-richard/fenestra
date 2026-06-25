@@ -245,14 +245,18 @@ impl<Msg> From<StatusIndicator<Msg>> for Element<Msg> {
                 .shrink0()
                 .themed(move |t: &Theme, st| st.bg(status.colors(t).solid))
         };
-        row()
+        let row = row()
             .items_center()
             .gap(SP2)
             .shrink0()
             .children([indicator])
             .children([text(s.label)
                 .size(TextSize::Sm)
-                .themed(|t: &Theme, st| st.color(t.text_muted))])
+                .themed(|t: &Theme, st| st.color(t.text_muted))]);
+        // A live status is a polite aria-live region: the visual sonar ring is the
+        // decoration, this is the semantic the access tree carries (so it can be
+        // announced, and asserted headlessly). No pixels change.
+        if s.live { row.live() } else { row }
     }
 }
 

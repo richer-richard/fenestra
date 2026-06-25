@@ -49,6 +49,13 @@ pub struct AccessNodeDto {
     /// Whether the control is marked invalid (`aria-invalid`).
     #[serde(default, skip_serializing_if = "is_false")]
     pub invalid: bool,
+    /// Live region: content changes are announced politely (`aria-live`).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub live: bool,
+    /// Text selection as `[start, end]` offsets into the value (collapsed = caret
+    /// position) — headlessly assertable after driving input.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<[usize; 2]>,
     /// Layout rectangle.
     pub bounds: Bounds,
     /// Children in paint order.
@@ -145,6 +152,8 @@ mod tests {
             selected: None,
             focusable: true,
             invalid: false,
+            live: false,
+            selection: None,
             bounds: Bounds {
                 x: 1.0,
                 y: 2.0,
@@ -157,6 +166,11 @@ mod tests {
         assert!(json.contains("\"ref\":\"/0\""), "{json}");
         // Optional empty fields are omitted.
         assert!(!json.contains("value"), "{json}");
+        assert!(!json.contains("live"), "default live omitted: {json}");
+        assert!(
+            !json.contains("selection"),
+            "default selection omitted: {json}"
+        );
         let back: AccessNodeDto = serde_json::from_str(&json).unwrap();
         assert_eq!(node, back);
     }
