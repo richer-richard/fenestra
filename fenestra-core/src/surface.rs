@@ -343,8 +343,9 @@ impl SurfaceBundle {
             .map(|a| crate::theme::oklch(1.0, 0.0, 0.0).with_alpha(a));
         // A material's blur_radius is no longer reserved: it drives the
         // backdrop-blur pass (the shell reads back the content behind the pane
-        // and blurs it). A zero radius leaves `backdrop_blur` None, so an opaque
-        // role or a flat-tint material renders single-pass exactly as before.
+        // and blurs it). A zero radius leaves `backdrop_blur` None, so a flat-tint
+        // material skips the two-pass blur (it still gets the rim + sheen below);
+        // an opaque role with no material renders exactly as before.
         style.backdrop_blur = self.material.map(|m| m.blur_radius).filter(|r| *r > 0.0);
         // A frosted material also carries the Liquid Glass edge optics — a
         // luminous specular rim and a directional body sheen — so the pane reads

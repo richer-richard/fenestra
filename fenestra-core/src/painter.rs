@@ -441,9 +441,9 @@ fn specular_rim(
     edge: &SpecularEdge,
     scale: f64,
 ) {
-    // ~1.5 physical px: fine enough to read as light catching the edge, not a
-    // second border.
-    let w = (1.0 / scale).max(0.75) * 1.5;
+    // A crisp ~1.5 physical px at any DPI: fine enough to read as light catching
+    // the edge, not a second border.
+    let w = 1.5 / scale;
     let inset = 0.5 * w;
     let rim_rect = rect.inflate(-inset, -inset);
     if rim_rect.width() <= 0.0 || rim_rect.height() <= 0.0 {
