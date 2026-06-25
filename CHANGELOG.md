@@ -30,10 +30,21 @@ byte-identical; `Surface::Glass` lights them up with no API change.
   macOS/Metal and Linux/lavapipe like the box blur, and the interior beyond the
   band is byte-identical. *Headless only* — the live single-pass window keeps the
   flat tint (the standing glass envelope).
-- **`Surface::Glass` wears all three for free.** The rim and sheen are derived from
-  the role's `Material` in `SurfaceBundle::apply`, so the stock frosted pane gains
-  them with no new call; new `tokens::GLASS_LIGHT_DEG` (`0` = top) is the shared
-  light direction.
+- **Backdrop-adaptive vibrancy.** `AdaptiveTint { pivot, gain }` (new
+  `Style::adaptive_tint` / `Element::adaptive_tint`, default `None`) shifts a glass
+  tint's OKLCH lightness by the mean luminance of the frosted backdrop behind it —
+  brighter over dark content, darker over light — so the pane holds a stable contrast
+  against whatever floats behind it (Fluent Acrylic's "luminosity clamp" reduced to a
+  single mean-luminance shift; Apple Liquid Glass does the same tonal adaptation).
+  Measured in the core painter at paint time, where the composited backdrop image is
+  already in hand, so no luminance plumbing is needed; the mean is summed in integer
+  channels, so it stays bit-stable across macOS/Metal and Linux/lavapipe. *Headless
+  only* — the single-pass live window has no backdrop image and keeps the flat tint.
+  `AdaptiveTint::glass()` is the stock recipe (pivot `0.55`, gain `0.20`).
+- **`Surface::Glass` wears them all for free.** The rim, sheen, and adaptive tint are
+  derived from the role's `Material` in `SurfaceBundle::apply`, so the stock frosted
+  pane gains them with no new call; new `tokens::GLASS_LIGHT_DEG` (`0` = top) is the
+  shared light direction.
 - **Flagship example `liquid_glass`.** `cargo run --example liquid_glass` floats a
   *vibrant* 0.5-alpha glass pane (glassier than the legibility-first stock
   `Surface::Glass` at 0.82α) over bold accent stripes, so the rim, sheen, and

@@ -13,8 +13,8 @@
 
 use fenestra::shell::render_element;
 use fenestra::{
-    Color, Element, Material, Mode, SP2, SP3, SP4, SP6, ShadowToken, Sheen, SpecularEdge, TextSize,
-    Theme, Weight, col, row, stack, text,
+    AdaptiveTint, Color, Element, Material, Mode, SP2, SP3, SP4, SP6, ShadowToken, Sheen,
+    SpecularEdge, TextSize, Theme, Weight, col, row, stack, text,
 };
 
 const SIZE: (u32, u32) = (760, 480);
@@ -64,6 +64,7 @@ fn glass_hero(t: &Theme) -> Element<()> {
         .backdrop_blur(24.0)
         .specular_edge(SpecularEdge::glass())
         .sheen(Sheen::glass())
+        .adaptive_tint(AdaptiveTint::glass())
         .border(1.0, t.border_subtle)
         .shadow(ShadowToken::Lg)
         .overflow_hidden()

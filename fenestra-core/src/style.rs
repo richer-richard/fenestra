@@ -845,6 +845,42 @@ impl Sheen {
     }
 }
 
+/// Backdrop-adaptive vibrancy for a glass material. In the headless two-pass
+/// renderer — where the frosted backdrop image is in hand at paint time — the
+/// painter measures the mean luminance of the blurred crop behind the pane and
+/// shifts the tint's OKLCH lightness toward white over dark backdrops and toward
+/// black over light ones, so the frosted surface keeps a stable contrast against
+/// whatever floats behind it. This is Fluent Acrylic's "luminosity clamp" idea
+/// reduced to a single mean-luminance lightness shift (Apple Liquid Glass does
+/// the same tonal adaptation, without a published formula). `None` (the default)
+/// keeps a fixed tint, so non-glass elements — and the single-pass live window,
+/// which has no backdrop image — stay byte-identical. Set by
+/// [`Surface::Glass`](crate::Surface::Glass).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct AdaptiveTint {
+    /// Backdrop luminance (`0` = black .. `1` = white) the shift pivots around: a
+    /// backdrop at exactly this luminance leaves the tint unchanged.
+    pub pivot: f32,
+    /// Lightness-shift gain. The tint's OKLCH lightness moves by
+    /// `gain * (pivot - backdrop_luminance)`, so a fully dark backdrop brightens
+    /// it by up to `gain * pivot` and a fully light one darkens it by up to
+    /// `gain * (1 - pivot)`.
+    pub gain: f32,
+}
+
+impl AdaptiveTint {
+    /// The calibrated glass recipe: pivot near mid-luminance, a calm gain tuned
+    /// so the adaptation reads as the material picking up the room behind it
+    /// without ever turning the pane opaque.
+    #[must_use]
+    pub const fn glass() -> Self {
+        Self {
+            pivot: 0.55,
+            gain: 0.20,
+        }
+    }
+}
+
 /// The complete style of an element: layout, paint, and text groups.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Style {
@@ -967,6 +1003,11 @@ pub struct Style {
     /// translucent pane read as lit glass. `None` (the default) paints no sheen.
     /// See [`Sheen`].
     pub sheen: Option<Sheen>,
+    /// Backdrop-adaptive vibrancy: shifts the glass tint's lightness by the mean
+    /// luminance of the frosted backdrop behind it (headless-only — it needs the
+    /// composited backdrop image). `None` (the default) keeps a fixed tint, so
+    /// non-glass elements stay byte-identical. See [`AdaptiveTint`].
+    pub adaptive_tint: Option<AdaptiveTint>,
     /// Opacity 0.0..=1.0 applied to the whole subtree.
     pub opacity: f32,
     /// Uniform scale applied at paint time about the element's center
@@ -1054,6 +1095,7 @@ impl Default for Style {
             highlight_top: None,
             specular_edge: None,
             sheen: None,
+            adaptive_tint: None,
             opacity: 1.0,
             scale: 1.0,
             translate: (0.0, 0.0),
@@ -1748,6 +1790,14 @@ impl Style {
     /// translucent pane read as lit glass. See [`Sheen`] (and [`Sheen::glass`]).
     pub fn sheen(mut self, sheen: Sheen) -> Self {
         self.sheen = Some(sheen);
+        self
+    }
+
+    /// Backdrop-adaptive vibrancy — shift the glass tint's lightness by the mean
+    /// luminance of the frosted backdrop behind it (headless-only). See
+    /// [`AdaptiveTint`] (and [`AdaptiveTint::glass`] for the stock recipe).
+    pub fn adaptive_tint(mut self, adaptive: AdaptiveTint) -> Self {
+        self.adaptive_tint = Some(adaptive);
         self
     }
 
