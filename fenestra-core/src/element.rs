@@ -1587,6 +1587,22 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// A luminous specular edge rim — the Liquid Glass perimeter light — on this
+    /// element. [`Surface::Glass`](crate::Surface::Glass) sets it for you; reach
+    /// for this builder to put the rim on a custom translucent pane. See
+    /// [`SpecularEdge`](crate::SpecularEdge) (and [`SpecularEdge::glass`]).
+    pub fn specular_edge(mut self, edge: crate::style::SpecularEdge) -> Self {
+        self.style = self.style.specular_edge(edge);
+        self
+    }
+
+    /// A directional body sheen — the raking glass light — across this element's
+    /// face. See [`Sheen`](crate::Sheen) (and [`Sheen::glass`]).
+    pub fn sheen(mut self, sheen: crate::style::Sheen) -> Self {
+        self.style = self.style.sheen(sheen);
+        self
+    }
+
     /// Text size.
     pub fn size(mut self, size: TextSize) -> Self {
         self.style = self.style.size(size);
