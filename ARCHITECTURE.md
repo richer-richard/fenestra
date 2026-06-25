@@ -2695,3 +2695,39 @@ light direction.
   thickness, capsule-first control shapes with radius-by-size, an inset/recessed
   shadow primitive, and an explicit elevation-tier token model — all recorded, none
   shipped this pass.
+
+## Authoring the glass aesthetic (describe-layer mirror)
+
+The Liquid Glass optics (specular rim, body sheen, edge lensing, backdrop-adaptive
+tint) and the squircle / backdrop-blur fields lived in `fenestra-core` but had no
+JSON mirror, so an agent could neither author nor — therefore — headlessly *verify*
+fenestra's signature surface. This adds them to the `fenestra-describe` authoring
+schema: the half of the moat that makes the web-grade visuals agent-reachable.
+
+- **Authoring-only round-trip.** The describe boundary is one-directional — JSON →
+  `Element` via `parse::apply_style`; there is no `Element` → JSON `Style` emitter
+  (describe/inspect emits the *access tree*, `dto::AccessNodeDto`, not the authoring
+  style). So this extends the `format::Style` DTO with new optional fields
+  (`deny_unknown_fields` keeps them additive and the parser strict) and adds
+  `apply_style` branches mirroring the established `shadow_token` / `finite_num`
+  patterns. The standing invariant "the JSON boundary produces the same `Element` the
+  builders do" then guarantees identical pixels, already golden-covered.
+- **`surface` is a deferred role.** `Element::surface` registers a `themed` closure
+  that resolves the whole bundle (fill/border/radius/shadow + the glass optics)
+  against the theme at frame-build time, so a role *owns* the paint it sets; for a
+  custom look an author uses the individual paint fields instead. The five optic
+  fields (`corner_smoothing`, `backdrop_blur`, `specular_edge`, `sheen`,
+  `adaptive_tint`) set the style immediately, so they read back from
+  `Element::style()` and are unit-tested directly; `surface` is proven by building a
+  frame and by an unknown-role rejection test.
+- **Preset-or-structured optics.** `specular_edge` / `sheen` / `adaptive_tint` each
+  accept the `"glass"` preset string OR an explicit object, modeled as an untagged
+  enum (the same shape as `TrackSpec`). The presets resolve to the exact `::glass()`
+  recipes the core uses — asserted against `SpecularEdge::glass()` etc. in a
+  round-trip test, so the JSON vocabulary can't drift from the builder vocabulary.
+- **Deferred — a second batch over the same patterns.** The translucent custom
+  `Material` vibrancy `bg` (today's `ColorSpec` is role|oklch; a glassier-than-stock
+  pane needs a material `bg` shape — the one genuinely new JSON design question),
+  plus transforms (`translate`/`rotate`/`skew`), per-corner radii, and
+  `element_filter`. And the Style-grammar section of `describe_vocabulary` (it
+  advertises nodes + color roles, not style properties) — discovery, a separate gap.

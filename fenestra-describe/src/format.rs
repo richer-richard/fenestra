@@ -955,6 +955,86 @@ pub struct Style {
     /// Row line names, positional: the i-th names the (i+1)-th row line.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid_row_names: Option<Vec<String>>,
+    /// Surface material role: `card` | `raised` | `popover` | `menu` | `modal` |
+    /// `glass` | `tooltip` | `thumb`. `glass` applies the whole frosted Liquid
+    /// Glass treatment — vibrancy tint, backdrop blur, specular rim, body sheen,
+    /// backdrop-adaptive tint, and elevation — in one token. A material role owns
+    /// the fill/border/radius/shadow it sets; for a custom look use the individual
+    /// paint fields (`bg`, `rounded`, the glass optics) instead of a role.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub surface: Option<String>,
+    /// Corner smoothing `0.0..=1.0`: the continuous-curvature "squircle" amount
+    /// (Apple-style corners). `0` is an exact circular-arc rounded rect.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corner_smoothing: Option<f32>,
+    /// Backdrop blur radius in logical px: frosts the content behind a translucent
+    /// pane (realized headlessly; the live single-pass window keeps the flat tint).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub backdrop_blur: Option<f32>,
+    /// Liquid Glass specular edge rim: the string `"glass"` for the stock recipe,
+    /// or a structured `{ "light_deg", "intensity", "shade" }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub specular_edge: Option<EdgeSpec>,
+    /// Directional body sheen: `"glass"`, or `{ "light_deg", "top", "bottom" }`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sheen: Option<SheenSpec>,
+    /// Backdrop-adaptive vibrancy: `"glass"`, or `{ "pivot", "gain" }`. Shifts the
+    /// glass tint's lightness by the backdrop's mean luminance (headless).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adaptive_tint: Option<AdaptiveSpec>,
+}
+
+/// A Liquid Glass specular edge rim in JSON: the `"glass"` preset, or explicit
+/// levers `{ "light_deg", "intensity", "shade" }`. Mirrors
+/// [`fenestra_core::SpecularEdge`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum EdgeSpec {
+    /// A named preset — currently only `"glass"`.
+    Preset(String),
+    /// Explicit levers, all required.
+    Custom {
+        /// Light azimuth in CSS gradient degrees (`0` = top).
+        light_deg: f32,
+        /// Bright-side rim alpha at the lit edge.
+        intensity: f32,
+        /// Dark-side rim alpha at the shaded edge.
+        shade: f32,
+    },
+}
+
+/// A directional body sheen in JSON: the `"glass"` preset, or explicit levers
+/// `{ "light_deg", "top", "bottom" }`. Mirrors [`fenestra_core::Sheen`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SheenSpec {
+    /// A named preset — currently only `"glass"`.
+    Preset(String),
+    /// Explicit levers, all required.
+    Custom {
+        /// Gradient axis in CSS degrees (`0` = up).
+        light_deg: f32,
+        /// White alpha at the lit (near) end.
+        top: f32,
+        /// Dark alpha at the far end.
+        bottom: f32,
+    },
+}
+
+/// Backdrop-adaptive vibrancy in JSON: the `"glass"` preset, or explicit levers
+/// `{ "pivot", "gain" }`. Mirrors [`fenestra_core::AdaptiveTint`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AdaptiveSpec {
+    /// A named preset — currently only `"glass"`.
+    Preset(String),
+    /// Explicit levers, all required.
+    Custom {
+        /// Backdrop luminance the shift pivots around (`0`..`1`).
+        pivot: f32,
+        /// Lightness-shift gain.
+        gain: f32,
+    },
 }
 
 /// One grid template entry: a track *string* (`"200px"`, `"1fr"`, `"auto"`,

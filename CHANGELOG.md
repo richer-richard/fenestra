@@ -49,6 +49,16 @@ byte-identical; `Surface::Glass` lights them up with no API change.
   *vibrant* 0.5-alpha glass pane (glassier than the legibility-first stock
   `Surface::Glass` at 0.82α) over bold accent stripes, so the rim, sheen, and
   lensing all read at once. Output is gitignored.
+- **Author the glass aesthetic in JSON (`fenestra-describe`).** The agent-facing
+  description format now mirrors the glass/material vocabulary: a `surface` role
+  (`glass` | `card` | `popover` | `menu` | `modal` | `tooltip` | `thumb`) applies a
+  whole material in one token, and `corner_smoothing`, `backdrop_blur`,
+  `specular_edge`, `sheen`, and `adaptive_tint` — each a `"glass"` preset string or a
+  structured object — compose a custom pane. So an agent can now author fenestra's
+  signature Liquid Glass surface *and* verify it headlessly through the same render
+  path the builders use — closing the gap between the web-grade visuals and the
+  agent-native authoring half of the moat. Authoring-only round-trip, default-off,
+  with `"glass"` presets that resolve to the exact core `::glass()` recipes.
 
 ## 0.37.0 — 2026-06-25
 
