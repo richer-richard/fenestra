@@ -363,3 +363,52 @@ fn rejects_unknown_glass_preset() {
         "{errs:?}"
     );
 }
+
+#[test]
+fn parses_transforms_corners_and_filter() {
+    let json = r#"{"schema":"fenestra/1","root":{"col":{"style":{
+        "corners":[4,8,12,16],
+        "translate":[10,5],"rotate":15,"skew":[2,0],
+        "element_filter":{"blur":4}
+    },"children":[]}}}"#;
+    let d: Description = serde_json::from_str(json).expect("valid description");
+    let el = to_element(&d, &Theme::light()).expect("parses");
+    let s = el.style();
+    assert_eq!((s.corner_radius.tl, s.corner_radius.bl), (4.0, 16.0));
+    assert_eq!(s.translate, (10.0, 5.0));
+    assert_eq!(s.rotate, 15.0);
+    assert_eq!(s.skew, (2.0, 0.0));
+    assert!(
+        matches!(s.element_filter, Some(fenestra_core::ElementFilter::Blur(r)) if (r - 4.0).abs() < 1e-6),
+        "{:?}",
+        s.element_filter
+    );
+}
+
+#[test]
+fn parses_material_vibrancy_background() {
+    // A custom glassier-than-stock material: a translucent fill + its backdrop blur,
+    // authored in one field (the escape hatch behind `surface: "glass"`).
+    let json = r#"{"schema":"fenestra/1","root":{"col":{"style":{
+        "material":{"tint":{"oklch":[0.7,0.05,250]},"fill_alpha":0.5,"blur":24,"saturation":1.6}
+    },"children":[]}}}"#;
+    let d: Description = serde_json::from_str(json).expect("valid description");
+    let el = to_element(&d, &Theme::light()).expect("parses");
+    let s = el.style();
+    assert!(s.fill.is_some(), "material sets a translucent fill");
+    assert_eq!(
+        s.backdrop_blur,
+        Some(24.0),
+        "material drives the backdrop blur"
+    );
+}
+
+#[test]
+fn rejects_unknown_material_field() {
+    // `deny_unknown_fields` on MaterialSpec catches a typo'd lever at deserialize.
+    let json = r#"{"schema":"fenestra/1","root":{"col":{"style":{
+        "material":{"tint":"accent","fill_alpha":0.5,"blur":24,"saturation":1.6,"oops":1}
+    },"children":[]}}}"#;
+    let err = serde_json::from_str::<Description>(json).unwrap_err();
+    assert!(err.to_string().contains("unknown field"), "{err}");
+}

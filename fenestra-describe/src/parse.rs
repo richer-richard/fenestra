@@ -12,9 +12,9 @@
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
 use fenestra_core::{
-    AdaptiveTint, DrawerSide, Element, GridTemplate, Repeat, ShadowToken, Sheen, SpecularEdge,
-    Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight, col, div, divider,
-    linear_gradient, row, spacer, stack, text,
+    AdaptiveTint, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat, ShadowToken,
+    Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight, col, div,
+    divider, linear_gradient, row, spacer, stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, accordion, accordion_item, avatar, badge, breadcrumbs,
@@ -28,8 +28,8 @@ use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
     AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container,
-    Description, DrawerNode, EdgeSpec, IconNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode,
-    ModalNode, Node, PaginationNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1,
+    Description, DrawerNode, EdgeSpec, FilterSpec, IconNode, InputNode, KbdNode, Leaf, MenubarNode,
+    MeterNode, ModalNode, Node, PaginationNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1,
     SegmentedNode, SelectNode, SheenSpec, SkeletonNode, SpinButtonNode, StatCardNode, StatusNode,
     StepperNode, Style, TabsNode, TextNode, ToolbarNode, TooltipNode, TrackSpec,
 };
@@ -974,6 +974,15 @@ fn resolve_adaptive(spec: &AdaptiveSpec) -> Result<AdaptiveTint, String> {
     }
 }
 
+/// Maps a [`FilterSpec`] to a core [`ElementFilter`]. Infallible.
+fn filter_of(spec: &FilterSpec) -> ElementFilter {
+    match spec {
+        FilterSpec::Blur(r) => ElementFilter::Blur(*r),
+        FilterSpec::Brightness(m) => ElementFilter::Brightness(*m),
+        FilterSpec::Saturate(m) => ElementFilter::Saturate(*m),
+    }
+}
+
 // ── Container / text / leaf builders ─────────────────────────────────────────
 
 /// Builds a container element: style, on_click, id, then recursively-mapped children.
@@ -1196,6 +1205,18 @@ fn apply_style(
     {
         el = el.rounded(v);
     }
+    if let Some([tl, tr, br, bl]) = style.corners {
+        let all_finite = finite_num(tl, path, "corners/0", errors)
+            && finite_num(tr, path, "corners/1", errors)
+            && finite_num(br, path, "corners/2", errors)
+            && finite_num(bl, path, "corners/3", errors);
+        if all_finite {
+            el = el.corners(tl, tr, br, bl);
+        }
+    }
+    if style.rounded_full == Some(true) {
+        el = el.rounded_full();
+    }
     // ── Glass optics (squircle, backdrop blur, specular rim, sheen, adaptive) ──
     if let Some(v) = style.corner_smoothing
         && finite_num(v, path, "corner_smoothing", errors)
@@ -1235,6 +1256,33 @@ fn apply_style(
             }
         }
     }
+    // ── Transforms (paint-time; no layout effect) ─────────────────────────────
+    if let Some([x, y]) = style.translate
+        && finite_num(x, path, "translate/0", errors)
+        && finite_num(y, path, "translate/1", errors)
+    {
+        el = el.translate(x, y);
+    }
+    if let Some(v) = style.rotate
+        && finite_num(v, path, "rotate", errors)
+    {
+        el = el.rotate(v);
+    }
+    if let Some([x, y]) = style.skew
+        && finite_num(x, path, "skew/0", errors)
+        && finite_num(y, path, "skew/1", errors)
+    {
+        el = el.skew(x, y);
+    }
+    // ── Foreground filter + path trim ─────────────────────────────────────────
+    if let Some(spec) = &style.element_filter {
+        el = el.element_filter(filter_of(spec));
+    }
+    if let Some(v) = style.trim
+        && finite_num(v, path, "trim", errors)
+    {
+        el = el.trim(v);
+    }
     // ── Background (solid, then gradient overrides if both set) ───────────────
     if let Some(spec) = &style.bg {
         match resolve_color(spec, theme) {
@@ -1266,6 +1314,21 @@ fn apply_style(
             if ok {
                 el = el.bg(linear_gradient(grad.angle, colors));
             }
+        }
+    }
+    // ── Material vibrancy background (custom-glass fill + its backdrop blur) ────
+    if let Some(mat) = &style.material {
+        match resolve_color(&mat.tint, theme) {
+            Ok(base) => {
+                let all_finite = finite_num(mat.fill_alpha, path, "material/fill_alpha", errors)
+                    && finite_num(mat.blur, path, "material/blur", errors)
+                    && finite_num(mat.saturation, path, "material/saturation", errors);
+                if all_finite {
+                    let tint = Material::new(mat.fill_alpha, mat.blur, mat.saturation).tint(base);
+                    el = el.bg(tint).backdrop_blur(mat.blur);
+                }
+            }
+            Err(e) => errors.push(relocate(e, format!("{path}/style/material/tint"))),
         }
     }
     // ── Border ────────────────────────────────────────────────────────────────

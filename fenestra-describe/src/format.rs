@@ -982,6 +982,33 @@ pub struct Style {
     /// glass tint's lightness by the backdrop's mean luminance (headless).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adaptive_tint: Option<AdaptiveSpec>,
+    /// A translucent vibrancy material as the background — the custom-glass escape
+    /// hatch (a `surface: "glass"` gives the stock recipe). Sets a [`Material`] tint
+    /// of its `tint` color as the fill and its `blur` as the backdrop blur.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub material: Option<MaterialSpec>,
+    /// Per-corner radii `[tl, tr, br, bl]` in logical px (overrides `rounded`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corners: Option<[f32; 4]>,
+    /// Fully round the corners into a pill / capsule (radius = half the short side).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rounded_full: Option<bool>,
+    /// Paint-time translation `[x, y]` in logical px (no layout effect).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub translate: Option<[f32; 2]>,
+    /// Paint-time rotation in degrees, about the element's center.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotate: Option<f32>,
+    /// Paint-time skew `[x_deg, y_deg]` in degrees.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skew: Option<[f32; 2]>,
+    /// A foreground filter on this element's own content (blur / brightness /
+    /// saturate). Realized in the headless two-pass render.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub element_filter: Option<FilterSpec>,
+    /// Path draw-progress `0.0..=1.0` (only meaningful on path / icon elements).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trim: Option<f32>,
 }
 
 /// A Liquid Glass specular edge rim in JSON: the `"glass"` preset, or explicit
@@ -1035,6 +1062,35 @@ pub enum AdaptiveSpec {
         /// Lightness-shift gain.
         gain: f32,
     },
+}
+
+/// A translucent vibrancy material in JSON: a [`ColorSpec`] `tint` plus the
+/// `fill_alpha` / `blur` / `saturation` levers. Mirrors [`fenestra_core::Material`]
+/// — the custom-glass escape hatch behind `surface: "glass"`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MaterialSpec {
+    /// Base color the vibrancy tint is derived from.
+    pub tint: ColorSpec,
+    /// Fraction of the tint that shows over the (blurred) backdrop, `0.0..=1.0`.
+    pub fill_alpha: f32,
+    /// Backdrop blur radius in logical px (also drives the element's backdrop blur).
+    pub blur: f32,
+    /// OKLCH chroma multiplier on the tint (`>= 1.0` re-saturates).
+    pub saturation: f32,
+}
+
+/// A foreground filter in JSON: `{ "blur": r }` | `{ "brightness": m }` |
+/// `{ "saturate": m }`. Mirrors [`fenestra_core::ElementFilter`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilterSpec {
+    /// Gaussian blur of this element's own content (radius in logical px).
+    Blur(f32),
+    /// Brightness multiplier (`1.0` = unchanged).
+    Brightness(f32),
+    /// Saturation multiplier (`1.0` = unchanged, `0.0` = grayscale).
+    Saturate(f32),
 }
 
 /// One grid template entry: a track *string* (`"200px"`, `"1fr"`, `"auto"`,
