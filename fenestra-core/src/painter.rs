@@ -9,7 +9,7 @@ use peniko::{Color, ColorStop, ColorStops, Fill, Gradient};
 use vello::Scene;
 
 use crate::element::PathData;
-use crate::style::{Border, CornerRadius, Paint, Shadow, Style};
+use crate::style::{Border, CornerRadius, GradientStop, Paint, Shadow, Sheen, SpecularEdge, Style};
 use crate::tokens::FOCUS_RING;
 
 /// CSS box-shadow semantics: the gaussian standard deviation is half the
@@ -374,6 +374,118 @@ fn color_stops(stops: &[crate::style::GradientStop]) -> ColorStops {
     )
 }
 
+/// Pure white at `alpha`, via the OKLCH helper (never a raw literal) — the glass
+/// rim and sheen highlight color.
+fn glass_white(alpha: f32) -> Color {
+    crate::theme::oklch(1.0, 0.0, 0.0).with_alpha(alpha.clamp(0.0, 1.0))
+}
+
+/// Pure black at `alpha` — the glass rim contact line and the sheen's far-side
+/// shade.
+fn glass_dark(alpha: f32) -> Color {
+    crate::theme::oklch(0.0, 0.0, 0.0).with_alpha(alpha.clamp(0.0, 1.0))
+}
+
+/// `corners` with every radius reduced by `by` logical px (floored at 0) — the
+/// concentric inset used to keep a stroked path parallel into the corners.
+fn reduce_corners(mut c: CornerRadius, by: f32) -> CornerRadius {
+    for r in [&mut c.tl, &mut c.tr, &mut c.br, &mut c.bl] {
+        *r = (*r - by).max(0.0);
+    }
+    c
+}
+
+/// Paints the directional body sheen: a linear-gradient wash over the silhouette
+/// — white toward the light, fading through transparent to an optional shade on
+/// the far side — composited source-over the fill so a translucent pane reads as
+/// lit glass. The gradient axis follows [`Sheen::light_deg`].
+fn glass_sheen(scene: &mut Scene, path: &BoxPath, rect: Rect, sheen: &Sheen) {
+    let stops = vec![
+        GradientStop {
+            offset: 0.0,
+            color: glass_white(sheen.top),
+        },
+        GradientStop {
+            offset: 0.55,
+            color: glass_white(0.0),
+        },
+        GradientStop {
+            offset: 1.0,
+            color: glass_dark(sheen.bottom),
+        },
+    ];
+    let paint = Paint::LinearGradient {
+        angle_deg: sheen.light_deg,
+        stops,
+    };
+    scene.fill(
+        Fill::NonZero,
+        Affine::IDENTITY,
+        &brush_for(&paint, rect),
+        None,
+        path,
+    );
+}
+
+/// Paints the specular edge rim: a ~1px gradient-brushed stroke just inside the
+/// silhouette, brightest on the edge facing the light and fading to
+/// `intensity * floor` on the far edge, over an optional faint dark contact line
+/// one hairline further in (the lower half of the "double edge"). The stroke
+/// follows the same superellipse path as the fill, inset concentrically so it
+/// sits cleanly within the border.
+fn specular_rim(
+    scene: &mut Scene,
+    rect: Rect,
+    corners: CornerRadius,
+    smoothing: f32,
+    edge: &SpecularEdge,
+    scale: f64,
+) {
+    // ~1.5 physical px: fine enough to read as light catching the edge, not a
+    // second border.
+    let w = (1.0 / scale).max(0.75) * 1.5;
+    let inset = 0.5 * w;
+    let rim_rect = rect.inflate(-inset, -inset);
+    if rim_rect.width() <= 0.0 || rim_rect.height() <= 0.0 {
+        return;
+    }
+    #[expect(clippy::cast_possible_truncation, reason = "logical px fit in f32")]
+    let rim_corners = reduce_corners(corners, inset as f32);
+    // One stroke that reads as a lit bevel: a dark underside (offset 0, the edge
+    // opposite the light) ramps through clear — the unlit sides — to a bright lit
+    // edge (offset 1). The paired clear stops keep the sides from interpolating
+    // into a muddy gray between the dark and white halves.
+    let stops = vec![
+        GradientStop {
+            offset: 0.0,
+            color: glass_dark(edge.shade),
+        },
+        GradientStop {
+            offset: 0.45,
+            color: glass_dark(0.0),
+        },
+        GradientStop {
+            offset: 0.55,
+            color: glass_white(0.0),
+        },
+        GradientStop {
+            offset: 1.0,
+            color: glass_white(edge.intensity),
+        },
+    ];
+    let paint = Paint::LinearGradient {
+        angle_deg: edge.light_deg,
+        stops,
+    };
+    scene.stroke(
+        &Stroke::new(w),
+        Affine::IDENTITY,
+        &brush_for(&paint, rim_rect),
+        None,
+        &corner_path(rim_rect, rim_corners, smoothing),
+    );
+}
+
 /// Rounds a logical coordinate to the physical pixel grid.
 fn snap(v: f64, scale: f64) -> f64 {
     (v * scale).round() / scale
@@ -474,6 +586,12 @@ pub(crate) fn push_box(
         );
     }
 
+    // Glass body sheen: a raking light wash over the fill, clipped to the
+    // silhouette by filling the same path. `None` for every non-glass element.
+    if let Some(sheen) = &style.sheen {
+        glass_sheen(scene, &path, rect, sheen);
+    }
+
     if let Some(border) = style.border
         && border.width > 0.0
     {
@@ -535,6 +653,12 @@ pub(crate) fn push_box(
         stroke_edge(sb.bottom, Point::new(r.x0, r.y1), Point::new(r.x1, r.y1));
         stroke_edge(sb.left, Point::new(r.x0, r.y0), Point::new(r.x0, r.y1));
         stroke_edge(sb.right, Point::new(r.x1, r.y0), Point::new(r.x1, r.y1));
+    }
+
+    // Glass specular rim: the luminous perimeter light, painted over the border
+    // so it reads as light catching the edge. `None` for every non-glass box.
+    if let Some(edge) = &style.specular_edge {
+        specular_rim(scene, rect, style.corner_radius, smoothing, edge, scale);
     }
 
     if let Some(highlight) = style.highlight_top
