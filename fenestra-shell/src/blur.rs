@@ -33,6 +33,122 @@ pub fn box_blur_rgba8(img: &RgbaImage, radius: u32) -> RgbaImage {
     a
 }
 
+/// Edge refraction (lensing): within a bevel band along the rounded-rect
+/// perimeter, resample each pixel from further *inside* along the inward edge
+/// normal, so the blurred backdrop appears to bend and compress into the rim —
+/// the optical signature that separates real glass from a flat frosted tint
+/// (Apple Liquid Glass). `radius_px` is the pane's corner radius in the image's
+/// own (physical) pixels; the image is assumed to span the pane's rounded
+/// silhouette (the shell crops the backdrop to the pane rect). The interior
+/// (beyond the band) is returned byte-identical to the input; only the rim
+/// bends.
+///
+/// Determinism is the contract, as for [`box_blur_rgba8`]: plain IEEE-754 `f32`
+/// with edge-clamped bilinear sampling, bit-stable across rasterizers. A
+/// degenerate (tiny) image is returned unchanged.
+#[must_use]
+pub(crate) fn refract_edges(img: &RgbaImage, radius_px: f32) -> RgbaImage {
+    let (w, h) = (img.width(), img.height());
+    if w < 4 || h < 4 {
+        return img.clone();
+    }
+    let (wf, hf) = (fl(w), fl(h));
+    let (hw, hh) = (wf * 0.5, hf * 0.5);
+    let r = radius_px.clamp(0.0, hw.min(hh));
+    // The bevel band: how far in from the edge the lens bends the backdrop, and
+    // the peak inward displacement. Tied to the radius (a thicker, rounder pane
+    // lenses more), with a floor so a near-square pane still bends.
+    let band = r.max(10.0).min(hw.min(hh));
+    let max_disp = band * 0.55;
+    let (ex, ey) = (hw - r, hh - r); // inner box half-extents
+    let mut out = RgbaImage::new(w, h);
+    for y in 0..h {
+        for x in 0..w {
+            let (px, py) = (fl(x) + 0.5, fl(y) + 0.5);
+            let (rx, ry) = (px - hw, py - hh); // relative to center
+            // Rounded-box signed distance (negative inside the silhouette).
+            let (qx, qy) = (rx.abs() - ex, ry.abs() - ey);
+            let (ax, ay) = (qx.max(0.0), qy.max(0.0));
+            let outside = (ax * ax + ay * ay).sqrt() + qx.max(qy).min(0.0) - r;
+            let d = -outside; // inside-distance, positive inside the silhouette
+            let (sx, sy) = if d > 0.0 && d < band {
+                let (nx, ny) = sdf_normal(rx, ry, ex, ey);
+                // Strongest at the very edge, easing (quadratically) to zero at
+                // the band's inner boundary; sample `disp` px further inside.
+                let t = d / band;
+                let disp = max_disp * (1.0 - t) * (1.0 - t);
+                (px - nx * disp, py - ny * disp)
+            } else {
+                (px, py)
+            };
+            out.put_pixel(x, y, bilinear(img, sx, sy));
+        }
+    }
+    out
+}
+
+/// The outward unit normal of the rounded-box SDF at center-relative `(rx, ry)`
+/// for inner half-extents `(ex, ey)`: axis-aligned along the straight edges and
+/// radial within a corner quadrant.
+fn sdf_normal(rx: f32, ry: f32, ex: f32, ey: f32) -> (f32, f32) {
+    let (sx, sy) = (sign(rx), sign(ry));
+    let (dx, dy) = (rx.abs() - ex, ry.abs() - ey);
+    if dx > 0.0 && dy > 0.0 {
+        let len = (dx * dx + dy * dy).sqrt().max(1e-6);
+        (sx * dx / len, sy * dy / len)
+    } else if dx >= dy {
+        (sx, 0.0)
+    } else {
+        (0.0, sy)
+    }
+}
+
+/// `-1.0` for negatives, `+1.0` otherwise (a stable axis pick at exactly 0).
+fn sign(v: f32) -> f32 {
+    if v < 0.0 { -1.0 } else { 1.0 }
+}
+
+/// Edge-clamped bilinear sample at fractional pixel-center coords `(sx, sy)`.
+fn bilinear(img: &RgbaImage, sx: f32, sy: f32) -> image::Rgba<u8> {
+    let (w, h) = (img.width(), img.height());
+    let fx = (sx - 0.5).clamp(0.0, fl(w - 1));
+    let fy = (sy - 0.5).clamp(0.0, fl(h - 1));
+    let (x0f, y0f) = (fx.floor(), fy.floor());
+    let (tx, ty) = (fx - x0f, fy - y0f);
+    let (x0, y0) = (px_index(x0f), px_index(y0f));
+    let (x1, y1) = ((x0 + 1).min(w - 1), (y0 + 1).min(h - 1));
+    let p00 = img.get_pixel(x0, y0).0;
+    let p10 = img.get_pixel(x1, y0).0;
+    let p01 = img.get_pixel(x0, y1).0;
+    let p11 = img.get_pixel(x1, y1).0;
+    let mut out = [0u8; 4];
+    for c in 0..4 {
+        let top = f32::from(p00[c]) * (1.0 - tx) + f32::from(p10[c]) * tx;
+        let bot = f32::from(p01[c]) * (1.0 - tx) + f32::from(p11[c]) * tx;
+        out[c] = f32_to_u8(top * (1.0 - ty) + bot * ty);
+    }
+    image::Rgba(out)
+}
+
+/// `u32` → `f32` for small image dimensions and indices (lossless in range).
+#[expect(
+    clippy::cast_precision_loss,
+    reason = "image dimensions and pixel indices are far below 2^24"
+)]
+fn fl(v: u32) -> f32 {
+    v as f32
+}
+
+/// A floored, clamped, non-negative coordinate → pixel index.
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "input is floor()ed and clamped to [0, dim-1], so it is a valid index"
+)]
+fn px_index(v: f32) -> u32 {
+    v as u32
+}
+
 /// Applies a foreground [`ElementFilter`] to `img`, deterministically. A blur
 /// radius is interpreted in the image's own (physical) pixels — the caller
 /// scales a logical radius first. Brightness and saturation are per-pixel ops
@@ -231,5 +347,60 @@ mod tests {
         let [r, g, b, a] = gray.get_pixel(0, 0).0;
         assert_eq!((r, g, b, a), (r, r, r, 128));
         assert!(g == r && b == r, "grayscale: {r} {g} {b}");
+    }
+
+    /// A flat field is unchanged by refraction: bilinear sampling a uniform
+    /// image returns the same color wherever it samples from.
+    #[test]
+    fn refract_uniform_field_is_unchanged() {
+        let img = RgbaImage::from_pixel(40, 30, Rgba([60, 120, 200, 210]));
+        let out = refract_edges(&img, 12.0);
+        for px in out.pixels() {
+            assert_eq!(px.0, [60, 120, 200, 210]);
+        }
+    }
+
+    /// Determinism: the same input refracts to the exact same bytes every time.
+    #[test]
+    fn refract_is_deterministic() {
+        let mut img = RgbaImage::new(48, 36);
+        for (i, px) in img.pixels_mut().enumerate() {
+            #[expect(clippy::cast_possible_truncation, reason = "test pattern bytes")]
+            let v = (i as u32 * 53 % 256) as u8;
+            *px = Rgba([v, v.wrapping_mul(2), v.wrapping_add(7), 255]);
+        }
+        assert_eq!(refract_edges(&img, 14.0), refract_edges(&img, 14.0));
+    }
+
+    /// A degenerate (tiny) image is returned unchanged.
+    #[test]
+    fn refract_tiny_image_is_identity() {
+        let img = RgbaImage::from_pixel(3, 3, Rgba([1, 2, 3, 4]));
+        assert_eq!(refract_edges(&img, 5.0), img);
+    }
+
+    /// Refraction bends the rim but leaves the center (far from every edge)
+    /// untouched.
+    #[test]
+    fn refract_changes_the_rim_not_the_center() {
+        let (w, h) = (60u32, 40u32);
+        let mut img = RgbaImage::new(w, h);
+        for y in 0..h {
+            for x in 0..w {
+                #[expect(clippy::cast_possible_truncation, reason = "test ramp byte")]
+                let v = ((x * 255) / (w - 1)) as u8;
+                img.put_pixel(x, y, Rgba([v, v, v, 255]));
+            }
+        }
+        let out = refract_edges(&img, 14.0);
+        let cy = h / 2;
+        // The center column is > band from every edge, so it copies through.
+        assert_eq!(
+            out.get_pixel(w / 2, cy).0,
+            img.get_pixel(w / 2, cy).0,
+            "center untouched"
+        );
+        // A near-edge column is resampled from further inside (the lens bend).
+        assert_ne!(out.get_pixel(2, cy).0, img.get_pixel(2, cy).0, "rim bent");
     }
 }

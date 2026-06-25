@@ -36,15 +36,21 @@ pub struct MultiPassSpec {
 /// The operation a [`MultiPassSpec`] applies to its region's pixels.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PassKind {
-    /// Frosted-glass backdrop blur: blur the content *behind* the pane. The
-    /// standard deviation is in **physical** px (already multiplied by the frame
-    /// scale), realized as a deterministic 3-pass integer box blur. The pane's
-    /// rounded shape is applied when the blurred image is composited under the
-    /// tint (it reuses the element's own corner radius), so it is not carried
-    /// here.
+    /// Frosted-glass backdrop blur: blur the content *behind* the pane, then
+    /// bend it at the rounded rim (edge refraction / lensing — what separates
+    /// real glass from a flat frosted tint). The standard deviation is in
+    /// **physical** px (already multiplied by the frame scale), realized as a
+    /// deterministic 3-pass integer box blur. The pane's rounded silhouette is
+    /// re-applied when the image is composited under the tint (it reuses the
+    /// element's own corner radius); [`radius`](Self::BackdropBlur::radius) is
+    /// carried so the shell can compute the rounded-edge displacement.
     BackdropBlur {
         /// Gaussian standard deviation in physical px.
         std_dev: f32,
+        /// The pane's uniform corner radius in **logical** px — the shell scales
+        /// it and uses it to bend the blurred backdrop inward along the rounded
+        /// edge (the lensing pass). `0` degrades gracefully to a straight bevel.
+        radius: f32,
     },
     /// A foreground filter on the element's own content. Any blur radius it
     /// carries is in logical px (the shell scales it to physical).

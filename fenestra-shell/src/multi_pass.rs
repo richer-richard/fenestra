@@ -10,7 +10,7 @@ use image::RgbaImage;
 use kurbo::Rect;
 use vello::peniko;
 
-use crate::blur::{apply_element_filter, box_blur_rgba8, box_radius_for_std_dev};
+use crate::blur::{apply_element_filter, box_blur_rgba8, box_radius_for_std_dev, refract_edges};
 
 /// Filters each spec's region of the read-back `backdrop`, returning the image
 /// the final pass draws for that element (keyed by [`WidgetId`]). `scale` maps a
@@ -31,8 +31,15 @@ pub fn process_specs(
         };
         let sub = image::imageops::crop_imm(backdrop, x, y, w, h).to_image();
         let filtered = match spec.kind {
-            PassKind::BackdropBlur { std_dev } => {
-                box_blur_rgba8(&sub, box_radius_for_std_dev(std_dev))
+            PassKind::BackdropBlur { std_dev, radius } => {
+                let blurred = box_blur_rgba8(&sub, box_radius_for_std_dev(std_dev));
+                // Bend the blurred backdrop at the rounded rim (the lensing pass).
+                #[expect(
+                    clippy::cast_possible_truncation,
+                    reason = "physical corner radius fits in f32"
+                )]
+                let radius_px = (f64::from(radius) * scale) as f32;
+                refract_edges(&blurred, radius_px)
             }
             PassKind::ElementFilter(filter) => {
                 apply_element_filter(&sub, scale_filter(filter, scale))

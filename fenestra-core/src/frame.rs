@@ -2117,10 +2117,18 @@ impl Frame {
                     reason = "DPI scale × logical blur radius fits in f32"
                 )]
                 let std_dev = (f64::from(radius) * self.scale) as f32;
+                // The pane's uniform corner radius drives the lensing displacement
+                // in the shell (its silhouette is uniformly rounded; average the
+                // corners so a per-corner radius still yields one bevel radius).
+                let cr = node.style.corner_radius;
+                let corner = 0.25 * (cr.tl + cr.tr + cr.br + cr.bl);
                 specs.push(MultiPassSpec {
                     id: node.id,
                     rect: node.rect,
-                    kind: PassKind::BackdropBlur { std_dev },
+                    kind: PassKind::BackdropBlur {
+                        std_dev,
+                        radius: corner,
+                    },
                 });
                 return;
             }
