@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.37.0 — 2026-06-25
 
 The "unlock the defaults" pass — quality features that were built but shipped
 off by default are now on (or finally reachable), each verified to keep the
