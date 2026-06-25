@@ -1603,6 +1603,14 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Backdrop-adaptive vibrancy — shift the glass tint's lightness by the mean
+    /// luminance of the frosted backdrop behind it (headless-only). See
+    /// [`AdaptiveTint`](crate::AdaptiveTint) (and [`AdaptiveTint::glass`]).
+    pub fn adaptive_tint(mut self, adaptive: crate::style::AdaptiveTint) -> Self {
+        self.style = self.style.adaptive_tint(adaptive);
+        self
+    }
+
     /// Text size.
     pub fn size(mut self, size: TextSize) -> Self {
         self.style = self.style.size(size);

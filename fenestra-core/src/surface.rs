@@ -8,7 +8,7 @@
 //! this one table, so "every floating thing matches" is a structural property
 //! of the bundle, not a convention re-typed at each call site.
 
-use crate::style::{Border, CornerRadius, Paint, Sheen, SpecularEdge, Style};
+use crate::style::{AdaptiveTint, Border, CornerRadius, Paint, Sheen, SpecularEdge, Style};
 use crate::theme::Theme;
 use crate::tokens::{Elevation, R_FULL, R_LG, R_SM, R_XL, RadiusScale, ShadowToken};
 
@@ -348,13 +348,15 @@ impl SurfaceBundle {
         // an opaque role with no material renders exactly as before.
         style.backdrop_blur = self.material.map(|m| m.blur_radius).filter(|r| *r > 0.0);
         // A frosted material also carries the Liquid Glass edge optics — a
-        // luminous specular rim and a directional body sheen — so the pane reads
-        // as lit, lensed glass rather than a flat frosted sticker. Only roles
-        // with a material (currently `Surface::Glass`) get them; opaque roles
-        // stay byte-identical.
+        // luminous specular rim, a directional body sheen, and a backdrop-adaptive
+        // vibrancy shift — so the pane reads as lit, lensed glass that picks up the
+        // room behind it rather than a flat frosted sticker. Only roles with a
+        // material (currently `Surface::Glass`) get them; opaque roles stay
+        // byte-identical.
         if self.material.is_some() {
             style.specular_edge = Some(SpecularEdge::glass());
             style.sheen = Some(Sheen::glass());
+            style.adaptive_tint = Some(AdaptiveTint::glass());
         }
         style
     }
@@ -672,6 +674,11 @@ mod tests {
             Some(crate::style::Sheen::glass()),
             "glass sets the body sheen"
         );
+        assert_eq!(
+            glass.adaptive_tint,
+            Some(crate::style::AdaptiveTint::glass()),
+            "glass sets the backdrop-adaptive vibrancy"
+        );
         for role in [
             Surface::Card,
             Surface::Raised,
@@ -684,6 +691,7 @@ mod tests {
             let s = role.bundle().apply(&t, Style::default());
             assert_eq!(s.specular_edge, None, "{role:?} has no specular rim");
             assert_eq!(s.sheen, None, "{role:?} has no sheen");
+            assert_eq!(s.adaptive_tint, None, "{role:?} has no adaptive tint");
         }
     }
 

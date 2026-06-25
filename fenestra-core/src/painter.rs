@@ -9,7 +9,9 @@ use peniko::{Color, ColorStop, ColorStops, Fill, Gradient};
 use vello::Scene;
 
 use crate::element::PathData;
-use crate::style::{Border, CornerRadius, GradientStop, Paint, Shadow, Sheen, SpecularEdge, Style};
+use crate::style::{
+    AdaptiveTint, Border, CornerRadius, GradientStop, Paint, Shadow, Sheen, SpecularEdge, Style,
+};
 use crate::tokens::FOCUS_RING;
 
 /// CSS box-shadow semantics: the gaussian standard deviation is half the
@@ -577,6 +579,21 @@ pub(crate) fn push_box(
     }
     if let Some(paint) = &style.fill {
         let fill_rect = snap_hairline_rect(rect, scale);
+        // Backdrop-adaptive vibrancy: when a glass material carries an
+        // `adaptive_tint` and its frosted backdrop image is in hand, shift the
+        // solid tint's lightness by the mean luminance of that crop — the pane
+        // brightens over dark content and darkens over light, holding contrast.
+        // Headless-only: the single-pass live window passes `backdrop: None`, so
+        // it keeps the flat tint and stays byte-identical.
+        let adapted = match (&style.adaptive_tint, backdrop, paint) {
+            (Some(adaptive), Some(image), Paint::Solid(tint))
+                if image.width > 0 && image.height > 0 =>
+            {
+                Some(Paint::Solid(adapt_tint(*tint, image, adaptive)))
+            }
+            _ => None,
+        };
+        let paint = adapted.as_ref().unwrap_or(paint);
         scene.fill(
             Fill::NonZero,
             Affine::IDENTITY,
@@ -686,6 +703,47 @@ pub(crate) fn pop_box(scene: &mut Scene, layers: usize) {
     for _ in 0..layers {
         scene.pop_layer();
     }
+}
+
+/// The mean Rec. 601 luma of a straight-alpha RGBA8 image, in `0.0..=1.0`.
+/// Deterministic across platforms: each channel is summed as an integer and the
+/// three channel sums are combined once in `f64`, so there is no per-pixel float
+/// accumulation drift — the same bit-stable footing as the box blur it reads.
+fn mean_luma(image: &peniko::ImageData) -> f32 {
+    let data = image.data.as_ref();
+    let pixels = data.len() / 4;
+    if pixels == 0 {
+        return 0.0;
+    }
+    let (mut sum_r, mut sum_g, mut sum_b) = (0u64, 0u64, 0u64);
+    for px in data.chunks_exact(4) {
+        sum_r += u64::from(px[0]);
+        sum_g += u64::from(px[1]);
+        sum_b += u64::from(px[2]);
+    }
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "channel sums and pixel count are exact in f64 for any real image; the mean only drives a perceptual lightness nudge"
+    )]
+    let luma = (0.299 * sum_r as f64 + 0.587 * sum_g as f64 + 0.114 * sum_b as f64)
+        / (255.0 * pixels as f64);
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "a luminance in 0..=1 is well within f32"
+    )]
+    let out = luma as f32;
+    out
+}
+
+/// Shifts a solid glass `tint`'s OKLCH lightness by the mean luminance of the
+/// frosted `image` behind it: brighter over dark backdrops, darker over light,
+/// pivoting at `adaptive.pivot`. Chroma, hue, and alpha are preserved. Pure — the
+/// same OKLCH round-trip the vibrancy tint itself uses ([`crate::oklch_of`]).
+fn adapt_tint(tint: Color, image: &peniko::ImageData, adaptive: &AdaptiveTint) -> Color {
+    let backdrop = mean_luma(image);
+    let [l, c, h] = crate::oklch_of(tint);
+    let l = (l + adaptive.gain * (adaptive.pivot - backdrop)).clamp(0.0, 1.0);
+    crate::theme::oklch(l, c, h).with_alpha(tint.components[3])
 }
 
 /// Draws an RGBA image stretched to `rect`, clipped to the corner radius.
@@ -1126,5 +1184,100 @@ mod squircle_tests {
             .filter(|e| matches!(e, kurbo::PathEl::CurveTo(..)))
             .count();
         assert_eq!(curves, 0, "a zero-radius squircle is a plain rectangle");
+    }
+}
+
+#[cfg(test)]
+mod adaptive_tint_tests {
+    use super::*;
+    use crate::style::AdaptiveTint;
+
+    /// A `w`×`h` straight-alpha RGBA8 image of one opaque color.
+    fn solid_image(rgb: [u8; 3], w: u32, h: u32) -> peniko::ImageData {
+        let pixels = usize::try_from(w).unwrap() * usize::try_from(h).unwrap();
+        let mut data = Vec::with_capacity(pixels * 4);
+        for _ in 0..pixels {
+            data.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+        }
+        peniko::ImageData {
+            data: data.into(),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::Alpha,
+            width: w,
+            height: h,
+        }
+    }
+
+    #[test]
+    fn mean_luma_matches_known_values() {
+        assert!(mean_luma(&solid_image([0, 0, 0], 4, 4)).abs() < 1e-6);
+        assert!((mean_luma(&solid_image([255, 255, 255], 4, 4)) - 1.0).abs() < 1e-6);
+        // Pure mid-gray 128 -> 128/255 regardless of the channel weights.
+        let gray = mean_luma(&solid_image([128, 128, 128], 4, 4));
+        assert!((gray - 128.0 / 255.0).abs() < 1e-4, "{gray}");
+        // Pure green carries the heaviest Rec. 601 weight (0.587).
+        let green = mean_luma(&solid_image([0, 255, 0], 2, 2));
+        assert!((green - 0.587).abs() < 1e-4, "{green}");
+    }
+
+    #[test]
+    fn mean_luma_empty_image_is_zero() {
+        assert_eq!(mean_luma(&solid_image([255, 255, 255], 0, 0)), 0.0);
+    }
+
+    #[test]
+    fn adapt_tint_brightens_over_dark_and_darkens_over_light() {
+        let tint = crate::theme::oklch(0.6, 0.05, 250.0).with_alpha(0.82);
+        let adaptive = AdaptiveTint::glass();
+        let l0 = crate::oklch_of(tint)[0];
+        let over_dark = adapt_tint(tint, &solid_image([0, 0, 0], 4, 4), &adaptive);
+        let over_light = adapt_tint(tint, &solid_image([255, 255, 255], 4, 4), &adaptive);
+        let l_dark = crate::oklch_of(over_dark)[0];
+        let l_light = crate::oklch_of(over_light)[0];
+        assert!(
+            l_dark > l0,
+            "dark backdrop must brighten the tint: {l0} -> {l_dark}"
+        );
+        assert!(
+            l_light < l0,
+            "light backdrop must darken the tint: {l0} -> {l_light}"
+        );
+        // The shift is bounded by the gain and preserves alpha.
+        assert!(
+            (over_dark.components[3] - 0.82).abs() < 1e-6,
+            "alpha preserved"
+        );
+    }
+
+    #[test]
+    fn adapt_tint_preserves_chroma_and_is_deterministic() {
+        let tint = crate::theme::oklch(0.7, 0.08, 30.0).with_alpha(0.5);
+        let adaptive = AdaptiveTint::glass();
+        let img = solid_image([40, 80, 160], 5, 3);
+        let a = adapt_tint(tint, &img, &adaptive);
+        let b = adapt_tint(tint, &img, &adaptive);
+        assert_eq!(
+            a.components, b.components,
+            "a pure function of the same inputs must be bit-identical"
+        );
+        // Only lightness moves — chroma round-trips.
+        let c0 = crate::oklch_of(tint)[1];
+        let c1 = crate::oklch_of(a)[1];
+        assert!((c0 - c1).abs() < 2e-3, "chroma preserved: {c0} -> {c1}");
+    }
+
+    #[test]
+    fn adapt_tint_unchanged_when_backdrop_equals_pivot() {
+        // A backdrop at the pivot luminance leaves lightness put (shift == 0).
+        let tint = crate::theme::oklch(0.6, 0.04, 200.0).with_alpha(0.82);
+        let adaptive = AdaptiveTint::glass();
+        // 8-bit gray whose luma == pivot 0.55: round(0.55*255) = 140.
+        let pivot_gray = solid_image([140, 140, 140], 3, 3);
+        let l0 = crate::oklch_of(tint)[0];
+        let l1 = crate::oklch_of(adapt_tint(tint, &pivot_gray, &adaptive))[0];
+        assert!(
+            (l0 - l1).abs() < 5e-3,
+            "near-pivot backdrop barely shifts: {l0} -> {l1}"
+        );
     }
 }

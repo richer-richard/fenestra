@@ -2672,11 +2672,25 @@ light direction.
   already multi-layer and surface-hue-tinted, the 0.82 glass is too opaque for an
   inset occlusion to show through, and the layer is hidden under opaque surfaces — a
   barely-perceptible payoff against broad golden churn.
-- **Deferred — backdrop-adaptive tint (and adaptive shadow opacity).** Invasive as
-  designed: the tint is resolved during style resolution, *before* the backdrop is
-  rendered, so adapting it to backdrop luminance needs the measured luminance
-  plumbed back into the core paint/fill path. The blur read-back already
-  computes-and-discards that luminance, so it is feasible as a later pass.
+- **SHIPPED (was deferred) — backdrop-adaptive tint, at paint time.** The deferral
+  assumed adaptation had to happen during *style resolution* — before the backdrop
+  exists — needing the measured luminance plumbed back into the fill. It doesn't:
+  `push_box` already receives the composited backdrop `ImageData` as a parameter
+  (painter.rs), so the painter measures that crop's mean Rec. 601 luma immediately
+  before it fills the tint and shifts the tint's OKLCH lightness — brighter over
+  dark backdrops, darker over light. `AdaptiveTint { pivot 0.55, gain 0.20 }` is a
+  new orthogonal `Style` field set in `SurfaceBundle::apply` for material roles
+  (default `None` everywhere else, so non-glass stays byte-identical). The mean is
+  summed in integer channels then reduced once in `f64`, so it is bit-stable across
+  Metal/lavapipe exactly like the box blur it reads. This is Fluent Acrylic's
+  "luminosity clamp" intent (stabilize the material's luminance against the
+  backdrop) reduced to one mean-luminance shift; Apple Liquid Glass does the same
+  tonal adaptation without a published formula. *Envelope:* headless-only — the
+  single-pass live window passes `backdrop: None` and keeps the flat tint; it is a
+  mean-per-pane global shift, not a per-pixel luminosity blend; and through the
+  legibility-first 0.82α stock glass it stabilizes the composite lightness rather
+  than announcing itself (gentle over mild backdrops, up to ±0.11 lightness over
+  pure black/white). *Still deferred:* adaptive shadow opacity.
 - **Deferred — lower-ranked research recs.** An SDF bevel-band giving the rim finite
   thickness, capsule-first control shapes with radius-by-size, an inset/recessed
   shadow primitive, and an explicit elevation-tier token model — all recorded, none
