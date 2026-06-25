@@ -38,11 +38,14 @@ fn query() -> bool {
         ])
         .output()
         .map(|o| {
-            o.status.success() && {
-                let s = String::from_utf8_lossy(&o.stdout);
-                // `MinAnimate    REG_SZ    0`
-                s.rsplit_whitespace().next() == Some("0")
-            }
+            // `MinAnimate    REG_SZ    0` — the value is the last token. `.trim()`
+            // narrows the `Cow` to a `&str` first, then `&str` iterators apply.
+            o.status.success()
+                && String::from_utf8_lossy(&o.stdout)
+                    .trim()
+                    .split_whitespace()
+                    .next_back()
+                    == Some("0")
         })
         .unwrap_or(false)
 }
