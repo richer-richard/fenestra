@@ -75,6 +75,14 @@ byte-identical; `Surface::Glass` lights them up with no API change.
   announcement straight off the returned tree — no pixels. Surfacing it also fixed a
   real a11y gap: a `status` with `live: true` drew the sonar ring but never marked
   itself an aria-live region; it now does (no pixel change).
+- **The style vocabulary is self-documenting.** `describe_vocabulary` now advertises
+  the full `style` grammar — ~35 properties (spacing, sizing, paint, border / radius /
+  shadow, the glass / material vocabulary, transforms, filter, typography, grid), each
+  with an example — and the closed `enums` (surface / shadow / align / justify /
+  text_align / variant / status / side / kind / glass presets), generated from
+  registries and pinned by coherence tests so the advertised grammar can't drift from
+  the parser. An agent can now *discover* everything the prior passes made authorable,
+  completing the author → verify → discover loop.
 
 ## 0.37.0 — 2026-06-25
 

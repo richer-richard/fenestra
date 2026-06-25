@@ -19,6 +19,28 @@ pub struct NodeDoc {
     pub example: String,
 }
 
+/// One style property's documentation: its key, a one-line summary, and a minimal
+/// example *value* (the JSON that follows the key inside a node's `"style"`).
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct StyleDoc {
+    /// The style key, e.g. `"gap"` or `"surface"`.
+    pub key: String,
+    /// A one-line description.
+    pub summary: String,
+    /// A minimal example value: `{"div":{"style":{"<key>": <example>}}}` is valid.
+    pub example: String,
+}
+
+/// One closed enum's allowed string values and the key it attaches to.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct EnumDoc {
+    /// The key the enum attaches to — a style key (`"surface"`) or a node field
+    /// (`"button.variant"`).
+    pub name: String,
+    /// The allowed string values.
+    pub values: Vec<String>,
+}
+
 /// The full grammar an agent can request to learn the format up front.
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct Vocabulary {
@@ -28,6 +50,10 @@ pub struct Vocabulary {
     pub nodes: Vec<NodeDoc>,
     /// The color roles a `ColorSpec` may name (besides the `oklch` hatch).
     pub color_roles: Vec<String>,
+    /// Every style property a node's `"style"` may carry, with a minimal example.
+    pub style: Vec<StyleDoc>,
+    /// Closed enum token sets: the allowed string values for keyed fields.
+    pub enums: Vec<EnumDoc>,
 }
 
 /// `(tag, summary, minimal example body)` for every node the parser handles —
@@ -213,6 +239,167 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ("spacer", "Flexible empty space.", r#"{}"#),
 ];
 
+/// `(key, summary, minimal example value)` for every style property the parser
+/// applies — the registry the style grammar is generated from, kept honest by a
+/// coherence test that authors each one.
+const STYLE_REGISTRY: &[(&str, &str, &str)] = &[
+    // ── Spacing & sizing ──────────────────────────────────────────────────
+    (
+        "p",
+        "Padding all sides, px (also px / py and per-side pt / pb / pl / pr).",
+        "16",
+    ),
+    ("px", "Horizontal padding.", "12"),
+    ("py", "Vertical padding.", "8"),
+    (
+        "m",
+        "Margin all sides (also mx / my and per-side mt / mb / ml / mr).",
+        "8",
+    ),
+    ("gap", "Gap between flex / grid children.", "8"),
+    (
+        "w",
+        "Fixed width (also h, min_w, max_w, min_h, max_h).",
+        "200",
+    ),
+    ("h", "Fixed height.", "40"),
+    // ── Paint ─────────────────────────────────────────────────────────────
+    (
+        "bg",
+        "Background fill: a color role or an {\"oklch\":[l,c,h]}.",
+        r#""surface_raised""#,
+    ),
+    (
+        "gradient",
+        "Linear gradient bg: {angle, stops:[ColorSpec, …]}.",
+        r#"{"angle":90,"stops":["accent","surface"]}"#,
+    ),
+    ("opacity", "Subtree opacity 0.0..=1.0.", "0.85"),
+    // ── Border / radius / shadow ──────────────────────────────────────────
+    (
+        "border",
+        "Border {width, color}.",
+        r#"{"width":1,"color":"border"}"#,
+    ),
+    ("rounded", "Uniform corner radius, px.", "12"),
+    ("corners", "Per-corner radii [tl, tr, br, bl].", "[8,8,0,0]"),
+    ("rounded_full", "Pill / capsule corners.", "true"),
+    (
+        "corner_smoothing",
+        "Continuous-curvature squircle amount 0.0..=1.0.",
+        "0.6",
+    ),
+    (
+        "shadow",
+        "Elevation token (see the `shadow` enum).",
+        r#""md""#,
+    ),
+    // ── Glass / material ──────────────────────────────────────────────────
+    (
+        "surface",
+        "A whole material role in one token (see the `surface` enum).",
+        r#""glass""#,
+    ),
+    (
+        "material",
+        "Custom translucent vibrancy bg {tint, fill_alpha, blur, saturation}.",
+        r#"{"tint":"surface_raised","fill_alpha":0.5,"blur":24,"saturation":1.6}"#,
+    ),
+    (
+        "backdrop_blur",
+        "Frost the content behind a translucent pane, px.",
+        "24",
+    ),
+    (
+        "specular_edge",
+        "Liquid Glass rim: \"glass\" or {light_deg, intensity, shade}.",
+        r#""glass""#,
+    ),
+    (
+        "sheen",
+        "Body sheen: \"glass\" or {light_deg, top, bottom}.",
+        r#""glass""#,
+    ),
+    (
+        "adaptive_tint",
+        "Backdrop-adaptive vibrancy: \"glass\" or {pivot, gain}.",
+        r#""glass""#,
+    ),
+    // ── Transforms / filter ───────────────────────────────────────────────
+    ("translate", "Paint-time translate [x, y], px.", "[4,0]"),
+    ("rotate", "Paint-time rotation, degrees.", "15"),
+    ("skew", "Paint-time skew [x_deg, y_deg].", "[6,0]"),
+    (
+        "element_filter",
+        "Foreground filter: {blur | brightness | saturate: n}.",
+        r#"{"blur":4}"#,
+    ),
+    // ── Typography (text nodes) ───────────────────────────────────────────
+    ("size_px", "Text size, px.", "16"),
+    ("weight", "Text weight 100..=900.", "600"),
+    (
+        "text_align",
+        "Text alignment (see the `text_align` enum).",
+        r#""center""#,
+    ),
+    (
+        "color",
+        "Text color: a role or an {\"oklch\":[l,c,h]}.",
+        r#""text_muted""#,
+    ),
+    // ── Layout / positioning ──────────────────────────────────────────────
+    (
+        "align",
+        "Cross-axis alignment (see the `align` enum).",
+        r#""center""#,
+    ),
+    (
+        "justify",
+        "Main-axis distribution (see the `justify` enum).",
+        r#""between""#,
+    ),
+    (
+        "absolute",
+        "Remove from flow + position absolutely (with left / top / right / bottom).",
+        "true",
+    ),
+    // ── Grid ──────────────────────────────────────────────────────────────
+    (
+        "grid_cols",
+        "Grid template columns: array of track entries (also grid_rows).",
+        r#"["1fr","1fr"]"#,
+    ),
+    (
+        "grid_area",
+        "Named-area placement (CSS grid-area).",
+        r#""main""#,
+    ),
+];
+
+/// `(key, allowed values)` for every closed enum the parser accepts. Style-key
+/// enums are coherence-tested by authoring each value; node-field enums (`a.b`)
+/// are exercised by the node examples.
+const ENUM_REGISTRY: &[(&str, &[&str])] = &[
+    (
+        "surface",
+        &[
+            "card", "raised", "popover", "menu", "modal", "glass", "tooltip", "thumb",
+        ],
+    ),
+    ("shadow", &["xs", "sm", "md", "lg", "xl"]),
+    ("align", &["start", "center", "end", "baseline"]),
+    ("justify", &["start", "center", "end", "between"]),
+    ("text_align", &["start", "center", "end"]),
+    ("glass_preset", &["glass"]),
+    (
+        "button.variant",
+        &["primary", "secondary", "ghost", "danger"],
+    ),
+    ("status", &["accent", "danger", "warning", "success"]),
+    ("drawer.side", &["left", "right", "top", "bottom"]),
+    ("skeleton.kind", &["rect", "circle", "text"]),
+];
+
 /// Returns the grammar: the schema tag, every node type with a minimal example,
 /// and the color roles a `ColorSpec` may name. Generated from one registry, so
 /// it cannot drift from what the parser accepts.
@@ -228,5 +415,20 @@ pub fn describe_vocabulary() -> Vocabulary {
             })
             .collect(),
         color_roles: COLOR_ROLES.iter().map(|r| (*r).to_string()).collect(),
+        style: STYLE_REGISTRY
+            .iter()
+            .map(|(key, summary, example)| StyleDoc {
+                key: (*key).to_string(),
+                summary: (*summary).to_string(),
+                example: (*example).to_string(),
+            })
+            .collect(),
+        enums: ENUM_REGISTRY
+            .iter()
+            .map(|(name, values)| EnumDoc {
+                name: (*name).to_string(),
+                values: values.iter().map(|v| (*v).to_string()).collect(),
+            })
+            .collect(),
     }
 }
