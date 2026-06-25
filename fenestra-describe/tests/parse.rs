@@ -280,3 +280,86 @@ fn bound_widget_renders_from_initial_state() {
     .unwrap();
     assert!(light_yaml(&to_element(&d2, &t).unwrap()).contains("Ada"));
 }
+
+// ── Glass / material authoring (the moat: author the signature visual in JSON,
+//    then verify it headlessly) ────────────────────────────────────────────────
+
+#[test]
+fn parses_explicit_glass_optics_into_style() {
+    // The optics fields set the element's style directly (not deferred like a
+    // surface role), so they read back immediately from `style()`.
+    let json = r#"{"schema":"fenestra/1","root":{"col":{"style":{
+        "corner_smoothing":0.6,
+        "backdrop_blur":24,
+        "specular_edge":"glass",
+        "sheen":{"light_deg":135,"top":0.12,"bottom":0.06},
+        "adaptive_tint":{"pivot":0.55,"gain":0.2}
+    },"children":[]}}}"#;
+    let d: Description = serde_json::from_str(json).expect("valid description");
+    let el = to_element(&d, &Theme::light()).expect("parses");
+    let s = el.style();
+    assert_eq!(s.corner_smoothing, Some(0.6));
+    assert!(s.backdrop_blur.is_some(), "backdrop_blur set");
+    assert!(
+        s.specular_edge.is_some(),
+        "specular rim from the \"glass\" preset"
+    );
+    let sheen = s.sheen.expect("sheen set");
+    assert!((sheen.top - 0.12).abs() < 1e-6 && (sheen.bottom - 0.06).abs() < 1e-6);
+    let adaptive = s.adaptive_tint.expect("adaptive tint set");
+    assert!((adaptive.pivot - 0.55).abs() < 1e-6 && (adaptive.gain - 0.2).abs() < 1e-6);
+}
+
+#[test]
+fn glass_presets_match_the_core_recipe() {
+    // The `"glass"` preset strings resolve to the exact recipes Surface::Glass uses.
+    let json = r#"{"schema":"fenestra/1","root":{"col":{"style":{
+        "specular_edge":"glass","sheen":"glass","adaptive_tint":"glass"
+    },"children":[]}}}"#;
+    let d: Description = serde_json::from_str(json).unwrap();
+    let el = to_element(&d, &Theme::light()).unwrap();
+    let s = el.style();
+    assert_eq!(s.specular_edge, Some(fenestra_core::SpecularEdge::glass()));
+    assert_eq!(s.sheen, Some(fenestra_core::Sheen::glass()));
+    assert_eq!(s.adaptive_tint, Some(fenestra_core::AdaptiveTint::glass()));
+}
+
+#[test]
+fn surface_glass_role_builds_a_frame() {
+    // `surface` is a deferred role (it resolves against the theme at frame time),
+    // so the proof is that it parses and builds a frame with its content intact.
+    let json = r#"{"schema":"fenestra/1","root":{"col":{"style":{"surface":"glass"},"children":[
+        {"text":{"content":"Frosted"}}
+    ]}}}"#;
+    let d: Description = serde_json::from_str(json).unwrap();
+    let el = to_element(&d, &Theme::light()).expect("glass surface parses");
+    assert!(light_yaml(&el).contains("Frosted"));
+}
+
+#[test]
+fn rejects_unknown_surface_role() {
+    let json =
+        r#"{"schema":"fenestra/1","root":{"col":{"style":{"surface":"frosted"},"children":[]}}}"#;
+    let d: Description = serde_json::from_str(json).unwrap();
+    let errs = to_element(&d, &Theme::light())
+        .err()
+        .expect("unknown role errors");
+    assert!(
+        errs.iter().any(|e| e.message.contains("surface role")),
+        "{errs:?}"
+    );
+}
+
+#[test]
+fn rejects_unknown_glass_preset() {
+    let json =
+        r#"{"schema":"fenestra/1","root":{"col":{"style":{"sheen":"frost"},"children":[]}}}"#;
+    let d: Description = serde_json::from_str(json).unwrap();
+    let errs = to_element(&d, &Theme::light())
+        .err()
+        .expect("unknown preset errors");
+    assert!(
+        errs.iter().any(|e| e.message.contains("sheen preset")),
+        "{errs:?}"
+    );
+}

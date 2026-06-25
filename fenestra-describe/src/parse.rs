@@ -12,8 +12,9 @@
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
 use fenestra_core::{
-    DrawerSide, Element, GridTemplate, Repeat, ShadowToken, TextAlign, Theme, Track, TrackMax,
-    TrackMin, Weight, col, div, divider, linear_gradient, row, spacer, stack, text,
+    AdaptiveTint, DrawerSide, Element, GridTemplate, Repeat, ShadowToken, Sheen, SpecularEdge,
+    Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight, col, div, divider,
+    linear_gradient, row, spacer, stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, accordion, accordion_item, avatar, badge, breadcrumbs,
@@ -26,11 +27,11 @@ use fenestra_kit::{
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
-    AccordionNode, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container, Description,
-    DrawerNode, IconNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode, ModalNode, Node,
-    PaginationNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1, SegmentedNode, SelectNode,
-    SkeletonNode, SpinButtonNode, StatCardNode, StatusNode, StepperNode, Style, TabsNode, TextNode,
-    ToolbarNode, TooltipNode, TrackSpec,
+    AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container,
+    Description, DrawerNode, EdgeSpec, IconNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode,
+    ModalNode, Node, PaginationNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1,
+    SegmentedNode, SelectNode, SheenSpec, SkeletonNode, SpinButtonNode, StatCardNode, StatusNode,
+    StepperNode, Style, TabsNode, TextNode, ToolbarNode, TooltipNode, TrackSpec,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -893,6 +894,86 @@ fn shadow_token(name: &str) -> Result<ShadowToken, String> {
     }
 }
 
+// ── Surface / glass helpers ─────────────────────────────────────────────────────
+
+/// Maps a surface role name to a [`Surface`].
+fn surface_role(name: &str) -> Result<Surface, String> {
+    match name {
+        "card" => Ok(Surface::Card),
+        "raised" => Ok(Surface::Raised),
+        "popover" => Ok(Surface::Popover),
+        "menu" => Ok(Surface::Menu),
+        "modal" => Ok(Surface::Modal),
+        "glass" => Ok(Surface::Glass),
+        "tooltip" => Ok(Surface::Tooltip),
+        "thumb" => Ok(Surface::Thumb),
+        other => Err(format!(
+            "unknown surface role {other:?}; expected card|raised|popover|menu|modal|glass|tooltip|thumb"
+        )),
+    }
+}
+
+/// Resolves an [`EdgeSpec`] (the `"glass"` preset or explicit levers) to a
+/// [`SpecularEdge`].
+fn resolve_edge(spec: &EdgeSpec) -> Result<SpecularEdge, String> {
+    match spec {
+        EdgeSpec::Preset(name) => match name.as_str() {
+            "glass" => Ok(SpecularEdge::glass()),
+            other => Err(format!(
+                "unknown specular_edge preset {other:?}; expected \"glass\" or a {{light_deg,intensity,shade}} object"
+            )),
+        },
+        EdgeSpec::Custom {
+            light_deg,
+            intensity,
+            shade,
+        } => Ok(SpecularEdge {
+            light_deg: *light_deg,
+            intensity: *intensity,
+            shade: *shade,
+        }),
+    }
+}
+
+/// Resolves a [`SheenSpec`] (the `"glass"` preset or explicit levers) to a
+/// [`Sheen`].
+fn resolve_sheen(spec: &SheenSpec) -> Result<Sheen, String> {
+    match spec {
+        SheenSpec::Preset(name) => match name.as_str() {
+            "glass" => Ok(Sheen::glass()),
+            other => Err(format!(
+                "unknown sheen preset {other:?}; expected \"glass\" or a {{light_deg,top,bottom}} object"
+            )),
+        },
+        SheenSpec::Custom {
+            light_deg,
+            top,
+            bottom,
+        } => Ok(Sheen {
+            light_deg: *light_deg,
+            top: *top,
+            bottom: *bottom,
+        }),
+    }
+}
+
+/// Resolves an [`AdaptiveSpec`] (the `"glass"` preset or explicit levers) to an
+/// [`AdaptiveTint`].
+fn resolve_adaptive(spec: &AdaptiveSpec) -> Result<AdaptiveTint, String> {
+    match spec {
+        AdaptiveSpec::Preset(name) => match name.as_str() {
+            "glass" => Ok(AdaptiveTint::glass()),
+            other => Err(format!(
+                "unknown adaptive_tint preset {other:?}; expected \"glass\" or a {{pivot,gain}} object"
+            )),
+        },
+        AdaptiveSpec::Custom { pivot, gain } => Ok(AdaptiveTint {
+            pivot: *pivot,
+            gain: *gain,
+        }),
+    }
+}
+
 // ── Container / text / leaf builders ─────────────────────────────────────────
 
 /// Builds a container element: style, on_click, id, then recursively-mapped children.
@@ -965,6 +1046,16 @@ fn apply_style(
     path: &str,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
+    // ── Surface material role: a complete role (fill/border/radius/shadow + the
+    //    glass optics) resolved at theme time; it owns the paint it sets. ───────
+    if let Some(name) = &style.surface {
+        match surface_role(name) {
+            Ok(role) => el = el.surface(role),
+            Err(msg) => {
+                errors.push(DescribeError::new(format!("{path}/style/surface"), msg));
+            }
+        }
+    }
     // ── Padding (all → axes → per-side) ──────────────────────────────────────
     if let Some(v) = style.p
         && finite_num(v, path, "p", errors)
@@ -1104,6 +1195,45 @@ fn apply_style(
         && finite_num(v, path, "rounded", errors)
     {
         el = el.rounded(v);
+    }
+    // ── Glass optics (squircle, backdrop blur, specular rim, sheen, adaptive) ──
+    if let Some(v) = style.corner_smoothing
+        && finite_num(v, path, "corner_smoothing", errors)
+    {
+        el = el.corner_smoothing(v);
+    }
+    if let Some(v) = style.backdrop_blur
+        && finite_num(v, path, "backdrop_blur", errors)
+    {
+        el = el.backdrop_blur(v);
+    }
+    if let Some(spec) = &style.specular_edge {
+        match resolve_edge(spec) {
+            Ok(edge) => el = el.specular_edge(edge),
+            Err(msg) => {
+                errors.push(DescribeError::new(
+                    format!("{path}/style/specular_edge"),
+                    msg,
+                ));
+            }
+        }
+    }
+    if let Some(spec) = &style.sheen {
+        match resolve_sheen(spec) {
+            Ok(sheen) => el = el.sheen(sheen),
+            Err(msg) => errors.push(DescribeError::new(format!("{path}/style/sheen"), msg)),
+        }
+    }
+    if let Some(spec) = &style.adaptive_tint {
+        match resolve_adaptive(spec) {
+            Ok(adaptive) => el = el.adaptive_tint(adaptive),
+            Err(msg) => {
+                errors.push(DescribeError::new(
+                    format!("{path}/style/adaptive_tint"),
+                    msg,
+                ));
+            }
+        }
     }
     // ── Background (solid, then gradient overrides if both set) ───────────────
     if let Some(spec) = &style.bg {
