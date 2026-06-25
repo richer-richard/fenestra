@@ -369,6 +369,13 @@ pub const FOCUS_RING: FocusRing = FocusRing {
 /// the same transition as the press color.
 pub const PRESS_SCALE: f32 = 0.97;
 
+/// The fixed light azimuth for glass specular optics, in CSS gradient degrees
+/// (`0` = up, `90` = right). Apple's Liquid Glass keys its edge highlight and
+/// body sheen off a single light; fenestra puts it at the top so a floating
+/// glass pane catches light along its upper edge and fades toward the bottom.
+/// Used by [`SpecularEdge::glass`](crate::SpecularEdge::glass).
+pub const GLASS_LIGHT_DEG: f32 = 0.0;
+
 /// Sub-segments generated per anchor pair when expanding an OKLCH gradient
 /// ([`linear_gradient`](crate::linear_gradient) /
 /// [`radial_gradient`](crate::radial_gradient)). Calibrated so a full hue-arc

@@ -773,6 +773,78 @@ pub enum ElementFilter {
     Saturate(f32),
 }
 
+/// A luminous specular edge rim — the iconic Liquid Glass perimeter light. A
+/// directional highlight that wraps the whole rounded silhouette, brightest on
+/// the edge that faces a fixed light (the top, by default) and fading toward the
+/// far side, so a translucent pane reads as lit, lensed glass rather than a flat
+/// outline. Painted as a gradient-brushed stroke just inside the silhouette,
+/// over an optional faint dark inner contact line that gives the rim a sense of
+/// thickness (the "double edge"). `None` (the default) paints no rim — every
+/// non-glass element stays byte-identical. Set by
+/// [`Surface::Glass`](crate::Surface::Glass); supersedes the flat
+/// [`highlight_top`](Style::highlight_top) bar on glass.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct SpecularEdge {
+    /// Light direction in CSS gradient degrees (`0` = up, `90` = right): the rim
+    /// is brightest on the edge facing this way and shaded on the opposite edge.
+    /// The Liquid Glass default light is from the top
+    /// ([`GLASS_LIGHT_DEG`](crate::tokens::GLASS_LIGHT_DEG)).
+    pub light_deg: f32,
+    /// Peak white alpha on the lit edge (the top), `0.0..=1.0` — the bright half
+    /// of the lens.
+    pub intensity: f32,
+    /// Peak dark alpha on the unlit far edge (the bottom), `0.0..=1.0` — the
+    /// shaded underside that makes the rim read as a lit bevel (a lens), not a
+    /// flat outline. A single rim stroke ramps from this shade, through clear, to
+    /// `intensity`, so the edge is light on top and dark on the bottom.
+    pub shade: f32,
+}
+
+impl SpecularEdge {
+    /// The Liquid Glass rim: a top-lit edge — bright white along the top and
+    /// upper corners, darkening to a shaded underside at the bottom — so the
+    /// perimeter reads as lit, lensed glass.
+    #[must_use]
+    pub const fn glass() -> Self {
+        Self {
+            light_deg: crate::tokens::GLASS_LIGHT_DEG,
+            intensity: 0.6,
+            shade: 0.18,
+        }
+    }
+}
+
+/// A directional body sheen across an element's face — the raking light that
+/// makes a translucent pane read as lit glass instead of a flat, uniform tint.
+/// A soft gradient wash, white at the end facing the light (top-left) grading
+/// through transparent to an optional faint shade at the far end, source-over
+/// the fill and clipped to the rounded silhouette. `None` (the default) paints
+/// no sheen. Pairs with [`SpecularEdge`]; both are set by
+/// [`Surface::Glass`](crate::Surface::Glass).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Sheen {
+    /// Gradient axis in CSS degrees (`0` = up, `90` = right): the bright end
+    /// faces the light, the shaded end is opposite.
+    pub light_deg: f32,
+    /// White alpha at the lit (near) end of the wash, `0.0..=1.0`.
+    pub top: f32,
+    /// Dark alpha at the far end (`0.0` = a one-sided, brighten-only sheen).
+    pub bottom: f32,
+}
+
+impl Sheen {
+    /// The Liquid Glass face sheen: a gentle white rake from the upper-left
+    /// fading out across the pane, with a whisper of shade at the lower-right.
+    #[must_use]
+    pub const fn glass() -> Self {
+        Self {
+            light_deg: 135.0,
+            top: 0.12,
+            bottom: 0.06,
+        }
+    }
+}
+
 /// The complete style of an element: layout, paint, and text groups.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Style {
@@ -887,6 +959,14 @@ pub struct Style {
     /// the cheapest "raised, crafted" signal on a solid control. Painted over
     /// the fill, clipped to the corner radius. Usually white at low alpha.
     pub highlight_top: Option<Color>,
+    /// A luminous specular edge rim wrapping the rounded silhouette (the iconic
+    /// Liquid Glass perimeter light). `None` (the default) paints no rim, so
+    /// non-glass elements stay byte-identical. See [`SpecularEdge`].
+    pub specular_edge: Option<SpecularEdge>,
+    /// A directional body sheen across the face — the raking light that makes a
+    /// translucent pane read as lit glass. `None` (the default) paints no sheen.
+    /// See [`Sheen`].
+    pub sheen: Option<Sheen>,
     /// Opacity 0.0..=1.0 applied to the whole subtree.
     pub opacity: f32,
     /// Uniform scale applied at paint time about the element's center
@@ -972,6 +1052,8 @@ impl Default for Style {
             shadow_token: None,
             shadows: Vec::new(),
             highlight_top: None,
+            specular_edge: None,
+            sheen: None,
             opacity: 1.0,
             scale: 1.0,
             translate: (0.0, 0.0),
@@ -1651,6 +1733,21 @@ impl Style {
     /// that makes a solid control read as raised. Usually a low-alpha white.
     pub fn highlight_top(mut self, color: Color) -> Self {
         self.highlight_top = Some(color);
+        self
+    }
+
+    /// A luminous specular edge rim wrapping the rounded silhouette — the iconic
+    /// Liquid Glass perimeter light. See [`SpecularEdge`] (and
+    /// [`SpecularEdge::glass`] for the stock recipe).
+    pub fn specular_edge(mut self, edge: SpecularEdge) -> Self {
+        self.specular_edge = Some(edge);
+        self
+    }
+
+    /// A directional body sheen across the face — the raking light that makes a
+    /// translucent pane read as lit glass. See [`Sheen`] (and [`Sheen::glass`]).
+    pub fn sheen(mut self, sheen: Sheen) -> Self {
+        self.sheen = Some(sheen);
         self
     }
 

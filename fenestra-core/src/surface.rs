@@ -8,7 +8,7 @@
 //! this one table, so "every floating thing matches" is a structural property
 //! of the bundle, not a convention re-typed at each call site.
 
-use crate::style::{Border, CornerRadius, Paint, Style};
+use crate::style::{Border, CornerRadius, Paint, Sheen, SpecularEdge, Style};
 use crate::theme::Theme;
 use crate::tokens::{Elevation, R_FULL, R_LG, R_SM, R_XL, RadiusScale, ShadowToken};
 
@@ -346,6 +346,15 @@ impl SurfaceBundle {
         // and blurs it). A zero radius leaves `backdrop_blur` None, so an opaque
         // role or a flat-tint material renders single-pass exactly as before.
         style.backdrop_blur = self.material.map(|m| m.blur_radius).filter(|r| *r > 0.0);
+        // A frosted material also carries the Liquid Glass edge optics — a
+        // luminous specular rim and a directional body sheen — so the pane reads
+        // as lit, lensed glass rather than a flat frosted sticker. Only roles
+        // with a material (currently `Surface::Glass`) get them; opaque roles
+        // stay byte-identical.
+        if self.material.is_some() {
+            style.specular_edge = Some(SpecularEdge::glass());
+            style.sheen = Some(Sheen::glass());
+        }
         style
     }
 }
@@ -642,6 +651,38 @@ mod tests {
                 "near-white sheen: {r} {g} {b}"
             );
             assert!((0.0..0.3).contains(&a), "low-alpha sheen: {a}");
+        }
+    }
+
+    #[test]
+    fn glass_apply_sets_specular_edge_and_sheen() {
+        // The frosted material carries the Liquid Glass edge optics (specular rim
+        // + body sheen); every opaque role carries none, so they stay
+        // byte-identical to before this pass.
+        let t = Theme::light();
+        let glass = Surface::Glass.bundle().apply(&t, Style::default());
+        assert_eq!(
+            glass.specular_edge,
+            Some(crate::style::SpecularEdge::glass()),
+            "glass sets the specular rim"
+        );
+        assert_eq!(
+            glass.sheen,
+            Some(crate::style::Sheen::glass()),
+            "glass sets the body sheen"
+        );
+        for role in [
+            Surface::Card,
+            Surface::Raised,
+            Surface::Popover,
+            Surface::Menu,
+            Surface::Modal,
+            Surface::Thumb,
+            Surface::Tooltip,
+        ] {
+            let s = role.bundle().apply(&t, Style::default());
+            assert_eq!(s.specular_edge, None, "{role:?} has no specular rim");
+            assert_eq!(s.sheen, None, "{role:?} has no sheen");
         }
     }
 
