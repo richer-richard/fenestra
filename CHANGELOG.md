@@ -68,6 +68,13 @@ byte-identical; `Surface::Glass` lights them up with no API change.
   *entirely in JSON* — frosted material, specular rim, body sheen, adaptive tint, and
   pill chips over a striped backdrop — and renders it headlessly: an agent authors the
   headline visual *and* verifies it, no Rust touched.
+- **Headless interaction-state verification.** The agent-facing access tree
+  (`AccessNodeDto`) now exposes `selection` (the caret / selected `[start, end]`
+  range, collapsed = caret) and `live` (polite live regions), so an agent can drive
+  input through `interact` and assert the caret position or a live-region
+  announcement straight off the returned tree — no pixels. Surfacing it also fixed a
+  real a11y gap: a `status` with `live: true` drew the sonar ring but never marked
+  itself an aria-live region; it now does (no pixel change).
 
 ## 0.37.0 — 2026-06-25
 

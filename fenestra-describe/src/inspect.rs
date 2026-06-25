@@ -279,6 +279,8 @@ fn node_to_dto(node: &AccessNode, path: &[usize]) -> AccessNodeDto {
         selected,
         focusable: node.focusable,
         invalid: node.invalid,
+        live: node.live,
+        selection: node.selection.map(|(s, e)| [s, e]),
         bounds: Bounds {
             x: node.rect.x0,
             y: node.rect.y0,
