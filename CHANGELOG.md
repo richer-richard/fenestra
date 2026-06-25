@@ -59,6 +59,15 @@ byte-identical; `Surface::Glass` lights them up with no API change.
   path the builders use — closing the gap between the web-grade visuals and the
   agent-native authoring half of the moat. Authoring-only round-trip, default-off,
   with `"glass"` presets that resolve to the exact core `::glass()` recipes.
+- **The whole visual layer is authorable in JSON.** Completing the above, the
+  description format now also expresses a custom translucent `material` background (a
+  `Material` vibrancy tint + its backdrop blur — the glassier-than-stock escape
+  hatch), per-corner `corners` / `rounded_full` (pill chips), paint-time `translate`
+  / `rotate` / `skew`, and a foreground `element_filter` (`blur` / `brightness` /
+  `saturate`). A new golden authors fenestra's signature Liquid Glass surface
+  *entirely in JSON* — frosted material, specular rim, body sheen, adaptive tint, and
+  pill chips over a striped backdrop — and renders it headlessly: an agent authors the
+  headline visual *and* verifies it, no Rust touched.
 
 ## 0.37.0 — 2026-06-25
 

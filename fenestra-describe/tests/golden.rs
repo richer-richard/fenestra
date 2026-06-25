@@ -67,3 +67,46 @@ fn described_form_aria_is_stable() {
         assert!(aria.contains(needle), "aria missing {needle:?}:\n{aria}");
     }
 }
+
+/// fenestra's signature Liquid Glass surface — a frosted vibrancy `material`,
+/// specular rim, body sheen, backdrop-adaptive tint, and `rounded_full` pill
+/// chips — authored entirely in JSON over a vivid striped backdrop. The moat in
+/// one artifact: an agent authors the headline visual *and* verifies it headlessly,
+/// no Rust touched. Exercises both authoring batches (the optics + the custom
+/// material bg).
+const GLASS: &str = r#"{
+  "schema": "fenestra/1",
+  "root": { "stack": { "style": { "w": 560, "h": 360 }, "children": [
+    { "row": { "style": { "w": 560, "h": 360 }, "children": [
+      { "div": { "style": { "w": 112, "h": 360, "bg": {"oklch":[0.62,0.18,25]} } } },
+      { "div": { "style": { "w": 112, "h": 360, "bg": {"oklch":[0.68,0.16,140]} } } },
+      { "div": { "style": { "w": 112, "h": 360, "bg": {"oklch":[0.60,0.19,265]} } } },
+      { "div": { "style": { "w": 112, "h": 360, "bg": {"oklch":[0.70,0.17,85]} } } },
+      { "div": { "style": { "w": 112, "h": 360, "bg": {"oklch":[0.64,0.18,330]} } } }
+    ] } },
+    { "col": { "style": {
+        "absolute": true, "top": 96, "left": 120, "w": 320, "p": 24, "gap": 12,
+        "material": {"tint": {"oklch":[0.72,0.04,265]}, "fill_alpha": 0.5, "blur": 24, "saturation": 1.6},
+        "specular_edge": "glass", "sheen": "glass", "adaptive_tint": "glass",
+        "rounded": 24, "border": {"width": 1, "color": {"oklch":[1,0,0]}}
+      }, "children": [
+        { "text": { "content": "Glass, authored in JSON", "style": { "size_px": 20, "weight": 600, "color": {"oklch":[0.98,0,0]} } } },
+        { "text": { "content": "blur · rim · sheen · adaptive tint", "style": { "size_px": 13, "color": {"oklch":[0.90,0.02,265]} } } },
+        { "row": { "style": { "gap": 8 }, "children": [
+          { "div": { "style": { "w": 60, "h": 26, "rounded_full": true, "bg": {"oklch":[0.62,0.20,25]} } } },
+          { "div": { "style": { "w": 60, "h": 26, "rounded_full": true, "bg": {"oklch":[0.70,0.17,140]} } } },
+          { "div": { "style": { "w": 60, "h": 26, "rounded_full": true, "bg": {"oklch":[0.65,0.18,265]} } } }
+        ] } }
+      ]
+    } }
+  ] } }
+}"#;
+
+#[test]
+fn glass_authored_in_json_golden() {
+    let theme = Theme::dark();
+    let desc: Description = serde_json::from_str(GLASS).expect("valid glass description");
+    let el = to_element(&desc, &theme).expect("glass authors cleanly");
+    let image = render_element(el, &theme, (560, 360));
+    assert_png_snapshot(snapshot_dir(), "glass_authored", &image);
+}

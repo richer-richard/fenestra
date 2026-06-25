@@ -2725,9 +2725,16 @@ schema: the half of the moat that makes the web-grade visuals agent-reachable.
   enum (the same shape as `TrackSpec`). The presets resolve to the exact `::glass()`
   recipes the core uses — asserted against `SpecularEdge::glass()` etc. in a
   round-trip test, so the JSON vocabulary can't drift from the builder vocabulary.
-- **Deferred — a second batch over the same patterns.** The translucent custom
-  `Material` vibrancy `bg` (today's `ColorSpec` is role|oklch; a glassier-than-stock
-  pane needs a material `bg` shape — the one genuinely new JSON design question),
-  plus transforms (`translate`/`rotate`/`skew`), per-corner radii, and
-  `element_filter`. And the Style-grammar section of `describe_vocabulary` (it
-  advertises nodes + color roles, not style properties) — discovery, a separate gap.
+- **SHIPPED (the second batch) — the whole visual layer is authorable.** A custom
+  translucent `material` background — a dedicated `MaterialSpec { tint, fill_alpha,
+  blur, saturation }` field (NOT a third `ColorSpec` variant, which would muddy every
+  bg/color/border site) that resolves to `Material::new(...).tint(color)` as the fill
+  plus its backdrop blur — and per-corner `corners` / `rounded_full`, paint-time
+  `translate` / `rotate` / `skew`, and a foreground `element_filter`
+  (externally-tagged `{ "blur" | "brightness" | "saturate": m }`). A `golden.rs` test
+  authors the flagship Liquid Glass hero *entirely in JSON* and renders it headlessly
+  — the end-to-end "author AND verify the signature visual" proof.
+- **Still deferred — discovery.** The Style-grammar section of `describe_vocabulary`
+  (it advertises nodes + color roles, not the style-property grammar or the closed
+  enum tokens). Authoring works and is golden-proven; making the vocabulary
+  self-documenting so an agent can *discover* these props is the remaining gap.
