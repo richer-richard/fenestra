@@ -149,3 +149,58 @@ fn tag_of(n: &Node) -> &'static str {
         Node::Spacer(_) => "spacer",
     }
 }
+
+#[test]
+fn every_advertised_style_prop_parses() {
+    // The style grammar must stay in lockstep with the parser: every advertised
+    // property's example authors and builds cleanly.
+    for doc in describe_vocabulary().style {
+        let json = format!(
+            r#"{{"schema":"fenestra/1","root":{{"div":{{"style":{{"{}":{}}},"children":[]}}}}}}"#,
+            doc.key, doc.example
+        );
+        assert!(
+            validate(&json).is_ok(),
+            "style `{}` example failed validate: {:?}",
+            doc.key,
+            validate(&json).err()
+        );
+        let desc: Description = serde_json::from_str(&json).expect("example deserializes");
+        assert!(
+            to_element(&desc, &Theme::light()).is_ok(),
+            "style `{}` failed to_element",
+            doc.key
+        );
+    }
+}
+
+#[test]
+fn every_style_enum_value_parses() {
+    // An enum whose name is a `style` key (surface / shadow / align / justify /
+    // text_align) must accept each advertised value there. Node-field enums
+    // (`button.variant`, `status`, `drawer.side`, `skeleton.kind`) and the
+    // `glass_preset` are exercised by their own node / property examples.
+    let style_keys: std::collections::BTreeSet<String> = describe_vocabulary()
+        .style
+        .into_iter()
+        .map(|s| s.key)
+        .collect();
+    for e in describe_vocabulary().enums {
+        if !style_keys.contains(&e.name) {
+            continue;
+        }
+        for v in &e.values {
+            let json = format!(
+                r#"{{"schema":"fenestra/1","root":{{"div":{{"style":{{"{}":"{}"}},"children":[]}}}}}}"#,
+                e.name, v
+            );
+            assert!(
+                validate(&json).is_ok(),
+                "enum {}={:?} failed validate: {:?}",
+                e.name,
+                v,
+                validate(&json).err()
+            );
+        }
+    }
+}

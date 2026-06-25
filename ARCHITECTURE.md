@@ -2759,3 +2759,24 @@ in `node_to_dto`, so they were unreachable.
   `StatusIndicator` `From` impl now calls `Element::live()` when live — the semantic,
   not just the decoration. No pixels change (the ring was already there); the access
   tree now carries the flag, asserted in `live_region_surfaces_in_the_after_tree`.
+
+## Discovering the style vocabulary (describe_vocabulary)
+
+The author → verify arc is only useful if an agent can *discover* what it may write.
+`describe_vocabulary` (the "call this first" tool) advertised every node and the color
+roles, but nothing about the *style* surface — none of the ~35 style properties
+(spacing, sizing, paint, border/radius/shadow, the glass/material vocabulary from the
+prior passes, transforms, filter, typography, grid) nor the closed enum tokens
+(`surface`, `shadow`, `align`, `justify`, `text_align`, button `variant`, `status`,
+drawer `side`, skeleton `kind`, the `"glass"` presets). So the authorable surface was
+effectively undiscoverable.
+
+- **Generated from registries, kept honest by coherence tests.** `Vocabulary` gains
+  `style: Vec<StyleDoc>` and `enums: Vec<EnumDoc>`, built from a `STYLE_REGISTRY` and
+  an `ENUM_REGISTRY` — the same single-source-of-truth discipline as `NODE_REGISTRY`.
+  One test authors every advertised style property's example and asserts it parses +
+  builds (`every_advertised_style_prop_parses`); another authors every style-key enum
+  value (`every_style_enum_value_parses`), so the advertised grammar can never drift
+  from what the parser accepts. The MCP `describe_vocabulary` tool returns it all, so
+  the discovery surface updates for free. This closes the author → verify → discover
+  loop: an agent can now find everything the prior passes made authorable.
