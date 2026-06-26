@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## 0.38.0 — 2026-06-26
 
 The Liquid Glass optics pass — a multi-agent research survey of Apple Liquid
 Glass (WWDC25 / iOS 26 / macOS Tahoe 26), Material 3 Expressive, Microsoft Fluent

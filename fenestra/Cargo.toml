@@ -25,7 +25,7 @@ image.workspace = true
 # Examples only (the `looks` showcase); a dev-dependency, so it is not a
 # runtime dependency of the published facade. Versioned (not path-only) so it
 # isn't a wildcard dependency.
-fenestra-looks = { path = "../fenestra-looks", version = "0.37.0" }
+fenestra-looks = { path = "../fenestra-looks", version = "0.38.0" }
 
 # Native-only example deps (file dialogs).
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
