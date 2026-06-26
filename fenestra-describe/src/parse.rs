@@ -35,6 +35,12 @@ use crate::format::{
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
+/// The largest blur radius (logical px) an authored document may request. A real
+/// frosted-glass blur is far under this; the cap keeps a hostile value from
+/// reaching the headless blur pipeline as an unbounded box-window. (The pipeline
+/// caps the box radius at the image extent as a backstop.)
+const MAX_BLUR_PX: f32 = 200.0;
+
 /// Parses `desc` into an element, or the accumulated problems, against the
 /// description's own initial `state`. Strict: any problem makes this return `Err`.
 ///
@@ -1226,7 +1232,7 @@ fn apply_style(
     if let Some(v) = style.backdrop_blur
         && finite_num(v, path, "backdrop_blur", errors)
     {
-        el = el.backdrop_blur(v);
+        el = el.backdrop_blur(v.clamp(0.0, MAX_BLUR_PX));
     }
     if let Some(spec) = &style.specular_edge {
         match resolve_edge(spec) {
@@ -1276,7 +1282,20 @@ fn apply_style(
     }
     // ── Foreground filter + path trim ─────────────────────────────────────────
     if let Some(spec) = &style.element_filter {
-        el = el.element_filter(filter_of(spec));
+        // A foreground filter samples the pre-transform layout rect, so it does not
+        // compose with a paint transform on the same node (the filtered crop would
+        // come from the wrong region). Reject the pair rather than emit a misaligned
+        // render; apply them on separate nested nodes.
+        if style.translate.is_some() || style.rotate.is_some() || style.skew.is_some() {
+            errors.push(DescribeError::new(
+                format!("{path}/style/element_filter"),
+                "element_filter does not compose with translate / rotate / skew on the \
+                 same node; apply them on separate nested nodes"
+                    .to_string(),
+            ));
+        } else {
+            el = el.element_filter(filter_of(spec));
+        }
     }
     if let Some(v) = style.trim
         && finite_num(v, path, "trim", errors)
@@ -1324,8 +1343,9 @@ fn apply_style(
                     && finite_num(mat.blur, path, "material/blur", errors)
                     && finite_num(mat.saturation, path, "material/saturation", errors);
                 if all_finite {
-                    let tint = Material::new(mat.fill_alpha, mat.blur, mat.saturation).tint(base);
-                    el = el.bg(tint).backdrop_blur(mat.blur);
+                    let blur = mat.blur.clamp(0.0, MAX_BLUR_PX);
+                    let tint = Material::new(mat.fill_alpha, blur, mat.saturation).tint(base);
+                    el = el.bg(tint).backdrop_blur(blur);
                 }
             }
             Err(e) => errors.push(relocate(e, format!("{path}/style/material/tint"))),

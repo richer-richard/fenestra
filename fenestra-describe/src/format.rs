@@ -1003,7 +1003,10 @@ pub struct Style {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skew: Option<[f32; 2]>,
     /// A foreground filter on this element's own content (blur / brightness /
-    /// saturate). Realized in the headless two-pass render.
+    /// saturate). Realized in the headless two-pass render. Cannot be combined with
+    /// a paint transform (`translate` / `rotate` / `skew`) on the same node — the
+    /// filter samples the pre-transform layout rect, so the pair is rejected; apply
+    /// them on separate nested nodes.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub element_filter: Option<FilterSpec>,
     /// Path draw-progress `0.0..=1.0` (only meaningful on path / icon elements).
