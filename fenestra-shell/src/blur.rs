@@ -22,6 +22,10 @@ pub fn box_blur_rgba8(img: &RgbaImage, radius: u32) -> RgbaImage {
     if radius == 0 || img.width() == 0 || img.height() == 0 {
         return img.clone();
     }
+    // A window wider than the image is just a full-image average; cap the radius at
+    // the image extent so a hostile (e.g. agent-authored) blur radius can neither
+    // overflow `2 * radius + 1` nor unbound the per-row window-fill loop.
+    let radius = radius.min(img.width().max(img.height()));
     let mut a = img.clone();
     let mut b = RgbaImage::new(img.width(), img.height());
     // Box blur is separable, so each axis is a 1-D running-sum average —
@@ -402,5 +406,16 @@ mod tests {
         );
         // A near-edge column is resampled from further inside (the lens bend).
         assert_ne!(out.get_pixel(2, cy).0, img.get_pixel(2, cy).0, "rim bent");
+    }
+
+    #[test]
+    fn box_blur_huge_radius_is_bounded() {
+        // A hostile radius must not overflow `2 * radius + 1` or hang the window
+        // fill: it caps at the image extent (a full-image average) and returns.
+        let img = RgbaImage::from_pixel(8, 6, Rgba([100, 150, 200, 255]));
+        let out = box_blur_rgba8(&img, u32::MAX);
+        assert_eq!(out.dimensions(), (8, 6));
+        // A uniform image averages to itself at any radius.
+        assert_eq!(out.get_pixel(0, 0).0, [100, 150, 200, 255]);
     }
 }

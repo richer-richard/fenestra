@@ -366,10 +366,10 @@ fn rejects_unknown_glass_preset() {
 
 #[test]
 fn parses_transforms_corners_and_filter() {
+    // Transforms + per-corner radii on one node...
     let json = r#"{"schema":"fenestra/1","root":{"col":{"style":{
         "corners":[4,8,12,16],
-        "translate":[10,5],"rotate":15,"skew":[2,0],
-        "element_filter":{"blur":4}
+        "translate":[10,5],"rotate":15,"skew":[2,0]
     },"children":[]}}}"#;
     let d: Description = serde_json::from_str(json).expect("valid description");
     let el = to_element(&d, &Theme::light()).expect("parses");
@@ -378,10 +378,55 @@ fn parses_transforms_corners_and_filter() {
     assert_eq!(s.translate, (10.0, 5.0));
     assert_eq!(s.rotate, 15.0);
     assert_eq!(s.skew, (2.0, 0.0));
+    // ...and a foreground filter on a node WITHOUT a transform (they don't compose).
+    let fjson = r#"{"schema":"fenestra/1","root":{"div":{"style":{"element_filter":{"brightness":0.5}},"children":[]}}}"#;
+    let fd: Description = serde_json::from_str(fjson).unwrap();
+    let fel = to_element(&fd, &Theme::light()).expect("parses");
     assert!(
-        matches!(s.element_filter, Some(fenestra_core::ElementFilter::Blur(r)) if (r - 4.0).abs() < 1e-6),
+        matches!(fel.style().element_filter, Some(fenestra_core::ElementFilter::Brightness(m)) if (m - 0.5).abs() < 1e-6),
         "{:?}",
-        s.element_filter
+        fel.style().element_filter
+    );
+}
+
+#[test]
+fn clamps_huge_authored_blur() {
+    // A hostile blur radius is capped, not passed through to overflow the blur.
+    let json = r#"{"schema":"fenestra/1","root":{"div":{"style":{"backdrop_blur":1000000000},"children":[]}}}"#;
+    let el = to_element(
+        &serde_json::from_str::<Description>(json).unwrap(),
+        &Theme::light(),
+    )
+    .expect("parses");
+    assert!(
+        el.style().backdrop_blur.unwrap() <= 200.0,
+        "{:?}",
+        el.style().backdrop_blur
+    );
+    // material.blur is capped the same way (and still sets a translucent fill).
+    let mjson = r#"{"schema":"fenestra/1","root":{"div":{"style":{"material":{"tint":"surface","fill_alpha":0.5,"blur":1000000000,"saturation":1.5}},"children":[]}}}"#;
+    let mel = to_element(
+        &serde_json::from_str::<Description>(mjson).unwrap(),
+        &Theme::light(),
+    )
+    .expect("parses");
+    assert!(mel.style().backdrop_blur.unwrap() <= 200.0);
+    assert!(mel.style().fill.is_some());
+}
+
+#[test]
+fn rejects_transform_with_element_filter() {
+    // The two-pass filter crop is taken pre-transform, so the pair is rejected.
+    let json = r#"{"schema":"fenestra/1","root":{"div":{"style":{"translate":[10,0],"element_filter":{"blur":4}},"children":[]}}}"#;
+    let errs = to_element(
+        &serde_json::from_str::<Description>(json).unwrap(),
+        &Theme::light(),
+    )
+    .err()
+    .expect("the combination is rejected");
+    assert!(
+        errs.iter().any(|e| e.message.contains("does not compose")),
+        "{errs:?}"
     );
 }
 

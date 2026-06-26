@@ -781,8 +781,8 @@ pub enum ElementFilter {
 /// over an optional faint dark inner contact line that gives the rim a sense of
 /// thickness (the "double edge"). `None` (the default) paints no rim — every
 /// non-glass element stays byte-identical. Set by
-/// [`Surface::Glass`](crate::Surface::Glass); supersedes the flat
-/// [`highlight_top`](Style::highlight_top) bar on glass.
+/// [`Surface::Glass`](crate::Surface::Glass); layered over the flat
+/// [`highlight_top`](Style::highlight_top) bar on glass (both are painted).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct SpecularEdge {
     /// Light direction in CSS gradient degrees (`0` = up, `90` = right): the rim
