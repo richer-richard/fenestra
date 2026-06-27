@@ -70,6 +70,10 @@ check => CHECK, "check";
     save => SAVE, "save";
     star => STAR, "star";
     x => X, "x";
+    calendar_days => CALENDAR_DAYS, "calendar-days";
+    filter => FILTER, "filter";
+    heart => HEART, "heart";
+    share_2 => SHARE_2, "share-2";
 }
 
 #[cfg(test)]

@@ -45,6 +45,10 @@ pub(crate) const REFRESH_CW: &str = "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.
 pub(crate) const SAVE: &str = "M15.2 3a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4V19a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM17 21v-7a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7M7 3v4a1 1 0 0 0 1 1h7";
 pub(crate) const STAR: &str = "M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z";
 pub(crate) const X: &str = "M18 6 6 18m6 6 12 12";
+pub(crate) const CALENDAR_DAYS: &str = "M8 2v4M16 2v4M21 12.822V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.382M7 11h4M7 15h4M15 17h6M15 21h6";
+pub(crate) const FILTER: &str = "M22 3H2l8.3 8.3v7.3l4 2v-9.3L22 3";
+pub(crate) const HEART: &str = "M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z";
+pub(crate) const SHARE_2: &str = "m6 12 10-4M6 12l10 4M18 8a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM6 12a2 2 0 1 1-4 0 2 2 0 0 1 4 0zM18 16a2 2 0 1 1-4 0 2 2 0 0 1 4 0z";
 
 pub(crate) const ALL: &[(&str, &str)] = &[
     ("arrow-left", ARROW_LEFT),
@@ -85,4 +89,8 @@ pub(crate) const ALL: &[(&str, &str)] = &[
     ("save", SAVE),
     ("star", STAR),
     ("x", X),
+    ("calendar-days", CALENDAR_DAYS),
+    ("filter", FILTER),
+    ("heart", HEART),
+    ("share-2", SHARE_2),
 ];
