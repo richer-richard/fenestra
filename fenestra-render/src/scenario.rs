@@ -68,6 +68,12 @@ pub struct Expect {
     /// Gate accessibility: the theme is legible and every interactive control is named.
     #[serde(default)]
     pub a11y: bool,
+    /// Stricter accessibility: additionally require that every text node clears
+    /// its strict per-node APCA floor (no `text_contrast_failures`). Implies the
+    /// `a11y` checks too. Catches authored low-contrast text the relaxed theme
+    /// contract permits for filled-control labels.
+    #[serde(default)]
+    pub a11y_strict: bool,
     /// Match an expected aria snapshot against the (post-interaction) tree.
     #[serde(default)]
     pub aria: Option<AriaExpect>,
@@ -197,16 +203,19 @@ pub fn verify(scenario: &Scenario) -> Result<VerifyOut, EngineError> {
         checks.push(outcome("emitted", ok, detail));
     }
 
-    if expect.a11y {
-        let ok = p.a11y.legible && p.a11y.unlabeled.is_empty();
+    if expect.a11y || expect.a11y_strict {
+        let strict_ok = !expect.a11y_strict || p.a11y.text_contrast_failures.is_empty();
+        let ok = p.a11y.legible && p.a11y.unlabeled.is_empty() && strict_ok;
         let detail = if ok {
             String::new()
         } else {
             format!(
-                "legible: {}; {} unlabeled control(s); {} contrast violation(s)",
+                "legible: {}; {} unlabeled control(s); {} contrast violation(s); \
+                 {} strict text-contrast failure(s)",
                 p.a11y.legible,
                 p.a11y.unlabeled.len(),
                 p.a11y.contrast_violations.len(),
+                p.a11y.text_contrast_failures.len(),
             )
         };
         checks.push(outcome("a11y", ok, detail));

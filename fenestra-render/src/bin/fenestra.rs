@@ -79,6 +79,9 @@ enum Command {
         size: String,
         #[arg(long)]
         theme: Option<PathBuf>,
+        /// Also fail on any strict per-node text-contrast failure (body-text floor).
+        #[arg(long)]
+        strict: bool,
     },
     /// List the keyboard focus order: the refs a Tab cycle visits, in order.
     FocusOrder {
@@ -166,7 +169,12 @@ fn main() -> ExitCode {
             theme,
             out,
         } => cmd_interact(desc, &steps, &size, theme, out),
-        Command::Check { desc, size, theme } => cmd_check(desc, &size, theme),
+        Command::Check {
+            desc,
+            size,
+            theme,
+            strict,
+        } => cmd_check(desc, &size, theme, strict),
         Command::FocusOrder { desc, size, theme } => cmd_focus_order(desc, &size, theme),
         Command::MatchAria {
             desc,
@@ -269,7 +277,7 @@ fn cmd_interact(
     }
 }
 
-fn cmd_check(desc: Option<PathBuf>, size: &str, theme: Option<PathBuf>) -> ExitCode {
+fn cmd_check(desc: Option<PathBuf>, size: &str, theme: Option<PathBuf>, strict: bool) -> ExitCode {
     let (desc, theme, size) = match common(desc, size, theme) {
         Ok(v) => v,
         Err(c) => return c,
@@ -277,7 +285,8 @@ fn cmd_check(desc: Option<PathBuf>, size: &str, theme: Option<PathBuf>) -> ExitC
     match check_a11y(&desc, &theme, size) {
         Ok(report) => {
             print_json(&report);
-            if report.legible && report.unlabeled.is_empty() {
+            let strict_ok = !strict || report.text_contrast_failures.is_empty();
+            if report.legible && report.unlabeled.is_empty() && strict_ok {
                 ExitCode::SUCCESS
             } else {
                 ExitCode::from(EXIT_VERIFY_FAILED)

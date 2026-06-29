@@ -76,6 +76,36 @@ fn verify_focus_order_expectation() {
     assert!(!out.report.ok, "reversed order should fail: {:?}", out.report.checks);
 }
 
+/// Default a11y passes a legible-theme form, but `a11y_strict` catches authored
+/// low-contrast body text the relaxed theme contract permits.
+#[test]
+fn verify_a11y_strict_catches_authored_low_contrast() {
+    const DESC: &str = r#"{ "schema": "fenestra/1", "root": { "col": {
+        "style": { "bg": { "oklch": [0.97, 0.0, 0.0] } },
+        "children": [ { "text": { "content": "ghost",
+            "style": { "color": { "oklch": [0.95, 0.0, 0.0] } } } } ]
+    } } }"#;
+    let relaxed = scenario(&format!(
+        r#"{{ "schema": "fenestra/1", "description": {DESC}, "size": "300x120",
+            "expect": {{ "a11y": true }} }}"#
+    ));
+    assert!(
+        verify(&relaxed).expect("runs").report.ok,
+        "relaxed a11y passes a legible theme with no unlabeled controls"
+    );
+
+    let strict = scenario(&format!(
+        r#"{{ "schema": "fenestra/1", "description": {DESC}, "size": "300x120",
+            "expect": {{ "a11y_strict": true }} }}"#
+    ));
+    let out = verify(&strict).expect("runs");
+    assert!(
+        !out.report.ok,
+        "strict a11y catches the low-contrast text: {:?}",
+        out.report.checks
+    );
+}
+
 /// Driving a click emits the author intent, and the `emitted` check passes.
 #[test]
 fn verify_emitted_intent_from_click() {

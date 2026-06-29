@@ -139,6 +139,13 @@ pub struct A11yReport {
     /// Per-text-node legibility measurements.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub node_legibility: Vec<LegibilityDto>,
+    /// Text nodes that fail the strict per-node APCA floor, measured on real
+    /// resolved colours. Surfaced even when `legible` is true: the theme's
+    /// calibrated contract uses a relaxed floor for filled-control labels, so an
+    /// authored low-contrast text run would otherwise pass silently. The honest
+    /// per-node evidence behind a strict legibility gate.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub text_contrast_failures: Vec<LegibilityDto>,
 }
 
 /// The result of an aria-snapshot match: pass/fail plus a readable line diff.

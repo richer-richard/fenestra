@@ -695,11 +695,20 @@ pub fn frame_a11y(frame: &Frame, theme: &Theme) -> A11yReport {
     // marginal control-label miss does not flip the whole screen to illegible.
     let legible = contrast_violations.is_empty();
 
+    // The strict per-node failures (body-text floor) — surfaced regardless of the
+    // relaxed theme verdict so an authored low-contrast run is never silent.
+    let text_contrast_failures = node_legibility
+        .iter()
+        .filter(|l| !l.passes_apca)
+        .cloned()
+        .collect();
+
     A11yReport {
         legible,
         contrast_violations,
         unlabeled,
         node_legibility,
+        text_contrast_failures,
     }
 }
 

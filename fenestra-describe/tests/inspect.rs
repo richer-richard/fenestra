@@ -189,6 +189,17 @@ fn node_legibility_catches_custom_low_contrast() {
         !ghost.passes_apca,
         "custom low-contrast text should fail strict APCA: {ghost:?}"
     );
+    // And it is surfaced in text_contrast_failures even though the theme verdict
+    // stays legible — no longer a silent false negative.
+    assert!(report.legible, "theme roles are unaffected: {report:?}");
+    assert!(
+        report
+            .text_contrast_failures
+            .iter()
+            .any(|l| l.text == "ghost"),
+        "authored low-contrast text is surfaced: {:?}",
+        report.text_contrast_failures
+    );
 }
 
 #[test]

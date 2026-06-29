@@ -117,7 +117,7 @@ impl FenestraServer {
 
     #[tool(
         name = "check_a11y",
-        description = "Check accessibility of a UI from the real render: theme contrast, labeling of every interactive control, and per-text-node APCA + WCAG 2 legibility. Returns a structured report; this is a normal result whether or not it passes."
+        description = "Check accessibility of a UI from the real render: theme contrast, labeling of every interactive control, and per-text-node APCA + WCAG 2 legibility. text_contrast_failures lists nodes failing the strict body-text floor even when the theme verdict is legible (catching authored low-contrast text). Returns a structured report; this is a normal result whether or not it passes."
     )]
     async fn check_a11y(
         &self,
