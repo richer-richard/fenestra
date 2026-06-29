@@ -417,10 +417,24 @@ fn default_mode() -> String {
 
 // --------------------------------------------------------------- helpers
 
-/// Parses the description value into a `Description`.
+/// Parses the description value into a `Description`. On failure, errors are
+/// path-pointed (the same quality as the `validate` tool): `serde_json::from_value`
+/// alone loses the JSON path, so a typo in a deep node would otherwise come back
+/// as a flat message an agent cannot locate.
 fn parse_desc(value: &Value) -> Result<Description, ErrorData> {
-    serde_json::from_value(value.clone())
-        .map_err(|e| ErrorData::invalid_params(format!("invalid description: {e}"), None))
+    if let Ok(desc) = serde_json::from_value::<Description>(value.clone()) {
+        return Ok(desc);
+    }
+    // Re-run through the path-pointed validator for a located, structured error.
+    let text = serde_json::to_string(value)
+        .map_err(|e| ErrorData::invalid_params(format!("invalid description: {e}"), None))?;
+    match describe::parse::validate(&text) {
+        Ok(()) => Err(ErrorData::invalid_params(
+            "invalid description".to_string(),
+            None,
+        )),
+        Err(errs) => Err(map_parse(errs)),
+    }
 }
 
 /// Resolves the optional theme value.
@@ -594,6 +608,33 @@ mod tests {
             .expect("a resource_link to the full-resolution PNG");
         assert!(link.uri.starts_with("file://"), "uri: {}", link.uri);
         assert_eq!(link.mime_type.as_deref(), Some("image/png"));
+    }
+
+    #[tokio::test]
+    async fn render_ui_error_is_path_pointed() {
+        // A typo deep in the tree comes back located (path-pointed), not as a flat
+        // serde message — so an agent can find and fix it.
+        let s = FenestraServer::new();
+        let bad = json!({ "schema": "fenestra/1", "root": { "col": { "children": [
+            { "button": { "label": "ok", "bogus_field": 1 } }
+        ] } } });
+        let r = s
+            .render_ui(Parameters(RenderParams {
+                description: bad,
+                size: None,
+                theme: None,
+            }))
+            .await;
+        let err = r.expect_err("an unknown field is an error");
+        let shown = format!("{err:?}");
+        assert!(
+            shown.contains("bogus_field"),
+            "names the offending field: {shown}"
+        );
+        assert!(
+            shown.contains("button") || shown.contains("children") || shown.contains("root"),
+            "error is path-pointed, not a flat message: {shown}"
+        );
     }
 
     #[tokio::test]
