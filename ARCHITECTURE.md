@@ -2848,3 +2848,64 @@ Recorded, not built this pass — roughly by value-per-effort:
 9. **`Element` → JSON emitter** — the boundary is one-directional; a round-trip
    serializer would let an agent import a builder-written UI as JSON. L–XL.
 10. **New widgets** — rating, OTP/PIN, OKLCH color picker; avatar/badge maturity. S–L each.
+
+## Hardening + correctness pass (post-0.39)
+
+An adversarial self-review (six read-only reviewer teammates over disjoint dimensions,
+every finding re-verified against source) surfaced agent-reachable DoS vectors and three
+retained-state/correctness bugs. Closed this pass; additive, every prior golden
+byte-identical (regenerated gallery art wobbles only within the GPU tolerance).
+
+- **Count/repetition inputs are clamped, not just scalars.** The hardening audit had
+  clamped *scalar* hostile values (dimensions, blur, colours, GPU sizes) but left *count*
+  inputs floored-at-1 and un-ceilinged, sitting upstream of O(n)/O(n²) allocation or
+  per-iteration rebuilds — all reachable from pure `fenestra/1` JSON through every
+  frame-building MCP tool. Three clamps, all clamp-over-panic like `MAX_DIMENSION`: grid
+  `repeat(count)` is bounded so `count × fragment_len ≤ MAX_GRID_TRACKS` (1024) where it
+  realizes into taffy (a count near 32767 allocated ~1 GB; ≥32768 overflowed taffy's i16
+  grid coordinates) — fixed in core, so the native builder is covered too, not just JSON;
+  `pagination` clamps `siblings` (≤50, the window driver) and `count` (≤10 000) with
+  saturating window math; the scenario engine bounds `tab`/`shift_tab` repeats to
+  `MAX_TAB_REPEAT` (4096). The describe parser was fuzzed (parse panics), but
+  valid-but-enormous counts are a different failure mode — caught only by an adversary
+  modelling allocation, not malformed bytes.
+
+- **Hit-testing follows paint-time transforms — the invariant restored.**
+  `translate`/`rotate`/`skew`/`scale` apply at paint about the element centre, but
+  `walk_hit` tested the untransformed layout rect, so a transformed interactive element
+  painted in one place and activated in another — silently breaking the M3 contract "what
+  you hit-test is exactly what you painted" (true until paint-time transforms landed
+  later). The paint affine is now a single source of truth (`node_transform`):
+  `paint_node` draws the subtree under it and `walk_hit` inverts it to map the test point
+  into the node's local space (a singular transform, e.g. scale 0, hit-tests as a clean
+  miss). Hit-testing is geometry-only, so every paint golden is byte-identical.
+
+- **Duplicate `WidgetId`s are caught in debug.** `child(index, key)` ignores the index
+  when a key is set, so two elements with the same `.id("…")` (or a non-unique keyed-list
+  key) realize identical ids and silently share every `FrameState` map
+  (scroll/focus/editor/anim/hover). `build_frame` now `debug_assert!`s frame-wide
+  uniqueness via `Frame::first_duplicate_id` (namespace = root + every overlay) — loud in
+  dev/tests, compiled out of release where a stale shared id is a latent bug, not a crash.
+  Verified silent across the whole suite.
+
+- **`virtual_heights` is frame-stamped.** It was the one retained `FrameState` map never
+  GC'd, leaking a `HeightIndex` per distinct variable-virtual-list container id —
+  contradicting the "all retained state is frame-stamped" invariant. It now carries the
+  same `seen`/`frame_no` stamp as scroll, stamped on touch and dropped by
+  `gc_virtual_heights` beside `gc_scroll`.
+
+- **The verification envelope is documented (not narrowed).** README + llms.txt now state
+  plainly that a headless render is a deterministic *subset* of the live window — embedded
+  Latin/Inter fonts (real mono/CJK/emoji/RTL and the OS clipboard only in a window),
+  reduced motion, one reference GPU backend, and the full Liquid-Glass optics (backdrop
+  blur, edge lensing, adaptive tint) headless-only (live keeps tint + rim + sheen); the
+  web target compiles out AccessKit/clipboard/glass. The divergence is structural —
+  determinism *requires* a fixed font stack and reduced motion — so the honest fix is
+  disclosure at the pitch, not silence.
+
+- **Process.** Two implementation teammates on disjoint crates (core; kit + render) built
+  under strict TDD; the docs and the integration/re-verify (fmt, clippy -D, full workspace
+  test, flagship-example render + eyeball) were the lead's, every teammate diff re-read
+  against source. One teammate's connection dropped mid-fix; its three committed fixes were
+  cherry-picked and the fourth (transform hit-test) finished by the lead from its committed
+  helper + test.
