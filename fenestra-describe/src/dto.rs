@@ -44,6 +44,19 @@ pub struct AccessNodeDto {
     /// Selected state (radio, tab).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub selected: Option<bool>,
+    /// Current numeric value of a range widget (slider, spinbutton, meter,
+    /// progressbar) — the typed value an agent asserts on, not a regexed string.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_now: Option<f64>,
+    /// Range minimum (slider, spinbutton, meter; 0 for progressbar).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_min: Option<f64>,
+    /// Range maximum (slider, spinbutton, meter; 1 for progressbar).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub value_max: Option<f64>,
+    /// Tri-state checkbox indeterminate state (`aria-checked="mixed"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mixed: Option<bool>,
     /// Whether the node is keyboard-focusable.
     pub focusable: bool,
     /// Whether the control is marked invalid (`aria-invalid`).
@@ -150,6 +163,10 @@ mod tests {
             value: None,
             checked: None,
             selected: None,
+            value_now: None,
+            value_min: None,
+            value_max: None,
+            mixed: None,
             focusable: true,
             invalid: false,
             live: false,

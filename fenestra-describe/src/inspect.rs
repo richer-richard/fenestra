@@ -260,6 +260,23 @@ fn node_to_dto(node: &AccessNode, path: &[usize]) -> AccessNodeDto {
         }
         _ => (None, None),
     };
+    let (value_now, value_min, value_max) = match &node.semantics {
+        Some(
+            Semantics::Slider { value, min, max }
+            | Semantics::Spinbutton { value, min, max }
+            | Semantics::Meter { value, min, max },
+        ) => (
+            Some(f64::from(*value)),
+            Some(f64::from(*min)),
+            Some(f64::from(*max)),
+        ),
+        Some(Semantics::ProgressBar { value }) => (value.map(f64::from), Some(0.0), Some(1.0)),
+        _ => (None, None, None),
+    };
+    let mixed = match &node.semantics {
+        Some(Semantics::Checkbox { mixed, .. }) => mixed.then_some(true),
+        _ => None,
+    };
     let children = node
         .children
         .iter()
@@ -277,6 +294,10 @@ fn node_to_dto(node: &AccessNode, path: &[usize]) -> AccessNodeDto {
         value: node.value.clone(),
         checked,
         selected,
+        value_now,
+        value_min,
+        value_max,
+        mixed,
         focusable: node.focusable,
         invalid: node.invalid,
         live: node.live,

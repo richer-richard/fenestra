@@ -190,3 +190,36 @@ fn node_legibility_catches_custom_low_contrast() {
         "custom low-contrast text should fail strict APCA: {ghost:?}"
     );
 }
+
+#[test]
+fn access_tree_carries_numeric_widget_values() {
+    // An agent must read range-widget VALUES off the typed tree, not by regexing
+    // the aria string. Slider, meter (and spinbutton/progressbar) carry value/
+    // min/max into the DTO.
+    fn flatten(n: &AccessNodeDto, out: &mut Vec<AccessNodeDto>) {
+        out.push(n.clone());
+        for c in &n.children {
+            flatten(c, out);
+        }
+    }
+    let d = desc(
+        r#"{"schema":"fenestra/1","root":{"col":{"children":[
+            {"slider":{"value":0.5}},
+            {"meter":{"value":62,"min":0,"max":100,"label":"Storage"}}
+        ]}}}"#,
+    );
+    let tree = access_tree(&d, &Theme::light(), (400, 300)).unwrap();
+    let mut flat = Vec::new();
+    flatten(&tree, &mut flat);
+    let slider = flat
+        .iter()
+        .find(|n| n.role == "slider")
+        .expect("a slider node");
+    assert_eq!(slider.value_now, Some(0.5), "{slider:?}");
+    assert_eq!(slider.value_min, Some(0.0));
+    assert_eq!(slider.value_max, Some(1.0));
+    let meter = flat.iter().find(|n| n.role == "meter").expect("a meter node");
+    assert_eq!(meter.value_now, Some(62.0), "{meter:?}");
+    assert_eq!(meter.value_min, Some(0.0));
+    assert_eq!(meter.value_max, Some(100.0));
+}
