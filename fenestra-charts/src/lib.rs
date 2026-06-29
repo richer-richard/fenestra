@@ -253,6 +253,219 @@ fn fmt_tick(v: f32, step: f32) -> String {
     format!("{v:.decimals$}")
 }
 
+// ── Accessible descriptions ─────────────────────────────────────────────────
+//
+// The strategic point of these charts is that an agent can verify them without
+// pixels: it renders headlessly and reads the typed access tree. A static
+// `.label("line chart")` told it nothing it could check. Each chart instead
+// projects a concise, data-derived description (counts, range, trend, slices)
+// so the series count, value range, categories, and direction are all
+// machine-checkable. These strings are accessible metadata only — never
+// painted — so enriching them changes no pixels.
+
+/// Compact, deterministic, locale-free rendering of a data value: at most
+/// three decimals, with trailing zeros (and a dangling point) trimmed.
+/// Non-finite values render as `n/a`.
+fn fmt_num(v: f32) -> String {
+    if !v.is_finite() {
+        return "n/a".to_string();
+    }
+    // Normalize -0.0 so it prints as "0", not "-0".
+    let v = if v == 0.0 { 0.0 } else { v };
+    let s = format!("{v:.3}");
+    s.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+/// `"1 point"` / `"7 points"` — pluralize a count with its noun (naive `+s`).
+/// Not for nouns whose plural is irregular (e.g. "series" is invariant).
+fn count_noun(n: usize, noun: &str) -> String {
+    if n == 1 {
+        format!("1 {noun}")
+    } else {
+        format!("{n} {noun}s")
+    }
+}
+
+/// Finite minimum and maximum across `values`, or `None` when none are finite.
+fn finite_min_max(values: &[f32]) -> Option<(f32, f32)> {
+    let (lo, hi) = values
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), v| {
+            (lo.min(v), hi.max(v))
+        });
+    (lo.is_finite() && hi.is_finite()).then_some((lo, hi))
+}
+
+/// Overall direction of a series: compares the first and last finite values,
+/// reporting near-level runs (within 1% of the data range) as `flat`.
+fn trend_word(values: &[f32]) -> &'static str {
+    let finite: Vec<f32> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    let (Some(&first), Some(&last)) = (finite.first(), finite.last()) else {
+        return "flat";
+    };
+    let Some((lo, hi)) = finite_min_max(&finite) else {
+        return "flat";
+    };
+    let span = hi - lo;
+    let delta = last - first;
+    if span <= f32::EPSILON || delta.abs() <= span * 0.01 {
+        "flat"
+    } else if delta > 0.0 {
+        "rising"
+    } else {
+        "falling"
+    }
+}
+
+/// Join `labels` with commas, showing at most `max`; a longer list ends with
+/// `"+K more"` so the description stays bounded on hostile input.
+fn bounded_labels(labels: &[String], max: usize) -> String {
+    if labels.len() <= max {
+        labels.join(", ")
+    } else {
+        let shown = labels[..max].join(", ");
+        format!("{shown}, +{} more", labels.len() - max)
+    }
+}
+
+/// Accessible summary for a single-series line / area / sparkline chart:
+/// `"<kind>, N points, min <lo>, max <hi>, <trend>"`.
+fn describe_line(kind: &str, values: &[f32]) -> String {
+    let finite: Vec<f32> = values.iter().copied().filter(|v| v.is_finite()).collect();
+    match finite_min_max(&finite) {
+        None => format!("{kind}, no data"),
+        Some((lo, hi)) => format!(
+            "{kind}, {}, min {}, max {}, {}",
+            count_noun(finite.len(), "point"),
+            fmt_num(lo),
+            fmt_num(hi),
+            trend_word(&finite),
+        ),
+    }
+}
+
+/// Accessible summary for a categorical bar chart:
+/// `"<kind>, N bars, min <lo>, max <hi>, categories: a, b, c, +K more"`.
+fn describe_bars(kind: &str, bars: &[(String, f32)]) -> String {
+    let values: Vec<f32> = bars.iter().map(|(_, v)| *v).collect();
+    match finite_min_max(&values) {
+        None => format!("{kind}, no data"),
+        Some((lo, hi)) => {
+            let cats: Vec<String> = bars.iter().map(|(l, _)| l.clone()).collect();
+            format!(
+                "{kind}, {}, min {}, max {}, categories: {}",
+                count_noun(bars.len(), "bar"),
+                fmt_num(lo),
+                fmt_num(hi),
+                bounded_labels(&cats, 4),
+            )
+        }
+    }
+}
+
+/// Accessible summary for a multi-series line chart:
+/// `"<kind>, K series, N points each, min <lo>, max <hi>"`. When series have
+/// different lengths the point count becomes a `"<lo>–<hi> points each"` range.
+fn describe_multi(kind: &str, series: &[(String, Vec<f32>)]) -> String {
+    let all: Vec<f32> = series.iter().flat_map(|(_, v)| v.iter().copied()).collect();
+    let Some((lo, hi)) = finite_min_max(&all) else {
+        return format!("{kind}, no data");
+    };
+    let counts: Vec<usize> = series
+        .iter()
+        .map(|(_, v)| v.iter().filter(|x| x.is_finite()).count())
+        .collect();
+    let (cmin, cmax) = counts
+        .iter()
+        .copied()
+        .fold((usize::MAX, 0usize), |(lo, hi), c| (lo.min(c), hi.max(c)));
+    let points = if cmin == cmax {
+        format!("{} each", count_noun(cmax, "point"))
+    } else {
+        format!("{cmin}\u{2013}{cmax} points each")
+    };
+    // "series" is invariant in the plural, so it is not run through count_noun.
+    format!(
+        "{kind}, {} series, {points}, min {}, max {}",
+        series.len(),
+        fmt_num(lo),
+        fmt_num(hi),
+    )
+}
+
+/// Accessible summary for a scatter chart:
+/// `"scatter chart, N points, x <lo>–<hi>, y <lo>–<hi>"`.
+fn describe_scatter(points: &[(f32, f32)]) -> String {
+    let xs: Vec<f32> = points.iter().map(|(x, _)| *x).collect();
+    let ys: Vec<f32> = points.iter().map(|(_, y)| *y).collect();
+    match (finite_min_max(&xs), finite_min_max(&ys)) {
+        (Some((xlo, xhi)), Some((ylo, yhi))) => format!(
+            "scatter chart, {}, x {}\u{2013}{}, y {}\u{2013}{}",
+            count_noun(points.len(), "point"),
+            fmt_num(xlo),
+            fmt_num(xhi),
+            fmt_num(ylo),
+            fmt_num(yhi),
+        ),
+        _ => "scatter chart, no data".to_string(),
+    }
+}
+
+/// Accessible summary for a pie / donut chart, enumerating the leading slices
+/// with their share: `"<kind>, N slices: A 50%, B 30%, +K more"`.
+fn describe_pie(kind: &str, segments: &[(String, f32)]) -> String {
+    let total: f32 = segments.iter().map(|(_, v)| *v).sum();
+    if segments.is_empty() || total <= f32::EPSILON {
+        return format!("{kind}, no data");
+    }
+    const SHOWN: usize = 4;
+    let mut parts: Vec<String> = segments
+        .iter()
+        .take(SHOWN)
+        .map(|(label, v)| format!("{label} {}%", fmt_num((v / total * 100.0).round())))
+        .collect();
+    if segments.len() > SHOWN {
+        parts.push(format!("+{} more", segments.len() - SHOWN));
+    }
+    format!(
+        "{kind}, {}: {}",
+        count_noun(segments.len(), "slice"),
+        parts.join(", "),
+    )
+}
+
+/// Accessible summary for a stacked / grouped bar grid:
+/// `"<kind>, K series × N groups, <peak_label> <peak>"`.
+fn describe_grid(
+    kind: &str,
+    n_series: usize,
+    n_groups: usize,
+    peak_label: &str,
+    peak: f32,
+) -> String {
+    if n_series == 0 || n_groups == 0 {
+        return format!("{kind}, no data");
+    }
+    format!(
+        "{kind}, {n_series} series \u{00d7} {}, {peak_label} {}",
+        count_noun(n_groups, "group"),
+        fmt_num(peak),
+    )
+}
+
+/// Append opt-in axis-title context to a chart's accessible description, so a
+/// titled chart announces what its axes mean.
+fn append_axis_titles(base: String, x: Option<&str>, y: Option<&str>) -> String {
+    match (x, y) {
+        (Some(x), Some(y)) => format!("{base}, x-axis: {x}, y-axis: {y}"),
+        (Some(x), None) => format!("{base}, x-axis: {x}"),
+        (None, Some(y)) => format!("{base}, y-axis: {y}"),
+        (None, None) => base,
+    }
+}
+
 // ── Path construction helpers ─────────────────────────────────────────────────
 
 /// A filled pie slice in a (1, 1) viewbox: centre (0.5, 0.5), outer radius
@@ -324,6 +537,10 @@ const AX_BOTTOM: f32 = 22.0;
 const AX_TOP: f32 = 6.0;
 /// Right clearance.
 const AX_RIGHT: f32 = 6.0;
+/// Extra clearance reserved for an opt-in axis title (added to the left margin
+/// for a y-title, to the bottom for an x-title). Zero when no title is set, so
+/// untitled charts lay out — and render — byte-identically to before.
+const AX_TITLE_GAP: f32 = 20.0;
 
 /// Pre-computed axis geometry and tick values for one chart.
 struct AxisLayout {
@@ -348,6 +565,21 @@ struct AxisLayout {
 impl AxisLayout {
     /// Build from chart outer dimensions and the data value range.
     fn from_data(w: f32, h: f32, lo: f32, hi: f32, target_ticks: usize) -> Self {
+        Self::from_data_inset(w, h, lo, hi, target_ticks, 0.0, 0.0)
+    }
+
+    /// Build with extra `inset_left` / `inset_bottom` clearance reserved for
+    /// opt-in axis titles. With both insets `0.0` this is identical to
+    /// [`AxisLayout::from_data`], so untitled charts are byte-identical.
+    fn from_data_inset(
+        w: f32,
+        h: f32,
+        lo: f32,
+        hi: f32,
+        target_ticks: usize,
+        inset_left: f32,
+        inset_bottom: f32,
+    ) -> Self {
         let lo = if lo.is_finite() { lo } else { 0.0 };
         let hi = if hi.is_finite() { hi } else { 1.0 };
         let (lo, hi) = if (hi - lo).abs() < f32::EPSILON {
@@ -369,10 +601,10 @@ impl AxisLayout {
         let axis_range = (axis_hi - axis_lo).max(f32::EPSILON);
 
         Self {
-            plot_x: AX_LEFT,
+            plot_x: AX_LEFT + inset_left,
             plot_y: AX_TOP,
-            plot_w: (w - AX_LEFT - AX_RIGHT).max(1.0),
-            plot_h: (h - AX_TOP - AX_BOTTOM).max(1.0),
+            plot_w: (w - AX_LEFT - inset_left - AX_RIGHT).max(1.0),
+            plot_h: (h - AX_TOP - AX_BOTTOM - inset_bottom).max(1.0),
             ticks,
             step,
             axis_lo,
@@ -518,6 +750,62 @@ fn with_x_ticks<Msg>(
     chart
 }
 
+/// Left inset to reserve for a y-axis title (zero when none is set).
+fn left_inset(y_title: Option<&str>) -> f32 {
+    if y_title.is_some() { AX_TITLE_GAP } else { 0.0 }
+}
+
+/// Bottom inset to reserve for an x-axis title (zero when none is set).
+fn bottom_inset(x_title: Option<&str>) -> f32 {
+    if x_title.is_some() { AX_TITLE_GAP } else { 0.0 }
+}
+
+/// Append opt-in axis titles to a chart. The x-title sits centered below the
+/// tick labels; the y-title is rotated a quarter turn along the left edge,
+/// reading bottom-to-top. Both use the muted text token and are no-ops when
+/// unset (so the room reserved by [`left_inset`]/[`bottom_inset`] is also zero
+/// and the render is unchanged). `h` is the plot element's height.
+fn with_axis_titles<Msg>(
+    mut chart: Element<Msg>,
+    ax: &AxisLayout,
+    h: f32,
+    x_title: Option<&str>,
+    y_title: Option<&str>,
+) -> Element<Msg> {
+    if let Some(title) = x_title {
+        chart = chart.child(
+            text(title.to_string())
+                .size(TextSize::Sm)
+                .absolute()
+                .top(h - AX_TITLE_GAP + 2.0)
+                .left(ax.plot_x)
+                .w(ax.plot_w)
+                .text_align(TextAlign::Center)
+                .themed(|t: &Theme, s| s.color(t.text_muted)),
+        );
+    }
+    if let Some(title) = y_title {
+        // A horizontal text box as wide as the plot is tall, centered on the
+        // left margin, then rotated so it reads bottom-to-top. Rotation is
+        // paint-time about the box center, so the pre-rotation overflow to the
+        // left is harmless — the clip applies to the rotated pixels.
+        let cy = ax.plot_y + ax.plot_h / 2.0;
+        let cx = AX_TITLE_GAP / 2.0;
+        chart = chart.child(
+            text(title.to_string())
+                .size(TextSize::Sm)
+                .absolute()
+                .top(cy - 9.0)
+                .left(cx - ax.plot_h / 2.0)
+                .w(ax.plot_h)
+                .text_align(TextAlign::Center)
+                .rotate(-90.0)
+                .themed(|t: &Theme, s| s.color(t.text_muted)),
+        );
+    }
+    chart
+}
+
 /// A horizontal legend row: colored 10×10 swatches + series name text.
 fn legend_row<Msg>(labels: &[String]) -> Element<Msg> {
     let mut r = row().gap(12.0).items_center().wrap().px(8.0).pb(4.0);
@@ -555,8 +843,13 @@ fn chart_bg<Msg>() -> Element<Msg> {
 pub fn sparkline<Msg>(values: impl IntoIterator<Item = f32>) -> Element<Msg> {
     let values: Vec<f32> = values.into_iter().collect();
     let points = normalized(&values);
+    let desc = describe_line("sparkline", &values);
     if points.len() < 2 {
-        return div().w(96.0).h(24.0);
+        return div()
+            .w(96.0)
+            .h(24.0)
+            .semantics(Semantics::Image)
+            .label(desc);
     }
     #[expect(clippy::cast_precision_loss, reason = "chart point counts are small")]
     let viewbox = ((points.len() - 1) as f64, 1.0);
@@ -565,7 +858,7 @@ pub fn sparkline<Msg>(values: impl IntoIterator<Item = f32>) -> Element<Msg> {
         .h(24.0)
         .themed(|t: &Theme, s| s.color(t.accent))
         .semantics(Semantics::Image)
-        .label("sparkline")
+        .label(desc)
 }
 
 /// A line chart panel: the series stroked in the accent over a subtle
@@ -580,7 +873,7 @@ pub fn line_chart<Msg>(values: impl IntoIterator<Item = f32>) -> Element<Msg> {
         .rounded(6.0)
         .themed(|t: &Theme, s| s.bg(t.elevated_surface(1)).border(1.0, t.border_subtle))
         .semantics(Semantics::Image)
-        .label("line chart");
+        .label(describe_line("line chart", &values));
     if points.len() >= 2 {
         #[expect(clippy::cast_precision_loss, reason = "chart point counts are small")]
         let viewbox = ((points.len() - 1) as f64, 1.0);
@@ -603,6 +896,7 @@ pub fn bar_chart<Msg>(bars: impl IntoIterator<Item = (impl Into<String>, f32)>) 
         .filter(|(_, v)| v.is_finite() && *v >= 0.0)
         .collect();
     let max = bars.iter().map(|(_, v)| *v).fold(0.0_f32, f32::max);
+    let desc = describe_bars("bar chart", &bars);
     row()
         .w(320.0)
         .h(160.0)
@@ -612,7 +906,7 @@ pub fn bar_chart<Msg>(bars: impl IntoIterator<Item = (impl Into<String>, f32)>) 
         .rounded(6.0)
         .themed(|t: &Theme, s| s.bg(t.elevated_surface(1)).border(1.0, t.border_subtle))
         .semantics(Semantics::Image)
-        .label("bar chart")
+        .label(desc)
         .children(bars.into_iter().map(move |(label, v)| {
             let fraction = if max > f32::EPSILON { v / max } else { 0.0 };
             col().grow().h_full().gap(4.0).justify_end().children((
@@ -649,6 +943,7 @@ pub fn multi_line_chart<Msg>(
             (lo.min(v), hi.max(v))
         });
     let range = max - min;
+    let desc = describe_multi("multi-series line chart", &series);
     let mut panel = stack()
         .w(320.0)
         .h(160.0)
@@ -656,7 +951,7 @@ pub fn multi_line_chart<Msg>(
         .rounded(6.0)
         .themed(|t: &Theme, s| s.bg(t.elevated_surface(1)).border(1.0, t.border_subtle))
         .semantics(Semantics::Image)
-        .label("multi-series line chart");
+        .label(desc);
     for (i, (_label, values)) in series.into_iter().enumerate() {
         let points: Vec<f32> = values
             .iter()
@@ -706,6 +1001,8 @@ pub struct LineChartBuilder {
     show_markers: bool,
     target_ticks: usize,
     x_labels: Option<Vec<String>>,
+    x_title: Option<String>,
+    y_title: Option<String>,
 }
 
 impl LineChartBuilder {
@@ -718,7 +1015,23 @@ impl LineChartBuilder {
             show_markers: false,
             target_ticks: 5,
             x_labels: None,
+            x_title: None,
+            y_title: None,
         }
+    }
+
+    /// Label the x-axis with a title, centered below the tick labels. Opt-in:
+    /// with no title the chart renders byte-identically.
+    pub fn x_title(mut self, title: impl Into<String>) -> Self {
+        self.x_title = Some(title.into());
+        self
+    }
+
+    /// Label the y-axis with a title, rotated along the left edge. Opt-in:
+    /// with no title the chart renders byte-identically.
+    pub fn y_title(mut self, title: impl Into<String>) -> Self {
+        self.y_title = Some(title.into());
+        self
     }
 
     /// Override the chart width in logical pixels.
@@ -753,8 +1066,15 @@ impl LineChartBuilder {
 
     /// Render the chart into an [`Element`].
     pub fn build<Msg>(self) -> Element<Msg> {
+        let x_title = self.x_title;
+        let y_title = self.y_title;
         let values: Vec<f32> = self.values.into_iter().filter(|v| v.is_finite()).collect();
         let n = values.len();
+        let desc = append_axis_titles(
+            describe_line("line chart", &values),
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
 
         let mut chart = stack()
             .w(self.w)
@@ -762,7 +1082,7 @@ impl LineChartBuilder {
             .rounded(6.0)
             .overflow_hidden()
             .semantics(Semantics::Image)
-            .label("line chart")
+            .label(desc)
             .child(chart_bg());
 
         if n < 2 {
@@ -774,7 +1094,15 @@ impl LineChartBuilder {
             .fold((f32::INFINITY, f32::NEG_INFINITY), |(lo, hi), &v| {
                 (lo.min(v), hi.max(v))
             });
-        let ax = AxisLayout::from_data(self.w, self.h, lo, hi, self.target_ticks);
+        let ax = AxisLayout::from_data_inset(
+            self.w,
+            self.h,
+            lo,
+            hi,
+            self.target_ticks,
+            left_inset(y_title.as_deref()),
+            bottom_inset(x_title.as_deref()),
+        );
 
         chart = with_y_axis(chart, &ax);
 
@@ -827,7 +1155,7 @@ impl LineChartBuilder {
             }
         }
 
-        chart
+        with_axis_titles(chart, &ax, self.h, x_title.as_deref(), y_title.as_deref())
     }
 }
 
@@ -849,6 +1177,8 @@ pub struct BarChartAxes {
     h: f32,
     show_values: bool,
     target_ticks: usize,
+    x_title: Option<String>,
+    y_title: Option<String>,
 }
 
 impl BarChartAxes {
@@ -866,12 +1196,26 @@ impl BarChartAxes {
             h: 160.0,
             show_values: false,
             target_ticks: 5,
+            x_title: None,
+            y_title: None,
         }
     }
 
     /// Show the numeric value above each bar.
     pub fn show_values(mut self) -> Self {
         self.show_values = true;
+        self
+    }
+
+    /// Label the x-axis with a title (opt-in; unset renders unchanged).
+    pub fn x_title(mut self, title: impl Into<String>) -> Self {
+        self.x_title = Some(title.into());
+        self
+    }
+
+    /// Label the y-axis with a title (opt-in; unset renders unchanged).
+    pub fn y_title(mut self, title: impl Into<String>) -> Self {
+        self.y_title = Some(title.into());
         self
     }
 
@@ -895,8 +1239,15 @@ impl BarChartAxes {
 
     /// Render the chart into an [`Element`].
     pub fn build<Msg>(self) -> Element<Msg> {
+        let x_title = self.x_title;
+        let y_title = self.y_title;
         let bars = self.bars;
         let n = bars.len();
+        let desc = append_axis_titles(
+            describe_bars("bar chart", &bars),
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
 
         let mut chart = stack()
             .w(self.w)
@@ -904,7 +1255,7 @@ impl BarChartAxes {
             .rounded(6.0)
             .overflow_hidden()
             .semantics(Semantics::Image)
-            .label("bar chart")
+            .label(desc)
             .child(chart_bg());
 
         if n == 0 {
@@ -913,7 +1264,15 @@ impl BarChartAxes {
 
         let data_max = bars.iter().map(|(_, v)| *v).fold(0.0_f32, f32::max);
         let data_lo = 0.0_f32.min(bars.iter().map(|(_, v)| *v).fold(f32::INFINITY, f32::min));
-        let ax = AxisLayout::from_data(self.w, self.h, data_lo, data_max, self.target_ticks);
+        let ax = AxisLayout::from_data_inset(
+            self.w,
+            self.h,
+            data_lo,
+            data_max,
+            self.target_ticks,
+            left_inset(y_title.as_deref()),
+            bottom_inset(x_title.as_deref()),
+        );
 
         chart = with_y_axis(chart, &ax);
         let x_labels: Vec<String> = bars.iter().map(|(l, _)| l.clone()).collect();
@@ -963,7 +1322,7 @@ impl BarChartAxes {
             }
         }
 
-        chart
+        with_axis_titles(chart, &ax, self.h, x_title.as_deref(), y_title.as_deref())
     }
 }
 
@@ -986,6 +1345,8 @@ pub struct MultiSeriesChart {
     h: f32,
     show_markers: bool,
     target_ticks: usize,
+    x_title: Option<String>,
+    y_title: Option<String>,
 }
 
 impl MultiSeriesChart {
@@ -1002,12 +1363,26 @@ impl MultiSeriesChart {
             h: 192.0, // extra height for legend
             show_markers: false,
             target_ticks: 5,
+            x_title: None,
+            y_title: None,
         }
     }
 
     /// Draw a filled dot at each data point on every series.
     pub fn show_markers(mut self) -> Self {
         self.show_markers = true;
+        self
+    }
+
+    /// Label the x-axis with a title (opt-in; unset renders unchanged).
+    pub fn x_title(mut self, title: impl Into<String>) -> Self {
+        self.x_title = Some(title.into());
+        self
+    }
+
+    /// Label the y-axis with a title (opt-in; unset renders unchanged).
+    pub fn y_title(mut self, title: impl Into<String>) -> Self {
+        self.y_title = Some(title.into());
         self
     }
 
@@ -1031,8 +1406,15 @@ impl MultiSeriesChart {
 
     /// Render the chart (plot area + legend below) into an [`Element`].
     pub fn build<Msg>(self) -> Element<Msg> {
+        let x_title = self.x_title;
+        let y_title = self.y_title;
         let series = self.series;
         let labels: Vec<String> = series.iter().map(|(l, _)| l.clone()).collect();
+        let desc = append_axis_titles(
+            describe_multi("multi-series line chart", &series),
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
 
         // Legend height reserve
         let legend_h = 24.0;
@@ -1053,11 +1435,19 @@ impl MultiSeriesChart {
             .rounded(6.0)
             .overflow_hidden()
             .semantics(Semantics::Image)
-            .label("multi-series line chart")
+            .label(desc.clone())
             .child(chart_bg());
 
         if global_lo.is_finite() && global_hi.is_finite() {
-            let ax = AxisLayout::from_data(self.w, plot_h, global_lo, global_hi, self.target_ticks);
+            let ax = AxisLayout::from_data_inset(
+                self.w,
+                plot_h,
+                global_lo,
+                global_hi,
+                self.target_ticks,
+                left_inset(y_title.as_deref()),
+                bottom_inset(x_title.as_deref()),
+            );
             plot = with_y_axis(plot, &ax);
 
             // X baseline
@@ -1118,12 +1508,14 @@ impl MultiSeriesChart {
                     }
                 }
             }
+
+            plot = with_axis_titles(plot, &ax, plot_h, x_title.as_deref(), y_title.as_deref());
         }
 
         col()
             .gap(0.0)
             .semantics(Semantics::Image)
-            .label("multi-series chart with legend")
+            .label(desc)
             .children((plot, legend_row::<Msg>(&labels)))
     }
 }
@@ -1147,7 +1539,7 @@ pub fn area_chart<Msg>(values: impl IntoIterator<Item = f32>) -> Element<Msg> {
         .rounded(6.0)
         .overflow_hidden()
         .semantics(Semantics::Image)
-        .label("area chart")
+        .label(describe_line("area chart", &values))
         .child(chart_bg());
 
     if n < 2 {
@@ -1212,6 +1604,8 @@ pub struct ScatterChart {
     h: f32,
     target_ticks: usize,
     dot_size: f32,
+    x_title: Option<String>,
+    y_title: Option<String>,
 }
 
 impl ScatterChart {
@@ -1226,7 +1620,21 @@ impl ScatterChart {
             h: 240.0,
             target_ticks: 5,
             dot_size: 6.0,
+            x_title: None,
+            y_title: None,
         }
+    }
+
+    /// Label the x-axis with a title (opt-in; unset renders unchanged).
+    pub fn x_title(mut self, title: impl Into<String>) -> Self {
+        self.x_title = Some(title.into());
+        self
+    }
+
+    /// Label the y-axis with a title (opt-in; unset renders unchanged).
+    pub fn y_title(mut self, title: impl Into<String>) -> Self {
+        self.y_title = Some(title.into());
+        self
     }
 
     /// Override the chart width.
@@ -1249,13 +1657,20 @@ impl ScatterChart {
 
     /// Render the chart into an [`Element`].
     pub fn build<Msg>(self) -> Element<Msg> {
+        let x_title = self.x_title;
+        let y_title = self.y_title;
+        let desc = append_axis_titles(
+            describe_scatter(&self.points),
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
         let mut chart = stack()
             .w(self.w)
             .h(self.h)
             .rounded(6.0)
             .overflow_hidden()
             .semantics(Semantics::Image)
-            .label("scatter chart")
+            .label(desc)
             .child(chart_bg());
 
         if self.points.is_empty() {
@@ -1275,7 +1690,15 @@ impl ScatterChart {
                 (lo.min(y), hi.max(y))
             });
 
-        let ax = AxisLayout::from_data(self.w, self.h, y_lo, y_hi, self.target_ticks);
+        let ax = AxisLayout::from_data_inset(
+            self.w,
+            self.h,
+            y_lo,
+            y_hi,
+            self.target_ticks,
+            left_inset(y_title.as_deref()),
+            bottom_inset(x_title.as_deref()),
+        );
         chart = with_y_axis(chart, &ax);
 
         // X axis ticks
@@ -1327,7 +1750,7 @@ impl ScatterChart {
             );
         }
 
-        chart
+        with_axis_titles(chart, &ax, self.h, x_title.as_deref(), y_title.as_deref())
     }
 }
 
@@ -1390,12 +1813,13 @@ impl PieChart {
         let is_donut = self.hole_frac > 0.01;
 
         let kind_label = if is_donut { "donut chart" } else { "pie chart" };
+        let desc = describe_pie(kind_label, &segs);
 
         let mut pie = stack()
             .w(self.size)
             .h(self.size)
             .semantics(Semantics::Image)
-            .label(kind_label);
+            .label(desc.clone());
 
         if total > f32::EPSILON && !segs.is_empty() {
             let r_outer = 0.47;
@@ -1444,7 +1868,7 @@ impl PieChart {
             .gap(0.0)
             .items_center()
             .semantics(Semantics::Image)
-            .label(kind_label)
+            .label(desc)
             .children((pie, legend_row::<Msg>(&labels)))
     }
 }
@@ -1473,6 +1897,8 @@ pub struct StackedBarChart {
     h: f32,
     target_ticks: usize,
     show_values: bool,
+    x_title: Option<String>,
+    y_title: Option<String>,
 }
 
 impl StackedBarChart {
@@ -1492,10 +1918,12 @@ impl StackedBarChart {
             h: 200.0,
             target_ticks: 5,
             show_values: false,
+            x_title: None,
+            y_title: None,
         }
     }
 
-    /// Show the series legend.
+    /// Override the chart width.
     pub fn w(mut self, w: f32) -> Self {
         self.w = w;
         self
@@ -1513,9 +1941,24 @@ impl StackedBarChart {
         self
     }
 
+    /// Label the x-axis with a title (opt-in; unset renders unchanged).
+    pub fn x_title(mut self, title: impl Into<String>) -> Self {
+        self.x_title = Some(title.into());
+        self
+    }
+
+    /// Label the y-axis with a title (opt-in; unset renders unchanged).
+    pub fn y_title(mut self, title: impl Into<String>) -> Self {
+        self.y_title = Some(title.into());
+        self
+    }
+
     /// Render the chart into an [`Element`].
     pub fn build<Msg>(self) -> Element<Msg> {
+        let x_title = self.x_title;
+        let y_title = self.y_title;
         let n_cats = self.categories.len();
+        let n_series = self.series.len();
         let legend_h = 28.0;
         let plot_total_h = (self.h - legend_h).max(60.0);
 
@@ -1533,7 +1976,27 @@ impl StackedBarChart {
             .collect();
         let max_total = totals.iter().copied().fold(0.0_f32, f32::max);
 
-        let ax = AxisLayout::from_data(self.w, plot_total_h, 0.0, max_total, self.target_ticks);
+        let desc = append_axis_titles(
+            describe_grid(
+                "stacked bar chart",
+                n_series,
+                n_cats,
+                "max total",
+                max_total,
+            ),
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
+
+        let ax = AxisLayout::from_data_inset(
+            self.w,
+            plot_total_h,
+            0.0,
+            max_total,
+            self.target_ticks,
+            left_inset(y_title.as_deref()),
+            bottom_inset(x_title.as_deref()),
+        );
 
         let mut plot = stack()
             .w(self.w)
@@ -1541,7 +2004,7 @@ impl StackedBarChart {
             .rounded(6.0)
             .overflow_hidden()
             .semantics(Semantics::Image)
-            .label("stacked bar chart")
+            .label(desc.clone())
             .child(chart_bg());
 
         plot = with_y_axis(plot, &ax);
@@ -1595,10 +2058,18 @@ impl StackedBarChart {
             }
         }
 
+        plot = with_axis_titles(
+            plot,
+            &ax,
+            plot_total_h,
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
+
         col()
             .gap(0.0)
             .semantics(Semantics::Image)
-            .label("stacked bar chart")
+            .label(desc)
             .children((plot, legend_row::<Msg>(&series_names)))
     }
 }
@@ -1626,6 +2097,8 @@ pub struct GroupedBarChart {
     h: f32,
     target_ticks: usize,
     show_values: bool,
+    x_title: Option<String>,
+    y_title: Option<String>,
 }
 
 impl GroupedBarChart {
@@ -1644,6 +2117,8 @@ impl GroupedBarChart {
             h: 200.0,
             target_ticks: 5,
             show_values: false,
+            x_title: None,
+            y_title: None,
         }
     }
 
@@ -1665,6 +2140,18 @@ impl GroupedBarChart {
         self
     }
 
+    /// Label the x-axis with a title (opt-in; unset renders unchanged).
+    pub fn x_title(mut self, title: impl Into<String>) -> Self {
+        self.x_title = Some(title.into());
+        self
+    }
+
+    /// Label the y-axis with a title (opt-in; unset renders unchanged).
+    pub fn y_title(mut self, title: impl Into<String>) -> Self {
+        self.y_title = Some(title.into());
+        self
+    }
+
     /// Render the chart into an [`Element`].
     pub fn build<Msg>(self) -> Element<Msg> {
         let n_cats = self.categories.len();
@@ -1682,7 +2169,23 @@ impl GroupedBarChart {
             .filter(|v| v.is_finite() && *v >= 0.0)
             .fold(0.0_f32, f32::max);
 
-        let ax = AxisLayout::from_data(self.w, plot_total_h, 0.0, data_max, self.target_ticks);
+        let x_title = self.x_title;
+        let y_title = self.y_title;
+        let desc = append_axis_titles(
+            describe_grid("grouped bar chart", n_series, n_cats, "max", data_max),
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
+
+        let ax = AxisLayout::from_data_inset(
+            self.w,
+            plot_total_h,
+            0.0,
+            data_max,
+            self.target_ticks,
+            left_inset(y_title.as_deref()),
+            bottom_inset(x_title.as_deref()),
+        );
 
         let mut plot = stack()
             .w(self.w)
@@ -1690,7 +2193,7 @@ impl GroupedBarChart {
             .rounded(6.0)
             .overflow_hidden()
             .semantics(Semantics::Image)
-            .label("grouped bar chart")
+            .label(desc.clone())
             .child(chart_bg());
 
         plot = with_y_axis(plot, &ax);
@@ -1752,10 +2255,18 @@ impl GroupedBarChart {
             }
         }
 
+        plot = with_axis_titles(
+            plot,
+            &ax,
+            plot_total_h,
+            x_title.as_deref(),
+            y_title.as_deref(),
+        );
+
         col()
             .gap(0.0)
             .semantics(Semantics::Image)
-            .label("grouped bar chart")
+            .label(desc)
             .children((plot, legend_row::<Msg>(&series_names)))
     }
 }
@@ -2018,5 +2529,228 @@ mod tests {
         let _ = PieChart::new([("zero", 0.0_f32), ("nan", f32::NAN), ("ok", 5.0)]).build::<()>();
         let _ = StackedBarChart::new(["x"], [("s", vec![f32::NAN, f32::INFINITY])]).build::<()>();
         let _ = GroupedBarChart::new(["x"], [("s", vec![f32::NAN])]).build::<()>();
+    }
+
+    // ── Accessible descriptions: an agent reads these from the access tree ─────
+
+    /// Every accessible (`Semantics::Image`) label projected by a chart, so a
+    /// test can assert the agent-visible description carries the right facts —
+    /// exactly what the headless verification story depends on.
+    fn image_labels(el: Element<()>, size: (f32, f32)) -> String {
+        use fenestra_core::{Fonts, FrameState, build_frame, by};
+        let mut fonts = Fonts::embedded();
+        let mut state = FrameState::new();
+        let frame = build_frame(&el, &Theme::light(), &mut fonts, &mut state, size, 1.0);
+        frame
+            .get_all(&by::role(Semantics::Image))
+            .into_iter()
+            .filter_map(|n| n.label)
+            .collect::<Vec<_>>()
+            .join(" | ")
+    }
+
+    fn assert_has(haystack: &str, needles: &[&str]) {
+        for n in needles {
+            assert!(
+                haystack.contains(n),
+                "expected {n:?} in label(s): {haystack:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn sparkline_label_carries_data() {
+        let l = image_labels(sparkline([3.0_f32, 5.0, 2.0, 8.0, 9.0]), (200.0, 80.0));
+        assert_has(&l, &["sparkline", "5 points", "min 2", "max 9", "rising"]);
+    }
+
+    #[test]
+    fn line_chart_label_carries_data() {
+        let l = image_labels(line_chart([10.0_f32, 8.0, 6.0, 2.0]), (320.0, 160.0));
+        assert_has(
+            &l,
+            &["line chart", "4 points", "min 2", "max 10", "falling"],
+        );
+    }
+
+    #[test]
+    fn bar_chart_label_carries_count_and_range() {
+        let l = image_labels(
+            bar_chart([("mon", 4.0), ("tue", 7.0), ("wed", 3.0)]),
+            (320.0, 160.0),
+        );
+        assert_has(&l, &["bar chart", "3 bars", "min 3", "max 7", "mon", "tue"]);
+    }
+
+    #[test]
+    fn multi_line_chart_label_carries_series_and_range() {
+        let l = image_labels(
+            multi_line_chart(vec![
+                ("a".to_string(), vec![1.0_f32, 4.0, 2.0]),
+                ("b".to_string(), vec![3.0_f32, 6.0, 5.0]),
+            ]),
+            (320.0, 160.0),
+        );
+        assert_has(&l, &["2 series", "3 points each", "min 1", "max 6"]);
+    }
+
+    #[test]
+    fn line_chart_builder_label_carries_data() {
+        let l = image_labels(
+            LineChartBuilder::new([5.0_f32, 5.0, 5.0, 5.0]).build(),
+            (320.0, 160.0),
+        );
+        assert_has(&l, &["line chart", "4 points", "min 5", "max 5", "flat"]);
+    }
+
+    #[test]
+    fn bar_chart_axes_label_carries_data() {
+        let l = image_labels(
+            BarChartAxes::new([("Mon", 4.0_f32), ("Tue", 7.0)]).build(),
+            (320.0, 160.0),
+        );
+        assert_has(&l, &["bar chart", "2 bars", "min 4", "max 7"]);
+    }
+
+    #[test]
+    fn multi_series_chart_label_carries_data() {
+        let l = image_labels(
+            MultiSeriesChart::new([
+                ("cpu", vec![12.0_f32, 18.0, 9.0]),
+                ("mem", vec![20.0_f32, 16.0, 22.0]),
+            ])
+            .build(),
+            (320.0, 220.0),
+        );
+        assert_has(&l, &["2 series", "3 points each", "min 9", "max 22"]);
+    }
+
+    #[test]
+    fn area_chart_label_carries_data() {
+        let l = image_labels(area_chart([2.0_f32, 6.0, 4.0, 9.0]), (320.0, 160.0));
+        assert_has(&l, &["area chart", "4 points", "min 2", "max 9", "rising"]);
+    }
+
+    #[test]
+    fn scatter_chart_label_carries_ranges() {
+        let l = image_labels(
+            ScatterChart::new([(1.0_f32, 2.0_f32), (3.0, 8.0), (5.0, 4.0)]).build(),
+            (320.0, 240.0),
+        );
+        assert_has(&l, &["scatter chart", "3 points", "x 1", "y 2", "8"]);
+    }
+
+    #[test]
+    fn pie_chart_label_enumerates_slices() {
+        let l = image_labels(
+            PieChart::new([("Alpha", 50.0_f32), ("Beta", 30.0), ("Gamma", 20.0)]).build(),
+            (200.0, 240.0),
+        );
+        assert_has(&l, &["pie chart", "3 slices", "Alpha 50%", "Beta 30%"]);
+    }
+
+    #[test]
+    fn donut_chart_label_enumerates_slices() {
+        let l = image_labels(
+            PieChart::new([("A", 60.0_f32), ("B", 40.0)])
+                .donut(0.55)
+                .build(),
+            (200.0, 240.0),
+        );
+        assert_has(&l, &["donut chart", "2 slices", "A 60%", "B 40%"]);
+    }
+
+    #[test]
+    fn stacked_bar_chart_label_carries_grid() {
+        let l = image_labels(
+            StackedBarChart::new(
+                ["Mon", "Tue", "Wed"],
+                [
+                    ("web", vec![3.0_f32, 5.0, 4.0]),
+                    ("api", vec![2.0_f32, 3.0, 6.0]),
+                ],
+            )
+            .build(),
+            (320.0, 200.0),
+        );
+        assert_has(&l, &["stacked bar chart", "2 series", "3 groups"]);
+    }
+
+    #[test]
+    fn grouped_bar_chart_label_carries_grid() {
+        let l = image_labels(
+            GroupedBarChart::new(
+                ["Q1", "Q2"],
+                [
+                    ("a", vec![3.0_f32, 5.0]),
+                    ("b", vec![2.0_f32, 4.0]),
+                    ("c", vec![1.0_f32, 2.0]),
+                ],
+            )
+            .build(),
+            (320.0, 200.0),
+        );
+        assert_has(&l, &["grouped bar chart", "3 series", "2 groups"]);
+    }
+
+    #[test]
+    fn empty_charts_report_no_data() {
+        let l = image_labels(line_chart(std::iter::empty::<f32>()), (320.0, 160.0));
+        assert_has(&l, &["line chart", "no data"]);
+        let l = image_labels(
+            PieChart::new(std::iter::empty::<(&str, f32)>()).build(),
+            (200.0, 200.0),
+        );
+        assert_has(&l, &["pie chart", "no data"]);
+    }
+
+    #[test]
+    fn axis_titles_appear_in_label() {
+        let l = image_labels(
+            LineChartBuilder::new([1.0_f32, 2.0, 3.0])
+                .x_title("Day")
+                .y_title("Requests")
+                .build(),
+            (320.0, 160.0),
+        );
+        assert_has(&l, &["x-axis: Day", "y-axis: Requests"]);
+    }
+
+    // ── Description-helper unit tests (deterministic, no rendering) ────────────
+
+    #[test]
+    fn fmt_num_is_compact_and_deterministic() {
+        assert_eq!(fmt_num(12.0), "12");
+        assert_eq!(fmt_num(2.5), "2.5");
+        assert_eq!(fmt_num(-5.0), "-5");
+        assert_eq!(fmt_num(0.0), "0");
+        assert_eq!(fmt_num(-0.0), "0");
+        assert_eq!(fmt_num(1234.0), "1234");
+        assert_eq!(fmt_num(f32::NAN), "n/a");
+    }
+
+    #[test]
+    fn count_noun_pluralizes() {
+        assert_eq!(count_noun(1, "point"), "1 point");
+        assert_eq!(count_noun(0, "point"), "0 points");
+        assert_eq!(count_noun(7, "bar"), "7 bars");
+    }
+
+    #[test]
+    fn trend_word_classifies_direction() {
+        assert_eq!(trend_word(&[1.0, 2.0, 3.0]), "rising");
+        assert_eq!(trend_word(&[3.0, 2.0, 1.0]), "falling");
+        assert_eq!(trend_word(&[5.0, 5.0, 5.0]), "flat");
+        assert_eq!(trend_word(&[]), "flat");
+    }
+
+    #[test]
+    fn bounded_labels_caps_and_counts_remainder() {
+        let v: Vec<String> = ["a", "b", "c", "d", "e", "f"]
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect();
+        assert_eq!(bounded_labels(&v, 4), "a, b, c, d, +2 more");
+        assert_eq!(bounded_labels(&v[..2], 4), "a, b");
     }
 }

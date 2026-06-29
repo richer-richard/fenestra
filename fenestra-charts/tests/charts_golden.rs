@@ -132,6 +132,45 @@ fn line_chart_axes_golden() {
     );
 }
 
+/// Line chart with opt-in axis titles: the x-title sits below the tick labels
+/// and the y-title is rotated along the left edge. Exercises the new titled
+/// layout (untitled charts keep their original goldens). Light and dark.
+#[test]
+fn line_chart_titled_golden() {
+    let values = [12.0_f32, 18.0, 9.0, 26.0, 22.0, 31.0, 17.0, 24.0, 29.0];
+    let labels = [
+        "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon", "Tue",
+    ];
+
+    let light: Element<()> = col().p(16.0).child(
+        LineChartBuilder::new(values)
+            .x_labels(labels)
+            .x_title("Day of week")
+            .y_title("Requests/min")
+            .show_markers()
+            .build(),
+    );
+    assert_png_snapshot(
+        snapshot_dir(),
+        "line_chart_titled_light",
+        &render_element(light, &Theme::light(), (360, 240)),
+    );
+
+    let dark: Element<()> = col().p(16.0).child(
+        LineChartBuilder::new(values)
+            .x_labels(labels)
+            .x_title("Day of week")
+            .y_title("Requests/min")
+            .show_markers()
+            .build(),
+    );
+    assert_png_snapshot(
+        snapshot_dir(),
+        "line_chart_titled_dark",
+        &render_element(dark, &Theme::dark(), (360, 240)),
+    );
+}
+
 /// Bar chart with y-axis, gridlines, and numeric value labels above bars.
 /// Locked in both modes.
 #[test]
