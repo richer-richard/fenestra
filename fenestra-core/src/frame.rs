@@ -1809,7 +1809,7 @@ pub fn build_frame<Msg>(
         }
     }
 
-    Frame {
+    let frame = Frame {
         root: root_node,
         overlays,
         overlay_anchors,
@@ -1820,7 +1820,20 @@ pub fn build_frame<Msg>(
         ring_color_invalid: theme.danger.solid.with_alpha(FOCUS_RING.alpha),
         selection_color: theme.accent.with_alpha(0.25),
         animating,
-    }
+    };
+    // Every element in a frame must own a unique WidgetId: it keys every
+    // FrameState map (scroll/focus/editor/anim/hover). A collision — almost always
+    // a non-unique `.id("…")` or a duplicate keyed-list key — makes two elements
+    // silently cross-talk all of that retained state. Loud in debug; compiled out
+    // of release, where a stale shared id is a latent bug, not a crash.
+    debug_assert!(
+        frame.first_duplicate_id().is_none(),
+        "duplicate WidgetId {:?} within one frame — two elements share an id and \
+         will cross-talk retained state (scroll/focus/editor/anim/hover); check for \
+         a non-unique .id(\"…\") or a duplicate keyed-list key",
+        frame.first_duplicate_id(),
+    );
+    frame
 }
 
 /// Navigates the element tree by child indices.
@@ -2703,6 +2716,27 @@ impl Frame {
         }
     }
 
+    /// The first `WidgetId` that appears more than once across this frame's
+    /// realized tree — the root plus every overlay, which together form the
+    /// single-frame id namespace that indexes [`FrameState`]. `None` when every id
+    /// is unique (the invariant `build_frame` debug-asserts). Two elements sharing
+    /// an id silently share all retained state (scroll/focus/editor/anim/hover),
+    /// almost always from a non-unique `.id("…")` or a duplicate keyed-list key.
+    pub(crate) fn first_duplicate_id(&self) -> Option<WidgetId> {
+        fn walk(
+            node: &FrameNode,
+            seen: &mut std::collections::HashSet<WidgetId>,
+        ) -> Option<WidgetId> {
+            if !seen.insert(node.id) {
+                return Some(node.id);
+            }
+            node.children.iter().find_map(|c| walk(c, seen))
+        }
+        let mut seen = std::collections::HashSet::new();
+        walk(&self.root, &mut seen)
+            .or_else(|| self.overlays.iter().find_map(|o| walk(&o.node, &mut seen)))
+    }
+
     /// The absolute rect of the element with the given id.
     pub fn rect_of(&self, id: WidgetId) -> Option<Rect> {
         rect_in(&self.root, id).or_else(|| self.overlays.iter().find_map(|o| rect_in(&o.node, id)))
@@ -2937,5 +2971,55 @@ mod tests {
         s.focus = Some(id);
         s.focus_visible = false; // focused by pointer, not keyboard
         assert_eq!(state_layer_opacity(&s, id, false), None);
+    }
+
+    fn test_frame(root: &crate::element::Element<()>, size: (f32, f32)) -> Frame {
+        let theme = Theme::light();
+        let mut fonts = Fonts::embedded();
+        let mut state = FrameState::new();
+        build_frame(root, &theme, &mut fonts, &mut state, size, 1.0)
+    }
+
+    /// Two siblings pinned to the same `.id("…")` realize the *same* `WidgetId`
+    /// (the key wins over the child index), so they would silently share every
+    /// `FrameState` map — scroll, focus, editor, anim. `build_frame` must trip its
+    /// debug assert instead of shipping the collision.
+    #[test]
+    #[should_panic(expected = "duplicate WidgetId")]
+    fn duplicate_ids_trip_the_debug_assert() {
+        use crate::element::div;
+        let root = div::<()>().children(vec![
+            div::<()>().id("dup").h(10.0),
+            div::<()>().id("dup").h(10.0),
+        ]);
+        let _ = test_frame(&root, (100.0, 100.0));
+    }
+
+    /// A tree of distinct ids has no collision.
+    #[test]
+    fn unique_ids_have_no_duplicate() {
+        use crate::element::div;
+        let root = div::<()>().children(vec![
+            div::<()>().id("a").h(10.0),
+            div::<()>().id("b").h(10.0),
+            div::<()>().child(div::<()>().id("c").h(10.0)),
+        ]);
+        let frame = test_frame(&root, (100.0, 100.0));
+        assert_eq!(frame.first_duplicate_id(), None);
+    }
+
+    /// The walk reports the colliding id directly (built from a unique tree, then
+    /// forced to collide so `build_frame`'s assert does not pre-empt the check).
+    #[test]
+    fn first_duplicate_id_finds_a_collision() {
+        use crate::element::div;
+        let root = div::<()>().children(vec![
+            div::<()>().id("a").h(10.0),
+            div::<()>().id("b").h(10.0),
+        ]);
+        let mut frame = test_frame(&root, (100.0, 100.0));
+        let collide = frame.root.children[1].id;
+        frame.root.children[0].id = collide;
+        assert_eq!(frame.first_duplicate_id(), Some(collide));
     }
 }
