@@ -23,6 +23,16 @@ fn is_false(b: &bool) -> bool {
     !b
 }
 
+/// `serde` default for a flag that is `true` unless stated (missing → uniform).
+fn default_true() -> bool {
+    true
+}
+
+/// `serde` skip predicate: omit a `true` flag (the uniform-background default).
+fn is_true(b: &bool) -> bool {
+    *b
+}
+
 /// One node of the typed access tree — the agent's primary view of a UI.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct AccessNodeDto {
@@ -106,6 +116,11 @@ pub struct LegibilityDto {
     pub fg: String,
     /// Effective background color as `#rrggbb`.
     pub bg: String,
+    /// Whether `bg` is a single uniform color. `false` when the text sits over a
+    /// gradient fill, in which case `bg` is the worst-contrast point sampled across
+    /// the field — so the APCA/WCAG figures are worst-case, not a literal single bg.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub bg_uniform: bool,
     /// Rendered size in logical pixels.
     pub size_px: f32,
     /// Numeric OpenType weight.
@@ -191,7 +206,10 @@ pub struct LayoutReport {
     /// Interactive targets smaller than the 24x24 minimum hit size (WCAG 2.5.8).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub small_targets: Vec<LayoutFinding>,
-    /// Signal-bearing nodes that extend outside the window bounds.
+    /// Signal-bearing nodes that extend outside the window bounds. Measured against
+    /// the window — exact for the authored format (which has no scroll viewports); a
+    /// builder-built frame with a scroll container would over-report content
+    /// scrolled below the fold.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub offscreen: Vec<LayoutFinding>,
 }

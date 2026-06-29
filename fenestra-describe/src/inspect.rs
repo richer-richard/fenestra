@@ -750,6 +750,7 @@ pub fn frame_a11y(frame: &Frame, theme: &Theme) -> A11yReport {
             text: l.text.clone(),
             fg: hex(l.fg),
             bg: hex(l.bg),
+            bg_uniform: l.bg_uniform,
             size_px: l.size_px,
             weight: l.weight,
             lc: l.lc,

@@ -412,6 +412,20 @@ fn layout_report_clean_on_a_normal_layout() {
 }
 
 #[test]
+fn legacy_icon_aliases_still_authorable() {
+    // 0.38.0 advertised these names; the kit later canonicalized them to Lucide's
+    // current spellings. They must keep authoring as back-compat aliases.
+    for name in ["home", "alert-triangle", "trash"] {
+        let json = format!(r#"{{"schema":"fenestra/1","root":{{"icon":{{"name":"{name}"}}}}}}"#);
+        let d: Description = serde_json::from_str(&json).expect("valid json");
+        assert!(
+            access_tree(&d, &Theme::light(), (64, 64)).is_ok(),
+            "legacy icon alias {name:?} must still author"
+        );
+    }
+}
+
+#[test]
 fn focus_order_lists_tabbable_refs_in_order() {
     // Tab visits Email -> Password -> Sign in, in tree order, by stable ref.
     let d = desc(

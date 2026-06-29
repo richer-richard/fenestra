@@ -438,15 +438,19 @@ fn default_mode() -> String {
 /// alone loses the JSON path, so a typo in a deep node would otherwise come back
 /// as a flat message an agent cannot locate.
 fn parse_desc(value: &Value) -> Result<Description, ErrorData> {
-    if let Ok(desc) = serde_json::from_value::<Description>(value.clone()) {
-        return Ok(desc);
-    }
+    let from_value_err = match serde_json::from_value::<Description>(value.clone()) {
+        Ok(desc) => return Ok(desc),
+        Err(e) => e,
+    };
     // Re-run through the path-pointed validator for a located, structured error.
     let text = serde_json::to_string(value)
         .map_err(|e| ErrorData::invalid_params(format!("invalid description: {e}"), None))?;
     match describe::parse::validate(&text) {
+        // The dry parse passed where from_value failed (only reachable if an
+        // untagged/flatten field is ever added) — fall back to the original serde
+        // error so the detail is never worse than the pre-refactor message.
         Ok(()) => Err(ErrorData::invalid_params(
-            "invalid description".to_string(),
+            format!("invalid description: {from_value_err}"),
             None,
         )),
         Err(errs) => Err(map_parse(errs)),

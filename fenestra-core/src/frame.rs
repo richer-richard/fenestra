@@ -359,6 +359,56 @@ enum BgField {
     Gradient(Vec<crate::style::GradientStop>),
 }
 
+/// The gradient color at offset `t` in `0.0..=1.0`, interpolating between the
+/// bounding stops in OKLCH (the space the gradient constructors build in).
+/// `stops` must be non-empty and sorted by offset.
+fn gradient_color_at(stops: &[crate::style::GradientStop], t: f32) -> crate::Color {
+    let last = stops.len() - 1;
+    if t <= stops[0].offset {
+        return stops[0].color;
+    }
+    if t >= stops[last].offset {
+        return stops[last].color;
+    }
+    for pair in stops.windows(2) {
+        let (a, b) = (&pair[0], &pair[1]);
+        if t <= b.offset {
+            let span = b.offset - a.offset;
+            let local = if span > 0.0 {
+                (t - a.offset) / span
+            } else {
+                0.0
+            };
+            return crate::anim::lerp_color(a.color, b.color, local);
+        }
+    }
+    stops[last].color
+}
+
+/// The worst-contrast (lowest APCA `Lc`) background a text `fg` faces over a
+/// gradient field, sampled densely *along* the field — not just at the declared
+/// stops — so an interior dead-zone between two stops (where the field passes
+/// through `fg`'s own luminance) is caught. `None` for empty stops.
+fn gradient_worst_bg(
+    stops: &[crate::style::GradientStop],
+    fg: crate::Color,
+) -> Option<crate::Color> {
+    if stops.is_empty() {
+        return None;
+    }
+    const SAMPLES: u16 = 32;
+    let mut worst: Option<(f64, crate::Color)> = None;
+    for i in 0..=SAMPLES {
+        let t = f32::from(i) / f32::from(SAMPLES);
+        let c = gradient_color_at(stops, t);
+        let lc = crate::apca::lc_abs(fg, c);
+        if worst.is_none_or(|(w, _)| lc < w) {
+            worst = Some((lc, c));
+        }
+    }
+    worst.map(|(_, c)| c)
+}
+
 /// The state-layer veil opacity for an element this frame: the strongest
 /// applicable interaction state wins (drag > press = focus > hover). Keyboard
 /// focus, not pointer focus, raises the focus layer — matching the ring.
@@ -2317,8 +2367,10 @@ impl Frame {
     /// Per-text-node legibility, measured on the resolved colors and sizes —
     /// the data behind "prove this UI is legible". For every text run it reports
     /// the APCA `Lc` against [`required_lc`](crate::required_lc) and the WCAG 2
-    /// ratio against the AA threshold, using the nearest solid ancestor fill (or
-    /// `window_bg`) as the background. Non-text nodes are skipped.
+    /// ratio against the AA threshold, using the nearest ancestor fill as the
+    /// background — a solid fill directly, or for a gradient fill the worst-contrast
+    /// point sampled across it (`window_bg` when no ancestor fills). Non-text nodes
+    /// are skipped.
     ///
     /// `window_bg` is the color the frame is composited over (the theme
     /// background); the frame does not store it, so the caller supplies it.
@@ -2353,20 +2405,15 @@ impl Frame {
             };
             if let Some((text, style)) = text_style {
                 let fg = style.color;
-                // A gradient is not one color: report the worst-contrast stop, the
-                // honest legibility bound for text anywhere over the field.
+                // A gradient is not one color: sample it densely and report the
+                // worst-contrast point — the honest legibility bound for text
+                // anywhere over the field (an interior dead-zone between two stops
+                // is caught, not only the declared stops).
                 let (bg_color, bg_uniform) = match &bg {
                     BgField::Solid(c) => (*c, true),
-                    BgField::Gradient(stops) => (
-                        stops
-                            .iter()
-                            .map(|s| s.color)
-                            .min_by(|a, b| {
-                                crate::apca::lc_abs(fg, *a).total_cmp(&crate::apca::lc_abs(fg, *b))
-                            })
-                            .unwrap_or(window_bg),
-                        false,
-                    ),
+                    BgField::Gradient(stops) => {
+                        (gradient_worst_bg(stops, fg).unwrap_or(window_bg), false)
+                    }
                 };
                 let lc = crate::apca::lc_abs(fg, bg_color);
                 let required_lc = crate::apca::required_lc(style.px, style.weight);
@@ -2830,6 +2877,37 @@ impl NodeDump {
 mod tests {
     use super::*;
     use crate::tokens::STATE_LAYER;
+
+    #[test]
+    fn gradient_worst_bg_finds_the_dead_zone_between_stops() {
+        use crate::style::GradientStop;
+        // Mid-gray text over a raw 2-stop black->white gradient: both endpoint stops
+        // contrast strongly with gray, but the field passes through ~gray midway,
+        // where contrast collapses. Dense sampling must find that interior point;
+        // sampling only the declared stops would miss it (the M1 fix).
+        let gray = crate::Color::from_rgba8(128, 128, 128, 255);
+        let stops = vec![
+            GradientStop {
+                offset: 0.0,
+                color: crate::Color::from_rgba8(0, 0, 0, 255),
+            },
+            GradientStop {
+                offset: 1.0,
+                color: crate::Color::from_rgba8(255, 255, 255, 255),
+            },
+        ];
+        let worst = gradient_worst_bg(&stops, gray).expect("non-empty stops");
+        let lc_worst = crate::apca::lc_abs(gray, worst);
+        let lc_lo = crate::apca::lc_abs(gray, stops[0].color);
+        let lc_hi = crate::apca::lc_abs(gray, stops[1].color);
+        assert!(
+            lc_worst < lc_lo.min(lc_hi) * 0.5,
+            "dense sampling finds the interior dead-zone: worst {lc_worst:.1} should be far \
+             below the endpoints ({lc_lo:.1}, {lc_hi:.1})"
+        );
+        // Empty stops -> None (no panic).
+        assert!(gradient_worst_bg(&[], gray).is_none());
+    }
 
     #[test]
     fn state_layer_opacity_picks_the_strongest_state() {

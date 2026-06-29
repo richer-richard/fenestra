@@ -776,9 +776,15 @@ fn tooltip_node(
 /// Maps a kebab-case icon name to a Lucide element, or `None` for unknown names.
 /// Delegates to the kit's vendored registry so the authorable set never drifts
 /// from what the kit ships (a hand-maintained copy here had already gone stale).
-/// `home` is kept as a back-compat alias for the kit's canonical `house`.
+/// A few names earlier releases advertised are kept as back-compat aliases for
+/// the kit's current canonical spellings (the kit renamed them to match Lucide).
 fn named_icon(name: &str) -> Option<Element<Action>> {
-    let name = if name == "home" { "house" } else { name };
+    let name = match name {
+        "home" => "house",
+        "alert-triangle" => "triangle-alert",
+        "trash" => "trash-2",
+        other => other,
+    };
     fenestra_kit::icons::lucide::by_name(name)
 }
 

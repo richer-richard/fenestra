@@ -434,6 +434,10 @@ fn tokenize(spec: &LangSpec, code: &str) -> Vec<(String, TokenRole)> {
 /// per source line, stacked tight so line height alone sets the rhythm.
 /// Whitespace folds into the following piece, so indentation survives; like the
 /// inline-link path, selection is per-piece (a documented v1 tradeoff).
+///
+/// Tokenized per line, so a `/* … */` comment or a multi-line string that spans
+/// lines is re-scanned each line: its second and later lines highlight as code (a
+/// highlight-grade limitation, not a full grammar).
 fn highlighted_body<Msg: Clone + 'static>(spec: &LangSpec, body: &str) -> Element<Msg> {
     let mut lines: Vec<Element<Msg>> = Vec::new();
     for line in body.split('\n') {

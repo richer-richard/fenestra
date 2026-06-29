@@ -265,7 +265,8 @@ fn fmt_tick(v: f32, step: f32) -> String {
 
 /// Compact, deterministic, locale-free rendering of a data value: at most
 /// three decimals, with trailing zeros (and a dangling point) trimmed.
-/// Non-finite values render as `n/a`.
+/// Non-finite values render as `n/a`. Magnitudes below ~0.0005 round to `0`, so a
+/// description of a sub-milli-unit series reports its range as `0`.
 fn fmt_num(v: f32) -> String {
     if !v.is_finite() {
         return "n/a".to_string();
