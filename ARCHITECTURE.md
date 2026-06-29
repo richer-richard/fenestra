@@ -2734,10 +2734,12 @@ schema: the half of the moat that makes the web-grade visuals agent-reachable.
   (externally-tagged `{ "blur" | "brightness" | "saturate": m }`). A `golden.rs` test
   authors the flagship Liquid Glass hero *entirely in JSON* and renders it headlessly
   — the end-to-end "author AND verify the signature visual" proof.
-- **Still deferred — discovery.** The Style-grammar section of `describe_vocabulary`
-  (it advertises nodes + color roles, not the style-property grammar or the closed
-  enum tokens). Authoring works and is golden-proven; making the vocabulary
-  self-documenting so an agent can *discover* these props is the remaining gap.
+- **Discovery — shipped.** `describe_vocabulary` advertises the full grammar: every
+  node, the color roles, the style-property grammar (`style`), and the closed enum
+  token sets (`enums`), generated from one registry and coherence-tested. The icon
+  node's known-name list is generated from the kit's vendored registry (`lucide::names`),
+  so the parser, the grammar, and the kit can never drift apart. An agent can
+  discover the whole authorable surface up front.
 
 ## Headless interaction-state verification (selection, live regions)
 

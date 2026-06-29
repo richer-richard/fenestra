@@ -215,7 +215,7 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
     ),
     (
         "icon",
-        "Named Lucide icon (24x24, stroked). Known names: alert-triangle, arrow-left, arrow-right, bell, calendar, check, chevron-down, chevron-left, chevron-right, chevron-up, clock, copy, download, external-link, eye, file, folder, home, info, link, lock, log-out, mail, menu, minus, moon, pencil, plus, refresh-cw, save, search, settings, star, sun, trash, upload, user, x.",
+        "Named Lucide icon (24x24, stroked).",
         r#"{"name":"plus"}"#,
     ),
     // ── Overlays ──────────────────────────────────────────────────────────
@@ -408,10 +408,25 @@ pub fn describe_vocabulary() -> Vocabulary {
         schema: SCHEMA_V1.to_string(),
         nodes: NODE_REGISTRY
             .iter()
-            .map(|(tag, summary, example)| NodeDoc {
-                tag: (*tag).to_string(),
-                summary: (*summary).to_string(),
-                example: (*example).to_string(),
+            .map(|(tag, summary, example)| {
+                // The icon node's known-name list is generated from the kit's
+                // vendored registry, so the grammar can never advertise a name the
+                // parser cannot resolve (or omit one it can).
+                let summary = if *tag == "icon" {
+                    format!(
+                        "{summary} Known names: {}.",
+                        fenestra_kit::icons::lucide::names()
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                } else {
+                    (*summary).to_string()
+                };
+                NodeDoc {
+                    tag: (*tag).to_string(),
+                    summary,
+                    example: (*example).to_string(),
+                }
             })
             .collect(),
         color_roles: COLOR_ROLES.iter().map(|r| (*r).to_string()).collect(),

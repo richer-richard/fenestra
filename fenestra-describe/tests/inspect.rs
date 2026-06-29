@@ -281,6 +281,22 @@ fn selector_matches_by_state() {
 }
 
 #[test]
+fn every_kit_lucide_icon_is_authorable() {
+    // Anti-drift: every icon the kit ships must be nameable in fenestra/1 JSON. If
+    // the kit gains an icon the describe parser doesn't map, authoring it errors —
+    // this catches that the moment it happens.
+    use fenestra_kit::icons::lucide;
+    for (name, _el) in lucide::all::<()>() {
+        let json = format!(r#"{{"schema":"fenestra/1","root":{{"icon":{{"name":"{name}"}}}}}}"#);
+        let d: Description = serde_json::from_str(&json).expect("valid json");
+        assert!(
+            access_tree(&d, &Theme::light(), (64, 64)).is_ok(),
+            "kit lucide icon {name:?} must be authorable in fenestra/1 JSON"
+        );
+    }
+}
+
+#[test]
 fn focus_order_lists_tabbable_refs_in_order() {
     // Tab visits Email -> Password -> Sign in, in tree order, by stable ref.
     let d = desc(

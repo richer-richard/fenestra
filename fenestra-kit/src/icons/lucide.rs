@@ -20,6 +20,23 @@ pub fn all<Msg>() -> impl Iterator<Item = (&'static str, Element<Msg>)> {
     data::ALL.iter().map(|(name, d)| (*name, icon(d)))
 }
 
+/// The element for a vendored icon by its kebab-case Lucide name, or `None` for
+/// an unknown name — building only the matched icon. The by-name companion to
+/// [`all`], so a name-driven consumer (e.g. JSON authoring) stays in sync with
+/// the vendored set automatically.
+pub fn by_name<Msg>(name: &str) -> Option<Element<Msg>> {
+    data::ALL
+        .iter()
+        .find(|(n, _)| *n == name)
+        .map(|(_, d)| icon(d))
+}
+
+/// Every vendored icon's kebab-case name, in vendor order — for pickers, error
+/// messages, and grammar docs, without building any elements.
+pub fn names() -> impl Iterator<Item = &'static str> {
+    data::ALL.iter().map(|(name, _)| *name)
+}
+
 macro_rules! lucide_icons {
     ($($fn_name:ident => $const_name:ident, $lucide:literal;)*) => {
         $(

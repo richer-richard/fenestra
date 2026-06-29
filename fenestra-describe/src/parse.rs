@@ -708,7 +708,7 @@ fn icon_node(i: &IconNode, path: &str, errors: &mut Vec<DescribeError>) -> Eleme
                 format!(
                     "unknown icon {:?}; known names: {}",
                     i.name,
-                    ICON_NAMES.join(", ")
+                    fenestra_kit::icons::lucide::names().collect::<Vec<_>>().join(", ")
                 ),
             ));
             spacer()
@@ -771,92 +771,13 @@ fn tooltip_node(
 
 // ── Icon registry ─────────────────────────────────────────────────────────────
 
-/// The kebab-case names of every supported Lucide icon, for error messages.
-const ICON_NAMES: &[&str] = &[
-    "alert-triangle",
-    "arrow-left",
-    "arrow-right",
-    "bell",
-    "calendar",
-    "check",
-    "chevron-down",
-    "chevron-left",
-    "chevron-right",
-    "chevron-up",
-    "clock",
-    "copy",
-    "download",
-    "external-link",
-    "eye",
-    "file",
-    "folder",
-    "home",
-    "info",
-    "link",
-    "lock",
-    "log-out",
-    "mail",
-    "menu",
-    "minus",
-    "moon",
-    "pencil",
-    "plus",
-    "refresh-cw",
-    "save",
-    "search",
-    "settings",
-    "star",
-    "sun",
-    "trash",
-    "upload",
-    "user",
-    "x",
-];
-
 /// Maps a kebab-case icon name to a Lucide element, or `None` for unknown names.
+/// Delegates to the kit's vendored registry so the authorable set never drifts
+/// from what the kit ships (a hand-maintained copy here had already gone stale).
+/// `home` is kept as a back-compat alias for the kit's canonical `house`.
 fn named_icon(name: &str) -> Option<Element<Action>> {
-    use fenestra_kit::icons::lucide;
-    Some(match name {
-        "alert-triangle" => lucide::alert_triangle(),
-        "arrow-left" => lucide::arrow_left(),
-        "arrow-right" => lucide::arrow_right(),
-        "bell" => lucide::bell(),
-        "calendar" => lucide::calendar(),
-        "check" => lucide::check(),
-        "chevron-down" => lucide::chevron_down(),
-        "chevron-left" => lucide::chevron_left(),
-        "chevron-right" => lucide::chevron_right(),
-        "chevron-up" => lucide::chevron_up(),
-        "clock" => lucide::clock(),
-        "copy" => lucide::copy(),
-        "download" => lucide::download(),
-        "external-link" => lucide::external_link(),
-        "eye" => lucide::eye(),
-        "file" => lucide::file(),
-        "folder" => lucide::folder(),
-        "home" => lucide::home(),
-        "info" => lucide::info(),
-        "link" => lucide::link(),
-        "lock" => lucide::lock(),
-        "log-out" => lucide::log_out(),
-        "mail" => lucide::mail(),
-        "menu" => lucide::menu(),
-        "minus" => lucide::minus(),
-        "moon" => lucide::moon(),
-        "pencil" => lucide::pencil(),
-        "plus" => lucide::plus(),
-        "refresh-cw" => lucide::refresh_cw(),
-        "save" => lucide::save(),
-        "search" => lucide::search(),
-        "settings" => lucide::settings(),
-        "star" => lucide::star(),
-        "sun" => lucide::sun(),
-        "trash" => lucide::trash(),
-        "upload" => lucide::upload(),
-        "user" => lucide::user(),
-        "x" => lucide::x(),
-        _ => return None,
-    })
+    let name = if name == "home" { "house" } else { name };
+    fenestra_kit::icons::lucide::by_name(name)
 }
 
 // ── Status helper ─────────────────────────────────────────────────────────────
