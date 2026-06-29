@@ -1,5 +1,72 @@
 # Changelog
 
+## Unreleased
+
+The truthful-verification pass — make the typed access tree and the accessibility
+gate tell an agent the *whole* truth (the agent-native verification moat), and
+make the visuals it can now verify real. Two new MCP tools (eleven total), new
+typed access-tree fields, three new CLI subcommands, and three new scenario
+expectations; everything is additive.
+
+### Added
+
+- **Numeric / range state in the access tree.** `AccessNodeDto` carries `value_now`
+  / `value_min` / `value_max` (slider, spinbutton, meter, progressbar) and `mixed`
+  (tri-state checkbox), projected from the widget semantics — so an agent reads a
+  control's value off the typed tree instead of regexing the aria string.
+- **Selector matching by state.** Semantic selectors gain `checked` / `selected` /
+  `invalid` / `value_gte` / `value_lte`, so "the selected tab", "no checkbox
+  checked", or "sliders ≥ 0.5" resolve in one query.
+- **Keyboard focus order.** `inspect::focus_order` returns the refs a Tab cycle
+  visits, in order, honoring a modal focus trap — exposed as the `focus_order` MCP
+  tool, a `fenestra focus-order` CLI subcommand, and a scenario `expect.focus_order`.
+- **Layout report.** `inspect::layout_report` flags interactive targets below the
+  24px minimum hit size (WCAG 2.5.8) and signal-bearing nodes rendered off the
+  window — exposed as the `check_layout` MCP tool, a `fenestra layout` subcommand,
+  and a scenario `expect.layout`.
+- **Strict accessibility.** `A11yReport.text_contrast_failures` lists every text
+  node failing the strict per-node APCA floor even when the theme verdict is
+  legible; gated opt-in via scenario `expect.a11y_strict` and CLI `check --strict`.
+  `LegibilityDto.bg_uniform` flags when a reported background is a sampled gradient
+  field rather than a single color.
+- **Charts speak their data.** Every `fenestra-charts` chart derives a data-driven
+  accessible description (series/point count, min/max, trend, categories, pie slice
+  %) so charts are headlessly verifiable; opt-in `.x_title()` / `.y_title()` axis
+  titles (byte-identical when unset).
+- **Markdown code highlighting.** Fenced code blocks get a language chip and
+  theme-token syntax highlighting (rust / js / ts / python / json / sh / sql) via a
+  dependency-free lexer; unknown or untagged blocks stay plain mono. Footnote
+  bodies now keep inline bold / italic / code.
+
+### Fixed
+
+- **Legibility over gradients.** `Frame::legibility` measured text against the
+  nearest *solid* ancestor, silently mis-reporting any text on an authored gradient
+  (a false pass/fail) — exactly the framework's most ambitious surfaces. It now
+  samples the gradient field densely (interpolated) and reports the worst-contrast
+  point; `TextLegibility.bg_uniform` marks a sampled field.
+- **MCP errors are path-pointed.** `render_ui` / `interact` parse failures come back
+  located (via `serde_path_to_error`), matching the `validate` tool.
+- **Icon authoring drift.** The describe parser derives its authorable icon set from
+  the kit's vendored registry (`lucide::by_name` / `lucide::names`), so the parser,
+  the grammar, and the kit can't drift apart; the four newly-vendored icons and the
+  canonical `house` / `triangle-alert` / `trash-2` names are authorable, with
+  `home` / `alert-triangle` / `trash` kept as back-compat aliases.
+- Doc drift: `Element::semantics` was undocumented; `Theme::corner_smoothing` said
+  "per-corner"; `StackedBarChart::w` had a pasted doc; the ARCHITECTURE "discovery
+  deferred" note was stale.
+
+### Notes
+
+- Highlighted markdown code uses per-token elements (the span color is concrete and
+  the markdown builder has no theme at build time), so selection in a *highlighted*
+  block is per-token — the same tradeoff as inline links; unknown / untagged blocks
+  keep whole-block selection. Multi-line block comments / strings highlight per line
+  (highlight-grade, not a full grammar).
+- `layout_report.offscreen` measures against the window — exact for the authored
+  format (no scroll viewports); a builder-built frame with a scroll container would
+  over-report content scrolled below the fold.
+
 ## 0.38.0 — 2026-06-26
 
 The Liquid Glass optics pass — a multi-agent research survey of Apple Liquid

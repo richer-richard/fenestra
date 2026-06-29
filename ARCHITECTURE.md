@@ -2782,3 +2782,69 @@ effectively undiscoverable.
   from what the parser accepts. The MCP `describe_vocabulary` tool returns it all, so
   the discovery surface updates for free. This closes the author → verify → discover
   loop: an agent can now find everything the prior passes made authorable.
+
+## Truthful verification (2026-06-29)
+
+A pass to make the agent-native verification surface tell the whole truth — the
+typed access tree and the a11y gate were silently lossy or wrong in places — and to
+make the visuals an agent can now verify (charts, code) real. All additive; the
+existing render/verify pipeline is unchanged.
+
+- **Typed state, not stringly-typed.** `AccessNodeDto` gained numeric range state
+  (`value_now`/`min`/`max` for slider/spinbutton/meter/progressbar) and `mixed`
+  (tri-state checkbox), projected from `Semantics` — an agent reads a value off the
+  tree instead of regexing the aria YAML. Selectors gained state criteria
+  (`checked`/`selected`/`invalid`/`value_gte`/`value_lte`) so state assertions
+  resolve server-side.
+- **Two new verification capabilities.** `focus_order` exposes `Frame::focusables`
+  (modal focus-trap honored) as refs — Tab reachability/order is assertable.
+  `layout_report` flags sub-minimum hit targets (WCAG 2.5.8) and off-window nodes
+  from frame geometry. Both reach the agent as MCP tools (now eleven), CLI
+  subcommands, and scenario expectations.
+- **Honest legibility.** `Frame::legibility` mis-measured text on gradients (it fell
+  through to the nearest *solid* ancestor); it now samples the gradient field densely
+  (interpolated worst-contrast point), with `bg_uniform` marking a sampled field
+  through to `LegibilityDto`. The a11y report surfaces strict per-node text-contrast
+  failures even when the theme verdict is legible (opt-in strict gate), so authored
+  low-contrast text is never silent.
+- **No drift by construction.** The describe parser derives its authorable icon set
+  from the kit's vendored registry (`lucide::by_name`/`names`); the prior
+  hand-maintained copy had already gone stale. Old names kept as aliases.
+- **Verifiable content.** Charts derive data-driven accessible descriptions (so a
+  headless agent reads the real series/range/trend) + opt-in axis titles; markdown
+  fences get theme-token syntax highlighting + a language chip, and footnotes keep
+  inline styling.
+- **Process.** Four read-only scout agents mapped the moat; two teammates built the
+  charts/markdown work (disjoint crates); three read-only reviewers swept the diff
+  and their surviving findings were fixed (gradient dead-zone via dense sampling,
+  icon back-compat aliases, `bg_uniform` at the DTO boundary, error detail, docs).
+
+### Deferred (ranked follow-up menu)
+
+Recorded, not built this pass — roughly by value-per-effort:
+
+1. **JSON Schema for the `Description` format** (schemars derive across the format
+   structs + a `schema://fenestra/1` MCP resource + a `fenestra schema` subcommand) —
+   the biggest authoring win: a machine-checkable input grammar an IDE/validator
+   understands, instead of prose examples. M–L.
+2. **`disabled` in the access tree** — distinct from `focusable` (which conflates
+   focusable-and-enabled); needs a `FrameNode.meta` bit threaded into `AccessNode`.
+   "Submit is disabled until valid" is currently unverifiable. M.
+3. **Rich / multi-style text authorable in JSON** — a `rich_text` node mirroring
+   `Span`, so "Trial ends in **3 days**" is one wrapping run, not adjacent `text`. M–L.
+4. **Chart / markdown JSON authoring bridge** — `chart` / `markdown` description nodes
+   (data-only) so a dashboard or document is reachable from the JSON boundary. L–XL.
+5. **Hi-DPI headless** — every headless build site pins scale 1.0, so retina-only
+   regressions (hairlines, blur radii, rounding) ship unverified. The renderer already
+   threads scale via `render_plan`; only the build sites pin it. M.
+6. **Motion filmstrip capture** — headless capture is single-frame only; an agent
+   cannot see a transition play. `Harness::film` + `assert_filmstrip_snapshot`. M.
+7. **`layout_report` scroll-awareness** — off-window detection over-reports content
+   scrolled below the fold for builder frames with scroll containers (the authored
+   format has no scroll, so the moat path is unaffected). Needs scroll-viewport
+   awareness in the access tree. M.
+8. **Mesh-gradient interpolant** (Gaussian/Coons over the current IDW hotspots) and
+   **gradient-fill animation** (only `Paint::Solid` animates today) — visual polish. M each.
+9. **`Element` → JSON emitter** — the boundary is one-directional; a round-trip
+   serializer would let an agent import a builder-written UI as JSON. L–XL.
+10. **New widgets** — rating, OTP/PIN, OKLCH color picker; avatar/badge maturity. S–L each.
