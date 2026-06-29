@@ -190,6 +190,36 @@ fn typed_input_exposes_caret_selection() {
     );
 }
 
+/// `Step::Tab`/`Step::ShiftTab` carry a `u32` repeat count. A hostile
+/// `u32::MAX` once meant up to ~4.29 billion dispatch-and-rebuild iterations
+/// per step (each one re-deriving the entire element tree) — a single step that
+/// pins a thread for hours. The repeat is now clamped to a small constant, so
+/// even the largest possible count returns at once. Guarded by a worker thread
+/// and a timeout: before the clamp this never returns; after it, both steps
+/// finish in well under a second.
+#[test]
+fn tab_repeat_is_clamped_against_dos() {
+    use std::sync::mpsc::{self, RecvTimeoutError};
+    use std::time::Duration;
+
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let theme = resolve_theme(None).unwrap();
+        let steps = vec![Step::Tab(u32::MAX), Step::ShiftTab(u32::MAX)];
+        let _ = tx.send(interact(&desc(FORM), &theme, (400, 300), &steps, false).is_ok());
+    });
+    // Generous headroom: the clamped work is ~1.5s here, and an unbounded
+    // repeat could never finish inside this window.
+    match rx.recv_timeout(Duration::from_secs(30)) {
+        Ok(true) => {}
+        Ok(false) => panic!("the clamped tab/shift-tab steps should still succeed"),
+        Err(RecvTimeoutError::Timeout) => {
+            panic!("Step::Tab(u32::MAX) did not return promptly — the repeat is unbounded")
+        }
+        Err(RecvTimeoutError::Disconnected) => panic!("the worker thread panicked"),
+    }
+}
+
 fn any_live(node: &AccessNodeDto) -> bool {
     node.live || node.children.iter().any(any_live)
 }
