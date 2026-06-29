@@ -12,7 +12,9 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use fenestra_core::Theme;
 use fenestra_describe::format::Description;
-use fenestra_describe::inspect::{AriaMode, Selector, check_a11y, focus_order, match_aria, query};
+use fenestra_describe::inspect::{
+    AriaMode, Selector, check_a11y, focus_order, layout_report, match_aria, query,
+};
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
 use fenestra_render::engine::{Step, interact, match_screenshot, render};
@@ -85,6 +87,14 @@ enum Command {
     },
     /// List the keyboard focus order: the refs a Tab cycle visits, in order.
     FocusOrder {
+        desc: Option<PathBuf>,
+        #[arg(long, default_value = "800x600")]
+        size: String,
+        #[arg(long)]
+        theme: Option<PathBuf>,
+    },
+    /// Report layout problems: small hit targets and off-screen nodes.
+    Layout {
         desc: Option<PathBuf>,
         #[arg(long, default_value = "800x600")]
         size: String,
@@ -176,6 +186,7 @@ fn main() -> ExitCode {
             strict,
         } => cmd_check(desc, &size, theme, strict),
         Command::FocusOrder { desc, size, theme } => cmd_focus_order(desc, &size, theme),
+        Command::Layout { desc, size, theme } => cmd_layout(desc, &size, theme),
         Command::MatchAria {
             desc,
             expected,
@@ -376,6 +387,24 @@ fn cmd_focus_order(desc: Option<PathBuf>, size: &str, theme: Option<PathBuf>) ->
         Ok(order) => {
             print_json(&order);
             ExitCode::SUCCESS
+        }
+        Err(errs) => fail_parse(&errs),
+    }
+}
+
+fn cmd_layout(desc: Option<PathBuf>, size: &str, theme: Option<PathBuf>) -> ExitCode {
+    let (desc, theme, size) = match common(desc, size, theme) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    match layout_report(&desc, &theme, size) {
+        Ok(report) => {
+            print_json(&report);
+            if report.small_targets.is_empty() && report.offscreen.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(EXIT_VERIFY_FAILED)
+            }
         }
         Err(errs) => fail_parse(&errs),
     }

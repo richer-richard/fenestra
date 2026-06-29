@@ -86,6 +86,10 @@ pub struct Expect {
     /// Assert the keyboard focus order: the refs a Tab cycle visits, in order.
     #[serde(default)]
     pub focus_order: Option<Vec<String>>,
+    /// Gate layout geometry: no interactive targets below the minimum hit size,
+    /// and nothing signal-bearing rendered off-screen.
+    #[serde(default)]
+    pub layout: bool,
 }
 
 /// An expected aria snapshot and how to match it.
@@ -281,6 +285,21 @@ pub fn verify(scenario: &Scenario) -> Result<VerifyOut, EngineError> {
             format!("focus order {:?}, expected {want:?}", p.focus_order)
         };
         checks.push(outcome("focus_order", matched, detail));
+    }
+
+    if expect.layout {
+        let report = inspect::tree_layout_report(&p.tree, size);
+        let matched = report.small_targets.is_empty() && report.offscreen.is_empty();
+        let detail = if matched {
+            String::new()
+        } else {
+            format!(
+                "{} small target(s), {} off-screen node(s)",
+                report.small_targets.len(),
+                report.offscreen.len()
+            )
+        };
+        checks.push(outcome("layout", matched, detail));
     }
 
     let ok = checks.iter().all(|c| c.ok);

@@ -5,7 +5,8 @@ use fenestra_core::Theme;
 use fenestra_describe::dto::AccessNodeDto;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{
-    AriaMode, Selector, access_tree, aria_snapshot, check_a11y, focus_order, match_aria, query,
+    AriaMode, Selector, access_tree, aria_snapshot, check_a11y, focus_order, layout_report,
+    match_aria, query, tree_layout_report,
 };
 
 const FORM: &str = r#"{"schema":"fenestra/1","root":{"col":{"children":[
@@ -294,6 +295,79 @@ fn every_kit_lucide_icon_is_authorable() {
             "kit lucide icon {name:?} must be authorable in fenestra/1 JSON"
         );
     }
+}
+
+#[test]
+fn tree_layout_report_flags_small_targets_and_offscreen() {
+    use fenestra_describe::dto::Bounds;
+    fn node(
+        ref_: &str,
+        role: &str,
+        name: Option<&str>,
+        focusable: bool,
+        b: Bounds,
+        children: Vec<AccessNodeDto>,
+    ) -> AccessNodeDto {
+        AccessNodeDto {
+            ref_: ref_.into(),
+            role: role.into(),
+            name: name.map(Into::into),
+            value: None,
+            checked: None,
+            selected: None,
+            value_now: None,
+            value_min: None,
+            value_max: None,
+            mixed: None,
+            focusable,
+            invalid: false,
+            live: false,
+            selection: None,
+            bounds: b,
+            children,
+        }
+    }
+    let b = |x, y, w, h| Bounds { x, y, w, h };
+    let tree = node(
+        "/",
+        "generic",
+        None,
+        false,
+        b(0.0, 0.0, 800.0, 600.0),
+        vec![
+            node("tiny", "button", Some("tiny"), true, b(10.0, 10.0, 16.0, 16.0), vec![]),
+            node("ok", "button", Some("ok"), true, b(10.0, 40.0, 80.0, 32.0), vec![]),
+            node("off", "button", Some("offscreen"), true, b(900.0, 10.0, 80.0, 32.0), vec![]),
+        ],
+    );
+    let report = tree_layout_report(&tree, (800, 600));
+    assert!(
+        report.small_targets.iter().any(|f| f.name.as_deref() == Some("tiny")),
+        "tiny target flagged: {:?}",
+        report.small_targets
+    );
+    assert!(
+        !report.small_targets.iter().any(|f| f.name.as_deref() == Some("ok")),
+        "an adequately sized control is not flagged"
+    );
+    assert!(
+        report.offscreen.iter().any(|f| f.name.as_deref() == Some("offscreen")),
+        "off-window node flagged: {:?}",
+        report.offscreen
+    );
+    assert!(
+        !report.offscreen.iter().any(|f| f.name.as_deref() == Some("ok")),
+        "an on-screen control is not flagged"
+    );
+}
+
+#[test]
+fn layout_report_clean_on_a_normal_layout() {
+    // The desc -> tree -> report path runs, and a normal centered button is not
+    // off-screen (no false positives on ordinary layouts).
+    let d = desc(r#"{"schema":"fenestra/1","root":{"button":{"label":"Save","on_click":"save"}}}"#);
+    let report = layout_report(&d, &Theme::light(), (800, 600)).unwrap();
+    assert!(report.offscreen.is_empty(), "{:?}", report.offscreen);
 }
 
 #[test]

@@ -166,6 +166,36 @@ pub struct FocusOrder {
     pub order: Vec<String>,
 }
 
+/// One layout problem found from frame geometry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LayoutFinding {
+    /// The offending node's ref.
+    #[serde(rename = "ref")]
+    pub ref_: String,
+    /// ARIA role word.
+    pub role: String,
+    /// Accessible name, when set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Layout rectangle.
+    pub bounds: Bounds,
+    /// What is wrong, in words.
+    pub detail: String,
+}
+
+/// Layout problems read from frame geometry — verifiable without pixels: tap
+/// targets below the minimum size, and signal-bearing nodes that fall outside the
+/// window (clipped / off-screen).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct LayoutReport {
+    /// Interactive targets smaller than the 24x24 minimum hit size (WCAG 2.5.8).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub small_targets: Vec<LayoutFinding>,
+    /// Signal-bearing nodes that extend outside the window bounds.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub offscreen: Vec<LayoutFinding>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

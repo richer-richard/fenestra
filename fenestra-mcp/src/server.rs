@@ -1,4 +1,4 @@
-//! The fenestra MCP server: ten tools that render and verify a UI described as
+//! The fenestra MCP server: eleven tools that render and verify a UI described as
 //! `fenestra/1` JSON. Each tool leads with a typed structured result (the access
 //! tree, a report, a diff); visual tools also attach a downscaled preview image.
 //!
@@ -9,7 +9,7 @@
 
 use fenestra_core::Theme;
 use fenestra_describe as describe;
-use fenestra_describe::dto::{A11yReport, AriaDiff, FocusOrder, QueryResult};
+use fenestra_describe::dto::{A11yReport, AriaDiff, FocusOrder, LayoutReport, QueryResult};
 use fenestra_describe::error::DescribeError;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{self, AriaMode, Selector};
@@ -143,6 +143,21 @@ impl FenestraServer {
         let size = parse_size(p.size.as_deref())?;
         let order = inspect::focus_order(&desc, &theme, size).map_err(map_parse)?;
         Ok(Json(FocusOrder { order }))
+    }
+
+    #[tool(
+        name = "check_layout",
+        description = "Check layout geometry from the real frame: interactive targets below the 24px minimum hit size, and signal-bearing nodes that fall outside the window (clipped / off-screen). Returns a structured report — a normal result whether or not it finds problems."
+    )]
+    async fn check_layout(
+        &self,
+        Parameters(p): Parameters<CheckParams>,
+    ) -> Result<Json<LayoutReport>, ErrorData> {
+        let desc = parse_desc(&p.description)?;
+        let theme = theme_of(p.theme.as_ref())?;
+        let size = parse_size(p.size.as_deref())?;
+        let report = inspect::layout_report(&desc, &theme, size).map_err(map_parse)?;
+        Ok(Json(report))
     }
 
     #[tool(
@@ -302,7 +317,8 @@ impl ServerHandler for FenestraServer {
         info.instructions = Some(
             "fenestra renders and verifies native UIs described as fenestra/1 JSON. Call \
              describe_vocabulary first to learn the format; render_ui to see a UI and its \
-             accessibility warnings; query_ui, check_a11y, focus_order, match_aria_snapshot, and \
+             accessibility warnings; query_ui, check_a11y, focus_order, check_layout, \
+             match_aria_snapshot, and \
              match_screenshot to assert; interact to drive it; run_scenario to drive steps \
              and assert a whole bundle of expectations in one pass (the screenshot check \
              compares the post-interaction pixels); validate to check a description without \
@@ -506,7 +522,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_list_has_all_ten_with_schemas() {
+    fn tool_list_has_all_eleven_with_schemas() {
         let tools = FenestraServer::tool_router().list_all();
         let names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
         for expected in [
@@ -515,6 +531,7 @@ mod tests {
             "interact",
             "check_a11y",
             "focus_order",
+            "check_layout",
             "match_aria_snapshot",
             "match_screenshot",
             "describe_vocabulary",
@@ -526,7 +543,7 @@ mod tests {
                 "missing {expected}; have {names:?}"
             );
         }
-        assert_eq!(names.len(), 10, "exactly ten tools");
+        assert_eq!(names.len(), 11, "exactly eleven tools");
         // Every tool advertises an input schema object.
         for t in &tools {
             assert!(!t.input_schema.is_empty(), "{} has no input schema", t.name);
@@ -542,6 +559,7 @@ mod tests {
             "query_ui",
             "check_a11y",
             "focus_order",
+            "check_layout",
             "match_aria_snapshot",
             "describe_vocabulary",
         ] {

@@ -76,6 +76,37 @@ fn verify_focus_order_expectation() {
     assert!(!out.report.ok, "reversed order should fail: {:?}", out.report.checks);
 }
 
+/// A `layout` expectation flags an off-screen control and passes a normal one.
+#[test]
+fn verify_layout_flags_offscreen() {
+    let off = scenario(
+        r#"{ "schema": "fenestra/1", "description": { "schema": "fenestra/1", "root": {
+            "col": { "children": [
+                { "col": { "style": { "absolute": true, "left": 2000, "top": 10 },
+                    "children": [ { "button": { "label": "hidden", "on_click": "x" } } ] } }
+            ] } } },
+            "size": "800x600", "expect": { "layout": true } }"#,
+    );
+    let out = verify(&off).expect("runs");
+    assert!(
+        !out.report.ok,
+        "an off-screen control fails the layout gate: {:?}",
+        out.report.checks
+    );
+
+    let ok = scenario(
+        r#"{ "schema": "fenestra/1", "description": { "schema": "fenestra/1", "root": {
+            "button": { "label": "Save", "on_click": "save" } } },
+            "size": "800x600", "expect": { "layout": true } }"#,
+    );
+    let out_ok = verify(&ok).expect("runs");
+    assert!(
+        out_ok.report.ok,
+        "a normal button passes the layout gate: {:?}",
+        out_ok.report.checks
+    );
+}
+
 /// Default a11y passes a legible-theme form, but `a11y_strict` catches authored
 /// low-contrast body text the relaxed theme contract permits.
 #[test]

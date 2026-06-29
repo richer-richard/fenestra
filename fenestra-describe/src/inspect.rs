@@ -13,7 +13,8 @@ use regex::Regex;
 use serde::Deserialize;
 
 use crate::dto::{
-    A11yReport, AccessNodeDto, AriaDiff, Bounds, ContrastDto, LegibilityDto, QueryResult,
+    A11yReport, AccessNodeDto, AriaDiff, Bounds, ContrastDto, LayoutFinding, LayoutReport,
+    LegibilityDto, QueryResult,
 };
 use crate::error::DescribeError;
 use crate::format::Description;
@@ -106,6 +107,80 @@ pub fn frame_focus_order(frame: &Frame) -> Vec<String> {
         .into_iter()
         .filter_map(|id| by_id.get(&id).cloned())
         .collect()
+}
+
+/// The minimum interactive hit-target size in logical px (WCAG 2.5.8 minimum).
+const MIN_HIT_TARGET: f64 = 24.0;
+
+/// Layout problems found from frame geometry: interactive targets below the
+/// minimum hit size, and signal-bearing nodes that fall outside the window. The
+/// "is it big enough to tap / does it fit on screen" check an agent would
+/// otherwise need eyes for.
+///
+/// # Errors
+/// The parse errors when the description does not parse cleanly.
+pub fn layout_report(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+) -> Result<LayoutReport, Vec<DescribeError>> {
+    Ok(tree_layout_report(&access_tree(desc, theme, size)?, size))
+}
+
+/// Layout problems read from an already-captured access `tree` (e.g. a driven
+/// scenario's after-tree) against a window `size` — the primitive [`layout_report`]
+/// builds on.
+#[must_use]
+pub fn tree_layout_report(tree: &AccessNodeDto, size: (u32, u32)) -> LayoutReport {
+    fn finding(node: &AccessNodeDto, detail: String) -> LayoutFinding {
+        LayoutFinding {
+            ref_: node.ref_.clone(),
+            role: node.role.clone(),
+            name: node.name.clone(),
+            bounds: node.bounds,
+            detail,
+        }
+    }
+    fn walk(
+        node: &AccessNodeDto,
+        w: f64,
+        h: f64,
+        small: &mut Vec<LayoutFinding>,
+        off: &mut Vec<LayoutFinding>,
+    ) {
+        let b = node.bounds;
+        // Interactive targets must be at least the minimum hit size.
+        if node.focusable && b.w.min(b.h) < MIN_HIT_TARGET {
+            small.push(finding(
+                node,
+                format!("{:.0}x{:.0} below the {MIN_HIT_TARGET:.0}px minimum hit target", b.w, b.h),
+            ));
+        }
+        // A signal-bearing node outside the window is clipped / unreachable. A
+        // half-pixel slack avoids flagging a node sitting exactly on the edge.
+        let signal = node.focusable || node.name.is_some() || node.role != "generic";
+        let eps = 0.5;
+        if signal && (b.x < -eps || b.y < -eps || b.x + b.w > w + eps || b.y + b.h > h + eps) {
+            off.push(finding(
+                node,
+                format!(
+                    "rect ({:.0},{:.0} {:.0}x{:.0}) extends outside the {w:.0}x{h:.0} window",
+                    b.x, b.y, b.w, b.h
+                ),
+            ));
+        }
+        for child in &node.children {
+            walk(child, w, h, small, off);
+        }
+    }
+    let (w, h) = (f64::from(size.0), f64::from(size.1));
+    let mut small_targets = Vec::new();
+    let mut offscreen = Vec::new();
+    walk(tree, w, h, &mut small_targets, &mut offscreen);
+    LayoutReport {
+        small_targets,
+        offscreen,
+    }
 }
 
 /// A semantic selector, mirroring the harness query vocabulary. All set
