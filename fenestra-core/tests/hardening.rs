@@ -2,8 +2,8 @@
 //! must not panic on hostile inputs, and retained state must stay bounded.
 
 use fenestra_core::{
-    Element, Fonts, FrameState, InputEvent, Theme, WidgetId, build_frame, col, dispatch, raw_input,
-    text,
+    Element, Fonts, FrameState, InputEvent, Theme, WidgetId, build_frame, by, col, dispatch, div,
+    raw_input, text,
 };
 use kurbo::Point;
 
@@ -94,6 +94,40 @@ fn ime_preedit_with_out_of_range_cursor_does_not_panic() {
     // to confirm the editor state is still usable.
     let _ = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 60.0), 1.0);
     let _ = text::<()>("still alive");
+}
+
+/// A paint-time transform moves where an element draws but not its layout rect,
+/// so hit-testing must follow the paint: a `.translate`'d element activates at
+/// the PAINTED location, not its old layout slot (the M3 invariant "what you
+/// hit-test is exactly what you painted").
+#[test]
+fn translated_element_hit_tests_where_it_paints() {
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+
+    // A 100×40 box shifted +100px in x: its layout rect stays put, but paint —
+    // and therefore hit-testing — shifts right by 100.
+    let view: Element<()> = col().w(400.0).h(200.0).children([div()
+        .id("btn")
+        .w(100.0)
+        .h(40.0)
+        .translate(100.0, 0.0)]);
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (400.0, 200.0), 1.0);
+
+    let btn = frame.get(&by::id("btn")).id;
+    let layout_center = frame.rect_of(btn).expect("btn rect").center();
+    let painted_center = Point::new(layout_center.x + 100.0, layout_center.y);
+
+    assert!(
+        frame.hit_chain(painted_center).contains(&btn),
+        "translated element activates at its painted location {painted_center:?}"
+    );
+    assert!(
+        !frame.hit_chain(layout_center).contains(&btn),
+        "and no longer at its old layout slot {layout_center:?}"
+    );
 }
 
 /// A non-finite or enormous font size hangs parley's line breaker (its advance
