@@ -223,3 +223,48 @@ fn access_tree_carries_numeric_widget_values() {
     assert_eq!(meter.value_min, Some(0.0));
     assert_eq!(meter.value_max, Some(100.0));
 }
+
+#[test]
+fn selector_matches_by_state() {
+    // Query "the CHECKED checkbox" — by state, not just role/name.
+    let d = desc(
+        r#"{"schema":"fenestra/1","root":{"col":{"children":[
+            {"checkbox":{"checked":true,"label":"A"}},
+            {"checkbox":{"checked":false,"label":"B"}}
+        ]}}}"#,
+    );
+    let sel = Selector {
+        role: Some("checkbox".into()),
+        checked: Some(true),
+        ..Default::default()
+    };
+    let res = query(&d, &Theme::light(), (400, 300), &sel).unwrap();
+    assert_eq!(res.matches.len(), 1, "{:?}", res.matches);
+    assert_eq!(res.matches[0].name.as_deref(), Some("A"));
+
+    // A state-only selector (no role/name) is a valid, non-empty query.
+    let state_only = Selector {
+        checked: Some(true),
+        ..Default::default()
+    };
+    let res2 = query(&d, &Theme::light(), (400, 300), &state_only).unwrap();
+    assert_eq!(res2.matches.len(), 1, "state-only selector: {:?}", res2.matches);
+    assert_eq!(res2.matches[0].name.as_deref(), Some("A"));
+
+    // Range threshold: sliders at or above 0.5.
+    let d3 = desc(
+        r#"{"schema":"fenestra/1","root":{"col":{"children":[
+            {"slider":{"value":0.2}},
+            {"slider":{"value":0.8}}
+        ]}}}"#,
+    );
+    let sel3 = Selector {
+        role: Some("slider".into()),
+        value_gte: Some(0.5),
+        ..Default::default()
+    };
+    let res3 = query(&d3, &Theme::light(), (400, 300), &sel3).unwrap();
+    assert_eq!(res3.matches.len(), 1, "{:?}", res3.matches);
+    let v = res3.matches[0].value_now.expect("slider value");
+    assert!((v - 0.8).abs() < 1e-6, "got {v}");
+}

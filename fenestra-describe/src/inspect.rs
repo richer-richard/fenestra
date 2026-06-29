@@ -91,6 +91,21 @@ pub struct Selector {
     /// Stable key / ref.
     #[serde(default)]
     pub id: Option<String>,
+    /// Checkbox/switch checked state.
+    #[serde(default)]
+    pub checked: Option<bool>,
+    /// Radio/tab selected state.
+    #[serde(default)]
+    pub selected: Option<bool>,
+    /// `aria-invalid` state.
+    #[serde(default)]
+    pub invalid: Option<bool>,
+    /// Range value at least this (slider/spinbutton/meter/progressbar).
+    #[serde(default)]
+    pub value_gte: Option<f64>,
+    /// Range value at most this.
+    #[serde(default)]
+    pub value_lte: Option<f64>,
 }
 
 impl Selector {
@@ -104,6 +119,11 @@ impl Selector {
             && self.value.is_none()
             && self.value_contains.is_none()
             && self.id.is_none()
+            && self.checked.is_none()
+            && self.selected.is_none()
+            && self.invalid.is_none()
+            && self.value_gte.is_none()
+            && self.value_lte.is_none()
     }
 
     /// Whether `dto` satisfies every set criterion.
@@ -135,6 +155,31 @@ impl Selector {
         }
         if let Some(id) = &self.id
             && &dto.ref_ != id
+        {
+            return false;
+        }
+        if let Some(c) = self.checked
+            && dto.checked != Some(c)
+        {
+            return false;
+        }
+        if let Some(s) = self.selected
+            && dto.selected != Some(s)
+        {
+            return false;
+        }
+        if let Some(iv) = self.invalid
+            && dto.invalid != iv
+        {
+            return false;
+        }
+        if let Some(lo) = self.value_gte
+            && !dto.value_now.is_some_and(|v| v >= lo)
+        {
+            return false;
+        }
+        if let Some(hi) = self.value_lte
+            && !dto.value_now.is_some_and(|v| v <= hi)
         {
             return false;
         }
