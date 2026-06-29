@@ -242,6 +242,47 @@ fn template_areas_imply_auto_tracks() {
     );
 }
 
+/// A hostile `repeat(count, …)` is clamped so the realized track total stays far
+/// below taffy's `i16` grid-coordinate ceiling (taffy addresses grid lines with
+/// `i16`, so ≥32768 tracks overflow it and a count near it makes it allocate a
+/// ~1 GB cell matrix). `repeat(4096, 1fr)` in a 1024px container would size each
+/// of 4096 columns at 1024/4096 = 0.25px; clamped to `MAX_GRID_TRACKS` (1024) the
+/// single child instead fills a full 1024/1024 = 1.0px column.
+#[test]
+fn huge_repeat_count_is_clamped() {
+    let child = div::<()>().id("cell").h(10.0);
+    let grid = div::<()>()
+        .w(1024.0)
+        .grid_cols([GridTemplate::repeat(4096, [Track::Fr(1.0)])])
+        .children(vec![child]);
+    let f = frame(grid, (1024.0, 64.0));
+    // 1024px / MAX_GRID_TRACKS(1024) = 1.0px per track once clamped; without the
+    // clamp it would be 1024/4096 = 0.25px.
+    assert!(
+        (w_of(&f, "cell") - 1.0).abs() < 0.1,
+        "clamped track width should be ~1.0, got {}",
+        w_of(&f, "cell")
+    );
+}
+
+/// A count past taffy's `i16` ceiling must not panic, hang, or allocate a giant
+/// cell matrix: the clamp bounds the realized tracks, so the frame still builds
+/// and the child keeps a finite, positive rect.
+#[test]
+fn pathological_repeat_count_survives() {
+    let child = div::<()>().id("cell").h(10.0);
+    let grid = div::<()>()
+        .w(1024.0)
+        .grid_cols([GridTemplate::repeat(40_000, [Track::Fr(1.0)])])
+        .children(vec![child]);
+    let f = frame(grid, (1024.0, 64.0));
+    let w = w_of(&f, "cell");
+    assert!(
+        w.is_finite() && w > 0.0,
+        "child width should be finite, got {w}"
+    );
+}
+
 /// Plain `Track`s still work through the same builder (backward compatible): a
 /// fixed 100px column plus a `1fr` column splits a 500px container 100 / 400.
 #[test]

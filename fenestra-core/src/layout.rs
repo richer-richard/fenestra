@@ -171,7 +171,7 @@ fn template<S: CheapCloneStr>(g: &GridTemplate) -> GridTemplateComponent<S> {
     match g {
         GridTemplate::Single(t) => GridTemplateComponent::Single(track_sizing(*t)),
         GridTemplate::Repeat(rep, tracks) => repeat(
-            repetition(*rep),
+            repetition(*rep, tracks.len()),
             tracks.iter().map(|t| track_sizing(*t)).collect(),
         ),
     }
@@ -212,10 +212,26 @@ fn track_max(m: TrackMax) -> MaxTrackSizingFunction {
     }
 }
 
-/// Maps a fenestra [`Repeat`] to taffy's repetition count.
-fn repetition(r: Repeat) -> RepetitionCount {
+/// The most grid tracks a `repeat(count, …)` may realize on one axis. taffy
+/// addresses grid lines with `i16`, so a template asking for ≥32768 tracks
+/// overflows its coordinates (a debug panic, silent mislayout in release), and
+/// even a count near that ceiling makes taffy allocate a ~1 GB cell-occupancy
+/// matrix. No real layout has a thousand tracks on an axis, so we cap the
+/// realized count well below taffy's limit and clamp a hostile `repeat(...)` —
+/// authored via JSON or the builder — silently to it, the same clamp-over-panic
+/// contract [`MAX_DIMENSION`] follows.
+const MAX_GRID_TRACKS: u16 = 1024;
+
+/// Maps a fenestra [`Repeat`] to taffy's repetition count. An explicit count is
+/// clamped so the realized track total (`count × fragment_len`) stays at or below
+/// [`MAX_GRID_TRACKS`]; the responsive `auto-fit` / `auto-fill` counts are bounded
+/// by the container, so they need no clamp.
+fn repetition(r: Repeat, fragment_len: usize) -> RepetitionCount {
     match r {
-        Repeat::Count(n) => RepetitionCount::Count(n),
+        Repeat::Count(n) => {
+            let per = u16::try_from(fragment_len).unwrap_or(u16::MAX).max(1);
+            RepetitionCount::Count(n.min((MAX_GRID_TRACKS / per).max(1)))
+        }
         Repeat::AutoFit => RepetitionCount::AutoFit,
         Repeat::AutoFill => RepetitionCount::AutoFill,
     }
