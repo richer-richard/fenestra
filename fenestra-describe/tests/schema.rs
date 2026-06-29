@@ -15,24 +15,35 @@ fn schema_is_a_nontrivial_object_for_the_description() {
         txt.len()
     );
     // The root carries the description's own fields.
-    assert!(
-        txt.contains("\"root\""),
-        "the `root` field is present: {txt:.0}"
-    );
+    assert!(txt.contains("\"root\""), "the `root` field is present");
     assert!(txt.contains("\"schema\""), "the `schema` field is present");
 }
 
 #[test]
-fn schema_covers_every_vocabulary_node() {
-    // Drift guard: the formal schema (derived from the format types) and the prose
-    // vocabulary (from the node registry) must list the same authorable nodes, so a
-    // client validating against the schema accepts exactly what the parser does.
-    let txt = serde_json::to_string(&description_schema()).unwrap();
-    for node in describe_vocabulary().nodes {
-        assert!(
-            txt.contains(&format!("\"{}\"", node.tag)),
-            "the schema is missing the node tag {:?}",
-            node.tag
-        );
-    }
+fn schema_node_variants_match_the_vocabulary_exactly() {
+    // Drift guard, structural and BOTH directions: the externally-tagged `Node`
+    // oneOf in the schema and the vocabulary's node list must be the same set, so a
+    // client validating against the schema accepts exactly the nodes the parser does
+    // — and neither side can gain or lose a node without the other. Reading the
+    // oneOf tags is exact; a substring search would be one-directional and could
+    // collide with field keys like `status`.
+    let schema = description_schema();
+    let variants = schema["$defs"]["Node"]["oneOf"]
+        .as_array()
+        .expect("Node is a oneOf of tagged variants");
+    let schema_tags: std::collections::BTreeSet<&str> = variants
+        .iter()
+        .map(|v| {
+            v["required"][0]
+                .as_str()
+                .expect("each Node variant requires exactly its tag key")
+        })
+        .collect();
+    let vocab = describe_vocabulary();
+    let vocab_tags: std::collections::BTreeSet<&str> =
+        vocab.nodes.iter().map(|n| n.tag.as_str()).collect();
+    assert_eq!(
+        schema_tags, vocab_tags,
+        "the schema's Node variants and the vocabulary's nodes must be the same set"
+    );
 }

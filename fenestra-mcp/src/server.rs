@@ -239,7 +239,7 @@ impl FenestraServer {
 
     #[tool(
         name = "describe_schema",
-        description = "Return the formal JSON Schema for a fenestra/1 description — a machine-checkable input grammar to validate or autocomplete against before rendering, the structured complement to describe_vocabulary's prose grammar."
+        description = "Return the formal JSON Schema for a fenestra/1 description — a machine-checkable input grammar to validate or autocomplete against before rendering, the structured complement to describe_vocabulary's prose grammar. Structural only (shape, required/optional fields, unions); still call validate for semantic checks like colour roles, numeric ranges, and enum-like fields."
     )]
     async fn describe_schema(&self) -> CallToolResult {
         let schema = describe::format::description_schema();
