@@ -126,12 +126,14 @@ pub enum Step {
         /// Vertical delta (positive moves content down).
         dy: f32,
     },
-    /// Drag from one node to another.
+    /// Drag from one node to another. The selectors are boxed: `Selector` grew
+    /// with state/range criteria, and two of them by value made this the lone
+    /// outsized enum variant.
     Drag {
         /// Press here.
-        from: Selector,
+        from: Box<Selector>,
         /// Release here.
-        to: Selector,
+        to: Box<Selector>,
     },
     /// Advance the deterministic clock by `ms` milliseconds.
     PumpMs(f64),

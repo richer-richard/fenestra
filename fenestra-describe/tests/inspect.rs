@@ -5,7 +5,7 @@ use fenestra_core::Theme;
 use fenestra_describe::dto::AccessNodeDto;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{
-    AriaMode, Selector, access_tree, aria_snapshot, check_a11y, match_aria, query,
+    AriaMode, Selector, access_tree, aria_snapshot, check_a11y, focus_order, match_aria, query,
 };
 
 const FORM: &str = r#"{"schema":"fenestra/1","root":{"col":{"children":[
@@ -267,4 +267,18 @@ fn selector_matches_by_state() {
     assert_eq!(res3.matches.len(), 1, "{:?}", res3.matches);
     let v = res3.matches[0].value_now.expect("slider value");
     assert!((v - 0.8).abs() < 1e-6, "got {v}");
+}
+
+#[test]
+fn focus_order_lists_tabbable_refs_in_order() {
+    // Tab visits Email -> Password -> Sign in, in tree order, by stable ref.
+    let d = desc(
+        r#"{"schema":"fenestra/1","root":{"col":{"children":[
+            {"text_input":{"value":"","placeholder":"Email","id":"email"}},
+            {"text_input":{"value":"","placeholder":"Password","id":"password"}},
+            {"button":{"label":"Sign in","on_click":"submit","id":"signin"}}
+        ]}}}"#,
+    );
+    let order = focus_order(&d, &Theme::light(), (400, 300)).unwrap();
+    assert_eq!(order, vec!["email", "password", "signin"], "{order:?}");
 }

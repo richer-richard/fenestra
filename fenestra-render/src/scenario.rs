@@ -77,6 +77,9 @@ pub struct Expect {
     /// Assert how many nodes a selector matches in the (post-interaction) tree.
     #[serde(default)]
     pub queries: Vec<QueryExpect>,
+    /// Assert the keyboard focus order: the refs a Tab cycle visits, in order.
+    #[serde(default)]
+    pub focus_order: Option<Vec<String>>,
 }
 
 /// An expected aria snapshot and how to match it.
@@ -261,6 +264,16 @@ pub fn verify(scenario: &Scenario) -> Result<VerifyOut, EngineError> {
         ));
     }
 
+    if let Some(want) = &expect.focus_order {
+        let matched = &p.focus_order == want;
+        let detail = if matched {
+            String::new()
+        } else {
+            format!("focus order {:?}, expected {want:?}", p.focus_order)
+        };
+        checks.push(outcome("focus_order", matched, detail));
+    }
+
     let ok = checks.iter().all(|c| c.ok);
     Ok(VerifyOut {
         report: VerifyReport {
@@ -308,6 +321,7 @@ struct Produced {
     a11y: A11yReport,
     png: RgbaImage,
     emitted: Vec<String>,
+    focus_order: Vec<String>,
 }
 
 /// Captures the [`Produced`] frame: static when the scenario has no steps,
@@ -319,12 +333,15 @@ fn produce(scenario: &Scenario, theme: &Theme, size: (u32, u32)) -> Result<Produ
         let out = engine::render(&scenario.description, theme, size)?;
         let aria = inspect::aria_snapshot(&scenario.description, theme, size)
             .map_err(EngineError::Parse)?;
+        let focus_order = inspect::focus_order(&scenario.description, theme, size)
+            .map_err(EngineError::Parse)?;
         Ok(Produced {
             tree: out.tree,
             aria,
             a11y: out.warnings,
             png: out.png,
             emitted: Vec::new(),
+            focus_order,
         })
     } else {
         let mut h = engine::drive(&scenario.description, theme, size, &scenario.steps)?;
@@ -332,6 +349,7 @@ fn produce(scenario: &Scenario, theme: &Theme, size: (u32, u32)) -> Result<Produ
         let tree = inspect::frame_access_tree(h.frame());
         let aria = h.frame().access_yaml();
         let a11y = inspect::frame_a11y(h.frame(), theme);
+        let focus_order = inspect::frame_focus_order(h.frame());
         let png = h.render();
         Ok(Produced {
             tree,
@@ -339,6 +357,7 @@ fn produce(scenario: &Scenario, theme: &Theme, size: (u32, u32)) -> Result<Produ
             a11y,
             png,
             emitted,
+            focus_order,
         })
     }
 }

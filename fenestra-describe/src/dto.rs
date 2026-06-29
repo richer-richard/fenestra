@@ -150,6 +150,15 @@ pub struct AriaDiff {
     pub diff: String,
 }
 
+/// The keyboard focus order: the refs a Tab cycle visits, in order. An object
+/// (not a bare array) so it carries a self-describing output schema.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct FocusOrder {
+    /// Focusable node refs in tab order, honoring a modal focus trap (disabled
+    /// controls excluded).
+    pub order: Vec<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

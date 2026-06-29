@@ -4,8 +4,10 @@
 //! snapshots, and the accessibility report all live here; only pixels need the
 //! shell, one layer up.
 
+use std::collections::HashMap;
+
 use fenestra_core::{
-    AccessNode, Color, Fonts, Frame, FrameState, Query, Semantics, Theme, build_frame, by,
+    AccessNode, Color, Fonts, Frame, FrameState, Query, Semantics, Theme, WidgetId, build_frame, by,
 };
 use regex::Regex;
 use serde::Deserialize;
@@ -59,6 +61,51 @@ pub fn access_tree(
 #[must_use]
 pub fn frame_access_tree(frame: &Frame) -> AccessNodeDto {
     node_to_dto(&frame.access_tree(), &[])
+}
+
+/// The keyboard focus order: the refs a Tab cycle visits, in order, honoring a
+/// modal focus trap (disabled controls excluded). The agent-verifiable answer to
+/// "what does Tab reach, and in what order" — refs use the same scheme as the
+/// access tree (the node's key, else its structural path).
+///
+/// # Errors
+/// The parse errors when the description does not parse cleanly.
+pub fn focus_order(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+) -> Result<Vec<String>, Vec<DescribeError>> {
+    Ok(frame_focus_order(&build(desc, theme, size)?))
+}
+
+/// Focus order read from an already-built [`Frame`] — the primitive
+/// [`focus_order`] builds on, for a frame the caller already holds (e.g. the
+/// post-interaction frame of a driven scenario).
+#[must_use]
+pub fn frame_focus_order(frame: &Frame) -> Vec<String> {
+    fn index(node: &AccessNode, path: &[usize], by_id: &mut HashMap<WidgetId, String>) {
+        let ref_ = node.key.clone().unwrap_or_else(|| {
+            let joined = path
+                .iter()
+                .map(usize::to_string)
+                .collect::<Vec<_>>()
+                .join("/");
+            format!("/{joined}")
+        });
+        by_id.insert(node.id, ref_);
+        for (i, child) in node.children.iter().enumerate() {
+            let mut p = path.to_vec();
+            p.push(i);
+            index(child, &p, by_id);
+        }
+    }
+    let mut by_id = HashMap::new();
+    index(&frame.access_tree(), &[], &mut by_id);
+    frame
+        .focusables()
+        .into_iter()
+        .filter_map(|id| by_id.get(&id).cloned())
+        .collect()
 }
 
 /// A semantic selector, mirroring the harness query vocabulary. All set

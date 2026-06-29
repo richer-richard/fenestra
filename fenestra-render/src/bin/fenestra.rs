@@ -12,7 +12,7 @@ use std::process::ExitCode;
 use clap::{Parser, Subcommand};
 use fenestra_core::Theme;
 use fenestra_describe::format::Description;
-use fenestra_describe::inspect::{AriaMode, Selector, check_a11y, match_aria, query};
+use fenestra_describe::inspect::{AriaMode, Selector, check_a11y, focus_order, match_aria, query};
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
 use fenestra_render::engine::{Step, interact, match_screenshot, render};
@@ -74,6 +74,14 @@ enum Command {
     },
     /// Check accessibility: contrast, labeling, and per-node legibility.
     Check {
+        desc: Option<PathBuf>,
+        #[arg(long, default_value = "800x600")]
+        size: String,
+        #[arg(long)]
+        theme: Option<PathBuf>,
+    },
+    /// List the keyboard focus order: the refs a Tab cycle visits, in order.
+    FocusOrder {
         desc: Option<PathBuf>,
         #[arg(long, default_value = "800x600")]
         size: String,
@@ -159,6 +167,7 @@ fn main() -> ExitCode {
             out,
         } => cmd_interact(desc, &steps, &size, theme, out),
         Command::Check { desc, size, theme } => cmd_check(desc, &size, theme),
+        Command::FocusOrder { desc, size, theme } => cmd_focus_order(desc, &size, theme),
         Command::MatchAria {
             desc,
             expected,
@@ -346,6 +355,20 @@ fn cmd_match_png(
             verdict(diff.ok)
         }
         Err(e) => fail(&e),
+    }
+}
+
+fn cmd_focus_order(desc: Option<PathBuf>, size: &str, theme: Option<PathBuf>) -> ExitCode {
+    let (desc, theme, size) = match common(desc, size, theme) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    match focus_order(&desc, &theme, size) {
+        Ok(order) => {
+            print_json(&order);
+            ExitCode::SUCCESS
+        }
+        Err(errs) => fail_parse(&errs),
     }
 }
 

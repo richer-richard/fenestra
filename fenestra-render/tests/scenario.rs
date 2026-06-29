@@ -51,6 +51,31 @@ fn verify_static_form_all_checks_pass() {
     );
 }
 
+/// A `focus_order` expectation asserts the Tab sequence; a wrong order fails.
+#[test]
+fn verify_focus_order_expectation() {
+    const DESC: &str = r#"{ "schema": "fenestra/1", "root": { "col": { "children": [
+        { "text_input": { "value": "", "placeholder": "Email", "id": "email" } },
+        { "button": { "label": "Go", "on_click": "go", "id": "go" } }
+    ] } } }"#;
+    let s = scenario(&format!(
+        r#"{{ "schema": "fenestra/1", "description": {DESC}, "size": "400x300",
+            "expect": {{ "focus_order": ["email", "go"] }} }}"#
+    ));
+    let out = verify(&s).expect("scenario runs");
+    assert!(out.report.ok, "focus order matches: {:?}", out.report.checks);
+    let names: Vec<&str> = out.report.checks.iter().map(|c| c.name.as_str()).collect();
+    assert!(names.contains(&"focus_order"), "{names:?}");
+
+    // Reversed order fails the check (and the whole report).
+    let bad = scenario(&format!(
+        r#"{{ "schema": "fenestra/1", "description": {DESC}, "size": "400x300",
+            "expect": {{ "focus_order": ["go", "email"] }} }}"#
+    ));
+    let out = verify(&bad).expect("scenario runs");
+    assert!(!out.report.ok, "reversed order should fail: {:?}", out.report.checks);
+}
+
 /// Driving a click emits the author intent, and the `emitted` check passes.
 #[test]
 fn verify_emitted_intent_from_click() {
