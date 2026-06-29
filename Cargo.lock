@@ -1035,12 +1035,15 @@ name = "fenestra"
 version = "0.38.0"
 dependencies = [
  "fenestra-core",
+ "fenestra-describe",
  "fenestra-kit",
  "fenestra-looks",
+ "fenestra-render",
  "fenestra-shell",
  "image",
  "pollster",
  "rfd",
+ "serde_json",
 ]
 
 [[package]]

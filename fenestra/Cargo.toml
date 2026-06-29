@@ -22,10 +22,17 @@ fenestra-shell.workspace = true
 
 [dev-dependencies]
 image.workspace = true
+serde_json.workspace = true
 # Examples only (the `looks` showcase); a dev-dependency, so it is not a
 # runtime dependency of the published facade. Versioned (not path-only) so it
 # isn't a wildcard dependency.
 fenestra-looks = { path = "../fenestra-looks", version = "0.38.0" }
+# The `verify` example authors a UI as `fenestra/1` JSON and verifies it
+# headlessly, so it reaches past the facade to the describe (windowless
+# inspection: access tree, query, a11y, focus order) and render (headless
+# pixels) crates. Dev-only, so neither is a runtime dependency of the facade.
+fenestra-describe.workspace = true
+fenestra-render.workspace = true
 
 # Native-only example deps (file dialogs).
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
