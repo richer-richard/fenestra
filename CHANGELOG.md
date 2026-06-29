@@ -1,12 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.39.0 — 2026-06-29
 
 The truthful-verification pass — make the typed access tree and the accessibility
-gate tell an agent the *whole* truth (the agent-native verification moat), and
-make the visuals it can now verify real. Two new MCP tools (eleven total), new
-typed access-tree fields, three new CLI subcommands, and three new scenario
-expectations; everything is additive.
+gate tell an agent the *whole* truth (the agent-native verification moat), make
+the visuals it can now verify real, and give the format a machine-checkable
+grammar. Three new MCP tools (twelve total), new typed access-tree fields, new CLI
+subcommands, three new scenario expectations, and a formal JSON Schema for the
+description format; everything is additive.
 
 ### Added
 
@@ -37,6 +38,17 @@ expectations; everything is additive.
   theme-token syntax highlighting (rust / js / ts / python / json / sh / sql) via a
   dependency-free lexer; unknown or untagged blocks stay plain mono. Footnote
   bodies now keep inline bold / italic / code.
+- **Formal JSON Schema for the description format.** `describe::format::description_schema`
+  derives a machine-checkable input grammar from the format types (externally-tagged
+  nodes, `deny_unknown_fields`, the untagged colour/track unions all expressed
+  precisely), exposed as the `describe_schema` MCP tool and a `fenestra schema` CLI
+  subcommand — the formal complement to the prose `describe_vocabulary`. A drift
+  guard keeps it covering exactly the nodes the vocabulary advertises.
+- **Flagship `verify` example.** `cargo run --example verify` authors a sign-in card
+  as fenestra/1 JSON and runs the whole verification battery headlessly with no
+  display and no GPU (aria snapshot, access-tree roles, query, a11y, focus order,
+  layout, then drive-and-assert via interact) — the "author in JSON, verify offline"
+  proof, doubling as a smoke gate.
 
 ### Fixed
 
