@@ -370,3 +370,130 @@ fn gfm_features_golden() {
     let image = render_element(view, &Theme::light(), (540, 700));
     assert_png_snapshot(snapshot_dir(), "markdown_gfm", &image);
 }
+
+// ── Code highlighting tests ─────────────────────────────────────────────────
+
+const CODE_DOC: &str = "\
+# Code samples
+
+```rust
+fn main() {
+    let n = 42; // the answer
+    let s = \"hi\";
+}
+```
+
+```python
+def greet(name):
+    return f'hi {name}'  # greeting
+```
+
+```json
+{ \"key\": \"value\", \"n\": 3.14, \"ok\": true }
+```
+
+```
+plain untagged block stays as-is
+```
+";
+
+struct CodeViewer;
+
+impl App for CodeViewer {
+    type Msg = ();
+
+    fn update(&mut self, (): ()) {}
+
+    fn view(&self) -> Element<()> {
+        col()
+            .p(16.0)
+            .w(520.0)
+            .children([Element::from(markdown(CODE_DOC))])
+    }
+}
+
+#[test]
+fn code_block_shows_language_chips() {
+    let h = Harness::new(CodeViewer, Theme::light(), (560, 660));
+    // Every fenced block that declares a known language carries a muted chip.
+    for lang in ["rust", "python", "json"] {
+        assert!(
+            h.query(&by::label(lang)).is_some(),
+            "chip {lang:?} not found"
+        );
+    }
+    // Tokenized code is still reachable as accessible leaves (per-piece).
+    // `greet(name)` would also match the `# greeting` comment, so anchor on the
+    // parenthesized form and assert presence (count-agnostic).
+    assert!(
+        !h.get_all(&by::label_contains("greet(name)")).is_empty(),
+        "python identifier not found in tokenized body"
+    );
+}
+
+const UNKNOWN_LANG_DOC: &str = "\
+```haskell
+main = putStrLn \"unknown stays plain\"
+```
+";
+
+struct UnknownLangViewer;
+
+impl App for UnknownLangViewer {
+    type Msg = ();
+
+    fn update(&mut self, (): ()) {}
+
+    fn view(&self) -> Element<()> {
+        col()
+            .p(16.0)
+            .w(420.0)
+            .children([Element::from(markdown(UNKNOWN_LANG_DOC))])
+    }
+}
+
+#[test]
+fn unknown_language_chip_but_plain_body() {
+    let h = Harness::new(UnknownLangViewer, Theme::light(), (460, 160));
+    // The declared language is labeled even when it can't be highlighted…
+    assert!(
+        h.query(&by::label("haskell")).is_some(),
+        "unknown-language chip not found"
+    );
+    // …and the body renders plain, as one selectable text leaf, so the whole
+    // line is reachable by a single label.
+    assert!(
+        !h.get_all(&by::label_contains("main = putStrLn")).is_empty(),
+        "plain unknown-language body not found as one leaf"
+    );
+}
+
+#[test]
+fn code_highlight_golden() {
+    let view: Element<()> = col()
+        .p(16.0)
+        .w(520.0)
+        .children([Element::from(markdown(CODE_DOC))]);
+    let image = render_element(view, &Theme::light(), (560, 660));
+    assert_png_snapshot(snapshot_dir(), "markdown_code", &image);
+}
+
+// ── Rich footnote golden ────────────────────────────────────────────────────
+
+const FOOTNOTE_RICH_DOC: &str = "\
+A claim with a rich footnote[^a].
+
+[^a]: Body with **bold**, *italic*, and `code` that must survive.
+";
+
+#[test]
+fn footnote_inline_styling_golden() {
+    // The footnote definition's bold/italic/code must render as styled spans,
+    // not flatten to plain muted text.
+    let view: Element<()> = col()
+        .p(16.0)
+        .w(460.0)
+        .children([Element::from(markdown(FOOTNOTE_RICH_DOC))]);
+    let image = render_element(view, &Theme::light(), (500, 220));
+    assert_png_snapshot(snapshot_dir(), "markdown_footnote_rich", &image);
+}

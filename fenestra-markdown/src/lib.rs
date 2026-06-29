@@ -9,7 +9,10 @@
 //! Bare-URL autolinks are not yet supported by pulldown-cmark 0.13.4's
 //! ENABLE_GFM (only blockquote admonitions); standard angle-bracket
 //! autolinks (`<https://…>`) render as clickable links via CommonMark.
-//! Code-block syntax highlighting is deferred (no syntax-highlighting dep).
+//! Fenced code blocks carry a muted language chip and dependency-free,
+//! highlight-grade syntax coloring (keywords, strings, comments, numbers — all
+//! through theme roles) for a handful of common languages; unknown or untagged
+//! blocks render as plain mono, unchanged.
 //!
 //! ```
 //! use fenestra_markdown::markdown;
@@ -19,10 +22,10 @@
 //! ```
 
 use fenestra_core::{
-    Element, FamilyRole, MEASURE_CH, Semantics, Span, TextAlign, TextSize, Theme, Track, Weight,
-    col, div, divider, rich_text, row, span, text,
+    Color, Element, FamilyRole, MEASURE_CH, Semantics, Span, TextAlign, TextSize, Theme, Track,
+    Weight, col, div, divider, rich_text, row, span, text,
 };
-use pulldown_cmark::{Alignment, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{Alignment, CodeBlockKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
 /// Shared URL-to-message mapping for link clicks.
 type LinkFn<Msg> = std::rc::Rc<dyn Fn(&str) -> Msg>;
@@ -105,7 +108,7 @@ fn build_spans(specs: &[SpanSpec]) -> Vec<Span> {
             }
             // No line decoration in spans yet: struck text reads muted.
             if s.inline.strikethrough {
-                sp = sp.color(fenestra_core::Color::from_rgba8(128, 128, 128, 255));
+                sp = sp.color(Color::from_rgba8(128, 128, 128, 255));
             }
             // Footnote references read smaller (superscript-ish).
             if s.inline.footnote_ref {
@@ -133,6 +136,341 @@ fn column_text_align(alignment: Alignment) -> TextAlign {
     }
 }
 
+// ── Code-block syntax highlighting ──────────────────────────────────────────
+//
+// A small, dependency-free, highlight-grade lexer: enough to color keywords,
+// strings, comments, and numbers for a handful of common languages — not a full
+// grammar. Token colors come only from theme roles (see [`role_color`]),
+// matching how the renderer colors links. An unknown or missing fence language
+// degrades to plain mono (the `CodeBlock` handler), so untagged blocks are
+// visually unchanged.
+
+/// The highlight role of a code token; mapped to a theme color by
+/// [`role_color`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum TokenRole {
+    /// Default code text — mono, theme `text` (also whitespace and punctuation).
+    Plain,
+    /// A language keyword — theme `accent` (the same role links use).
+    Keyword,
+    /// A string or char literal — theme `success.text`.
+    Str,
+    /// A line or block comment — theme `text_muted`.
+    Comment,
+    /// A numeric literal — theme `warning.text`.
+    Number,
+}
+
+/// Resolves a token role to a theme color — theme tokens only, never raw rgba.
+fn role_color(role: TokenRole, t: &Theme) -> Color {
+    match role {
+        TokenRole::Plain => t.text,
+        TokenRole::Keyword => t.accent,
+        TokenRole::Str => t.success.text,
+        TokenRole::Comment => t.text_muted,
+        TokenRole::Number => t.warning.text,
+    }
+}
+
+/// Per-language lexer configuration. Highlight-grade, not a full grammar.
+struct LangSpec {
+    /// Reserved words colored as keywords, space-separated (matched whole).
+    keywords: &'static str,
+    /// Line-comment prefixes (`//`, `#`, `--`), each running to end of line.
+    line_comments: &'static [&'static str],
+    /// Whether `/* … */` block comments are recognized.
+    block_comment: bool,
+    /// Whether single-quoted strings are recognized. Off for Rust, where `'`
+    /// opens a lifetime, not a string literal.
+    single_quote_string: bool,
+    /// Whether keyword matching ignores ASCII case (SQL).
+    case_insensitive: bool,
+}
+
+// Keyword sets, space-separated (compact and rustfmt-stable; split at match
+// time). Highlight-grade — a representative core per language, not exhaustive.
+const RUST_KW: &str = "as async await break const continue crate dyn else enum extern false fn for \
+    if impl in let loop match mod move mut pub ref return self Self static struct super trait true \
+    type unsafe use where while";
+
+const JS_KW: &str = "async await break case catch class const continue debugger default delete do \
+    else export extends false finally for function if import in instanceof let new null of return \
+    super switch this throw true try typeof undefined var void while yield";
+
+const TS_KW: &str = "abstract any as async await boolean break case catch class const continue \
+    declare default delete do else enum export extends false finally for function if implements \
+    import in instanceof interface let namespace never new null number of private protected public \
+    readonly return static string super switch this throw true try type typeof undefined unknown \
+    var void while yield";
+
+const PY_KW: &str = "and as assert async await break class continue def del elif else except False \
+    finally for from global if import in is lambda None nonlocal not or pass raise return True try \
+    while with yield";
+
+const JSON_KW: &str = "true false null";
+
+const SH_KW: &str = "case declare do done echo elif else esac export fi for function if in local \
+    readonly return select then until while";
+
+const SQL_KW: &str = "add all alter and as between by column create delete distinct drop from group \
+    having inner insert into is join key left like limit not null offset on or order outer primary \
+    right select set table union update values where";
+
+/// The lexer spec for a fenced language tag, or `None` for an unknown or empty
+/// tag — the caller then renders the block as plain mono (unchanged).
+fn lang_spec(lang: &str) -> Option<LangSpec> {
+    let spec = match lang.trim().to_ascii_lowercase().as_str() {
+        "rust" | "rs" => LangSpec {
+            keywords: RUST_KW,
+            line_comments: &["//"],
+            block_comment: true,
+            single_quote_string: false,
+            case_insensitive: false,
+        },
+        "js" | "javascript" | "jsx" | "mjs" | "cjs" => LangSpec {
+            keywords: JS_KW,
+            line_comments: &["//"],
+            block_comment: true,
+            single_quote_string: true,
+            case_insensitive: false,
+        },
+        "ts" | "typescript" | "tsx" => LangSpec {
+            keywords: TS_KW,
+            line_comments: &["//"],
+            block_comment: true,
+            single_quote_string: true,
+            case_insensitive: false,
+        },
+        "python" | "py" => LangSpec {
+            keywords: PY_KW,
+            line_comments: &["#"],
+            block_comment: false,
+            single_quote_string: true,
+            case_insensitive: false,
+        },
+        "json" | "jsonc" => LangSpec {
+            keywords: JSON_KW,
+            line_comments: &["//"],
+            block_comment: false,
+            single_quote_string: false,
+            case_insensitive: false,
+        },
+        "sh" | "bash" | "shell" | "zsh" => LangSpec {
+            keywords: SH_KW,
+            line_comments: &["#"],
+            block_comment: false,
+            single_quote_string: true,
+            case_insensitive: false,
+        },
+        "sql" => LangSpec {
+            keywords: SQL_KW,
+            line_comments: &["--"],
+            block_comment: true,
+            single_quote_string: true,
+            case_insensitive: true,
+        },
+        _ => return None,
+    };
+    Some(spec)
+}
+
+fn is_ident_start(c: char) -> bool {
+    c == '_' || c.is_alphabetic()
+}
+
+fn is_ident_continue(c: char) -> bool {
+    c == '_' || c.is_alphanumeric()
+}
+
+fn is_keyword(spec: &LangSpec, word: &str) -> bool {
+    spec.keywords.split_ascii_whitespace().any(|k| {
+        if spec.case_insensitive {
+            k.eq_ignore_ascii_case(word)
+        } else {
+            k == word
+        }
+    })
+}
+
+/// Byte length of a digit/underscore run from `i` in `b` (all ASCII).
+fn digit_run(b: &[u8], mut i: usize) -> usize {
+    while i < b.len() && (b[i].is_ascii_digit() || b[i] == b'_') {
+        i += 1;
+    }
+    i
+}
+
+/// Byte length of a quoted literal at the front of `rest` (which begins with
+/// `quote`). Stops after the matching unescaped quote, before a newline (an
+/// unterminated single-line literal), or at EOF.
+fn string_len(rest: &str, quote: char) -> usize {
+    let mut chars = rest.char_indices();
+    chars.next(); // opening quote
+    let mut escaped = false;
+    for (idx, c) in chars {
+        if escaped {
+            escaped = false;
+        } else if c == '\\' {
+            escaped = true;
+        } else if c == '\n' {
+            return idx;
+        } else if c == quote {
+            return idx + c.len_utf8();
+        }
+    }
+    rest.len()
+}
+
+/// Byte length of a numeric literal at the front of `rest` (which begins with an
+/// ASCII digit). Every recognized character is ASCII, so byte indexing is safe;
+/// a `.` is only taken when a digit follows, so `0..10` never reads as one
+/// number.
+fn number_len(rest: &str) -> usize {
+    let b = rest.as_bytes();
+    // Hex / binary / octal prefix: 0x.., 0b.., 0o..
+    if b.len() >= 2 && b[0] == b'0' && matches!(b[1], b'x' | b'X' | b'b' | b'B' | b'o' | b'O') {
+        let mut i = 2;
+        while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+            i += 1;
+        }
+        return i;
+    }
+    let mut i = digit_run(b, 0);
+    if i + 1 < b.len() && b[i] == b'.' && b[i + 1].is_ascii_digit() {
+        i = digit_run(b, i + 1);
+    }
+    if i < b.len() && matches!(b[i], b'e' | b'E') {
+        let mut j = i + 1;
+        if j < b.len() && matches!(b[j], b'+' | b'-') {
+            j += 1;
+        }
+        if j < b.len() && b[j].is_ascii_digit() {
+            i = digit_run(b, j);
+        }
+    }
+    // Type suffix (Rust `f64`/`u32`, JS bigint `n`, …).
+    while i < b.len() && (b[i].is_ascii_alphabetic() || b[i] == b'_') {
+        i += 1;
+    }
+    i
+}
+
+/// Splits `code` into `(text, role)` tokens covering every byte in order
+/// (lossless), coalescing adjacent same-role runs into one token.
+fn tokenize(spec: &LangSpec, code: &str) -> Vec<(String, TokenRole)> {
+    let mut raw: Vec<(usize, usize, TokenRole)> = Vec::new();
+    let mut i = 0;
+    while i < code.len() {
+        let rest = &code[i..];
+        let c = rest.chars().next().expect("non-empty remainder");
+        let (len, role) = if c.is_whitespace() {
+            let len = rest
+                .find(|ch: char| !ch.is_whitespace())
+                .unwrap_or(rest.len());
+            (len, TokenRole::Plain)
+        } else if let Some(prefix) = spec
+            .line_comments
+            .iter()
+            .copied()
+            .find(|p| rest.starts_with(*p))
+        {
+            // `#` only opens a comment at line start or after whitespace, so a
+            // `#` inside a shell word stays plain (`//`/`--` are unambiguous).
+            let opens = prefix != "#"
+                || i == 0
+                || code[..i]
+                    .chars()
+                    .next_back()
+                    .is_some_and(char::is_whitespace);
+            if opens {
+                (rest.find('\n').unwrap_or(rest.len()), TokenRole::Comment)
+            } else {
+                (c.len_utf8(), TokenRole::Plain)
+            }
+        } else if spec.block_comment && rest.starts_with("/*") {
+            (
+                rest.find("*/").map_or(rest.len(), |e| e + 2),
+                TokenRole::Comment,
+            )
+        } else if c == '"' || (spec.single_quote_string && c == '\'') {
+            (string_len(rest, c), TokenRole::Str)
+        } else if c.is_ascii_digit() {
+            (number_len(rest), TokenRole::Number)
+        } else if is_ident_start(c) {
+            let len = rest
+                .find(|ch: char| !is_ident_continue(ch))
+                .unwrap_or(rest.len());
+            let role = if is_keyword(spec, &rest[..len]) {
+                TokenRole::Keyword
+            } else {
+                TokenRole::Plain
+            };
+            (len, role)
+        } else {
+            (c.len_utf8(), TokenRole::Plain)
+        };
+        raw.push((i, i + len, role));
+        i += len;
+    }
+    // Coalesce adjacent same-role runs into one token — but never across
+    // whitespace, so the renderer can fold a whitespace run into the *leading*
+    // edge of the next piece. (A piece's trailing whitespace collapses at
+    // layout and would abut the next token.) Fewer elements, coarser selection.
+    let mut out: Vec<(String, TokenRole)> = Vec::with_capacity(raw.len());
+    for (s, e, role) in raw {
+        let text = &code[s..e];
+        let mergeable = !text.trim().is_empty();
+        match out.last_mut() {
+            Some(last) if last.1 == role && mergeable && !last.0.trim().is_empty() => {
+                last.0.push_str(text);
+            }
+            _ => out.push((text.to_owned(), role)),
+        }
+    }
+    out
+}
+
+/// Builds the body of a highlighted code block: one row of colored mono pieces
+/// per source line, stacked tight so line height alone sets the rhythm.
+/// Whitespace folds into the following piece, so indentation survives; like the
+/// inline-link path, selection is per-piece (a documented v1 tradeoff).
+fn highlighted_body<Msg: Clone + 'static>(spec: &LangSpec, body: &str) -> Element<Msg> {
+    let mut lines: Vec<Element<Msg>> = Vec::new();
+    for line in body.split('\n') {
+        let mut pieces: Vec<Element<Msg>> = Vec::new();
+        let mut pending = String::new();
+        for (tok, role) in tokenize(spec, line) {
+            // A pure-whitespace run carries forward as the next piece's leading
+            // indentation (leading whitespace is measured; trailing collapses).
+            if role == TokenRole::Plain && tok.trim().is_empty() {
+                pending.push_str(&tok);
+                continue;
+            }
+            let piece_text = if pending.is_empty() {
+                tok
+            } else {
+                pending.push_str(&tok);
+                std::mem::take(&mut pending)
+            };
+            let mut piece: Element<Msg> = text(piece_text)
+                .mono()
+                .size(TextSize::Sm)
+                .selectable()
+                .shrink0();
+            if role != TokenRole::Plain {
+                piece = piece.themed(move |t: &Theme, s| s.color(role_color(role, t)));
+            }
+            pieces.push(piece);
+        }
+        // Keep blank / whitespace-only lines occupying a line of height.
+        if pieces.is_empty() {
+            pieces.push(text(" ").mono().size(TextSize::Sm));
+        }
+        lines.push(row().items_baseline().children(pieces));
+    }
+    col().gap(0.0).items_start().children(lines)
+}
+
 impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
     fn from(md: Markdown<Msg>) -> Self {
         let mut options = Options::empty();
@@ -153,6 +491,8 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
         let mut list_stack: Vec<Option<u64>> = Vec::new();
         let mut quote_depth = 0usize;
         let mut code: Option<String> = None;
+        // The fenced language tag (first word of the info string), if any.
+        let mut code_lang: Option<String> = None;
         let mut heading: Option<HeadingLevel> = None;
 
         // Table state
@@ -366,12 +706,46 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                         pending_marker = None;
                     }
                 }
-                Event::Start(Tag::CodeBlock(_)) => code = Some(String::new()),
+                Event::Start(Tag::CodeBlock(kind)) => {
+                    code = Some(String::new());
+                    // Fenced info string → the first whitespace/comma-delimited
+                    // token (e.g. `rust` from ```rust,no_run); indented blocks
+                    // have no language.
+                    code_lang = match kind {
+                        CodeBlockKind::Fenced(info) => info
+                            .split(|c: char| c.is_whitespace() || c == ',')
+                            .find(|s| !s.is_empty())
+                            .map(str::to_owned),
+                        CodeBlockKind::Indented => None,
+                    };
+                }
                 Event::End(TagEnd::CodeBlock) => {
                     if let Some(body) = code.take() {
                         let body = body.trim_end_matches('\n').to_owned();
+                        let lang = code_lang.take();
+                        let mut children: Vec<Element<Msg>> = Vec::new();
+                        // A small, muted language chip for any fenced block that
+                        // declares a language (known or not).
+                        if let Some(lang) = lang.as_deref().filter(|l| !l.is_empty()) {
+                            children.push(
+                                row().w_full().justify_end().child(
+                                    text(lang.to_owned())
+                                        .size(TextSize::Xs)
+                                        .themed(|t: &Theme, s| s.color(t.text_muted)),
+                                ),
+                            );
+                        }
+                        // Highlight a known language; an unknown or missing one
+                        // degrades to plain mono (visually as before).
+                        match lang.as_deref().and_then(lang_spec) {
+                            Some(spec) => children.push(highlighted_body(&spec, &body)),
+                            None => {
+                                children.push(text(body).mono().size(TextSize::Sm).selectable());
+                            }
+                        }
                         blocks.push(
                             col()
+                                .gap(6.0)
                                 .p(10.0)
                                 .w_full()
                                 // Radius from the theme scale (was a hardcoded
@@ -383,7 +757,7 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                                         .bg(t.elevated_surface(1))
                                         .border(1.0, t.border_subtle)
                                 })
-                                .children([text(body).mono().size(TextSize::Sm).selectable()]),
+                                .children(children),
                         );
                     }
                 }
@@ -606,17 +980,16 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
             for (label, def_spans) in &footnote_defs {
                 let n = footnote_refs.get(label.as_str()).copied().unwrap_or(0);
                 let marker = format!("{n}.");
-                let body = if def_spans.is_empty() {
+                let body: Element<Msg> = if def_spans.is_empty() {
                     // Definition was referenced but has no body text.
                     text(String::new()).themed(|t: &Theme, s| s.color(t.text_muted))
                 } else {
-                    text(
-                        def_spans
-                            .iter()
-                            .map(|s| s.text.as_str())
-                            .collect::<String>(),
-                    )
-                    .themed(|t: &Theme, s| s.color(t.text_muted))
+                    // Route the body through the shared inline-span path so
+                    // bold/italic/code/links inside a footnote survive instead
+                    // of flattening to plain text. The muted base color is set
+                    // on the paragraph; spans that set no color of their own
+                    // inherit it.
+                    rich_text(build_spans(def_spans)).themed(|t: &Theme, s| s.color(t.text_muted))
                 };
                 footnote_els.push(row().gap(6.0).items_start().children((
                     text(marker).themed(|t: &Theme, s| s.color(t.text_muted)),
@@ -635,5 +1008,178 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
             .items_start()
             .measure(MEASURE_CH)
             .children(blocks)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Just the token roles for `code`, in order.
+    fn roles(spec: &LangSpec, code: &str) -> Vec<TokenRole> {
+        tokenize(spec, code).into_iter().map(|(_, r)| r).collect()
+    }
+
+    #[test]
+    fn lang_spec_known_and_unknown() {
+        for known in [
+            "rust",
+            "rs",
+            "js",
+            "javascript",
+            "ts",
+            "typescript",
+            "python",
+            "py",
+            "json",
+            "sh",
+            "bash",
+            "sql",
+        ] {
+            assert!(lang_spec(known).is_some(), "{known} should be known");
+        }
+        for unknown in ["", "haskell", "brainfuck", "text", "plaintext", "ocaml"] {
+            assert!(lang_spec(unknown).is_none(), "{unknown} should be unknown");
+        }
+    }
+
+    #[test]
+    fn tokenize_is_lossless() {
+        // Every byte of the input must reappear exactly once, in order: the
+        // renderer reconstructs the code from the tokens, so a drop or dup
+        // would silently corrupt the displayed source.
+        let spec = lang_spec("rust").unwrap();
+        let code = "fn main() {\n    let x = 0xFF; // hi\n    println!(\"hi {x}\");\n}";
+        let joined: String = tokenize(&spec, code).into_iter().map(|(t, _)| t).collect();
+        assert_eq!(joined, code);
+    }
+
+    #[test]
+    fn rust_block_has_multiple_token_roles() {
+        let spec = lang_spec("rust").unwrap();
+        let code = "let n = 42; // count\nlet s = \"hi\";";
+        let mut seen: std::collections::HashSet<TokenRole> =
+            roles(&spec, code).into_iter().collect();
+        // Plain (whitespace/punctuation) is always present; the value is the
+        // *colored* roles a single flat `text` could never express.
+        seen.remove(&TokenRole::Plain);
+        assert!(seen.contains(&TokenRole::Keyword), "keyword should color");
+        assert!(seen.contains(&TokenRole::Number), "number should color");
+        assert!(seen.contains(&TokenRole::Comment), "comment should color");
+        assert!(seen.contains(&TokenRole::Str), "string should color");
+        assert!(seen.len() >= 4, "≥4 distinct colored roles, got {seen:?}");
+    }
+
+    #[test]
+    fn classifies_numbers_strings_comments() {
+        let spec = lang_spec("rust").unwrap();
+        assert_eq!(
+            tokenize(&spec, "0xFF"),
+            [("0xFF".into(), TokenRole::Number)]
+        );
+        assert_eq!(
+            tokenize(&spec, "3.14"),
+            [("3.14".into(), TokenRole::Number)]
+        );
+        assert_eq!(
+            tokenize(&spec, "\"hi\""),
+            [("\"hi\"".into(), TokenRole::Str)]
+        );
+        assert_eq!(
+            tokenize(&spec, "// c"),
+            [("// c".into(), TokenRole::Comment)]
+        );
+    }
+
+    #[test]
+    fn block_comment_spans_to_close() {
+        let spec = lang_spec("rust").unwrap();
+        assert_eq!(
+            tokenize(&spec, "/* a\nb */x"),
+            [
+                ("/* a\nb */".into(), TokenRole::Comment),
+                ("x".into(), TokenRole::Plain),
+            ]
+        );
+    }
+
+    #[test]
+    fn rust_single_quote_is_not_a_string() {
+        // Rust lifetimes use `'`, so single-quoted strings are disabled there:
+        // `'a` must not be swallowed as a string (it would mis-color generics).
+        let spec = lang_spec("rust").unwrap();
+        let toks = tokenize(&spec, "&'a str");
+        assert!(
+            toks.iter().all(|(_, r)| *r != TokenRole::Str),
+            "no string token expected in {toks:?}"
+        );
+    }
+
+    #[test]
+    fn python_single_quote_is_a_string() {
+        let spec = lang_spec("python").unwrap();
+        assert_eq!(tokenize(&spec, "'hi'"), [("'hi'".into(), TokenRole::Str)]);
+    }
+
+    #[test]
+    fn number_does_not_overrun_a_range() {
+        // `0..10` is two numbers around a `..`, never one giant token.
+        let spec = lang_spec("rust").unwrap();
+        let toks = tokenize(&spec, "0..10");
+        assert_eq!(toks.first(), Some(&("0".into(), TokenRole::Number)));
+        assert!(
+            toks.iter()
+                .any(|(t, r)| t == "10" && *r == TokenRole::Number),
+            "trailing 10 stays a number in {toks:?}"
+        );
+    }
+
+    #[test]
+    fn sql_keywords_are_case_insensitive_and_use_dash_comments() {
+        let spec = lang_spec("sql").unwrap();
+        assert_eq!(roles(&spec, "SELECT"), [TokenRole::Keyword]);
+        assert_eq!(roles(&spec, "select"), [TokenRole::Keyword]);
+        assert_eq!(
+            tokenize(&spec, "-- c"),
+            [("-- c".into(), TokenRole::Comment)]
+        );
+    }
+
+    #[test]
+    fn inline_path_preserves_bold_italic_code() {
+        // Footnote bodies now flow through `build_spans` (the shared inline
+        // path); bold/italic/code must survive as span styling, not flatten to
+        // plain text. Span derives `PartialEq`, so compare against the public
+        // builder output.
+        let specs = [
+            SpanSpec {
+                text: "b".into(),
+                inline: Inline {
+                    strong: true,
+                    ..Inline::default()
+                },
+                link: None,
+            },
+            SpanSpec {
+                text: "i".into(),
+                inline: Inline {
+                    emphasis: true,
+                    ..Inline::default()
+                },
+                link: None,
+            },
+            SpanSpec {
+                text: "c".into(),
+                inline: Inline {
+                    code: true,
+                    ..Inline::default()
+                },
+                link: None,
+            },
+        ];
+        let spans = build_spans(&specs);
+        assert_eq!(spans[0], span("b").weight(Weight::Semibold));
+        assert_eq!(spans[1], span("i").italic());
+        assert_eq!(spans[2], span("c").family(FamilyRole::Mono));
     }
 }
