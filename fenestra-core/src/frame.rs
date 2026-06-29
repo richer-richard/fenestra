@@ -230,9 +230,15 @@ pub struct TextLegibility {
     pub text: String,
     /// Resolved foreground (text) color.
     pub fg: crate::Color,
-    /// Effective background behind the text: the nearest solid ancestor fill,
-    /// or the window background when no ancestor fills.
+    /// Effective background behind the text. A solid ancestor fill, the window
+    /// background when no ancestor fills, or — for text over a gradient fill —
+    /// the worst-contrast gradient stop (the honest legibility bound). See
+    /// [`bg_uniform`](Self::bg_uniform).
     pub bg: crate::Color,
+    /// Whether [`bg`](Self::bg) is a single uniform color. `false` when the text
+    /// sits over a gradient fill, in which case `bg` is the worst-contrast stop
+    /// sampled across the field, so `passes_apca`/`passes_wcag2` are worst-case.
+    pub bg_uniform: bool,
     /// Rendered size in logical pixels.
     pub size_px: f32,
     /// Numeric OpenType weight.
@@ -342,6 +348,15 @@ fn solid_fill(style: &Style) -> Option<crate::Color> {
         Some(Paint::Solid(c)) => Some(*c),
         _ => None,
     }
+}
+
+/// The effective background field a node contributes during the legibility walk:
+/// a single solid color, or a gradient's stops. A gradient is not one color, so
+/// it is carried as its stops and sampled worst-case under each text node.
+#[derive(Clone)]
+enum BgField {
+    Solid(crate::Color),
+    Gradient(Vec<crate::style::GradientStop>),
 }
 
 /// The state-layer veil opacity for an element this frame: the strongest
@@ -2308,8 +2323,26 @@ impl Frame {
     /// `window_bg` is the color the frame is composited over (the theme
     /// background); the frame does not store it, so the caller supplies it.
     pub fn legibility(&self, window_bg: crate::Color) -> Vec<TextLegibility> {
-        fn walk(node: &FrameNode, inherited_bg: crate::Color, out: &mut Vec<TextLegibility>) {
-            let bg = solid_fill(&node.style).unwrap_or(inherited_bg);
+        /// A node's effective background: its own fill when it has one, else the
+        /// inherited field from its ancestors.
+        fn field_of(style: &Style, inherited: &BgField) -> BgField {
+            match &style.fill {
+                Some(Paint::Solid(c)) => BgField::Solid(*c),
+                Some(
+                    Paint::LinearGradient { stops, .. }
+                    | Paint::RadialGradient { stops, .. }
+                    | Paint::ConicGradient { stops, .. },
+                ) => BgField::Gradient(stops.clone()),
+                _ => inherited.clone(),
+            }
+        }
+        fn walk(
+            node: &FrameNode,
+            inherited: &BgField,
+            window_bg: crate::Color,
+            out: &mut Vec<TextLegibility>,
+        ) {
+            let bg = field_of(&node.style, inherited);
             let text_style = match &node.kind {
                 PaintKind::Text { text, style } => Some((text.clone(), style)),
                 PaintKind::Rich { spans, style } => Some((
@@ -2320,15 +2353,31 @@ impl Frame {
             };
             if let Some((text, style)) = text_style {
                 let fg = style.color;
-                let lc = crate::apca::lc_abs(fg, bg);
+                // A gradient is not one color: report the worst-contrast stop, the
+                // honest legibility bound for text anywhere over the field.
+                let (bg_color, bg_uniform) = match &bg {
+                    BgField::Solid(c) => (*c, true),
+                    BgField::Gradient(stops) => (
+                        stops
+                            .iter()
+                            .map(|s| s.color)
+                            .min_by(|a, b| {
+                                crate::apca::lc_abs(fg, *a).total_cmp(&crate::apca::lc_abs(fg, *b))
+                            })
+                            .unwrap_or(window_bg),
+                        false,
+                    ),
+                };
+                let lc = crate::apca::lc_abs(fg, bg_color);
                 let required_lc = crate::apca::required_lc(style.px, style.weight);
-                let wcag2 = crate::apca::wcag2_ratio(fg, bg);
+                let wcag2 = crate::apca::wcag2_ratio(fg, bg_color);
                 // WCAG large text: >= 24px (18pt), or >= 18.66px (14pt) bold.
                 let large = style.px >= 24.0 || (style.px >= 18.66 && style.weight >= 700.0);
                 out.push(TextLegibility {
                     text,
                     fg,
-                    bg,
+                    bg: bg_color,
+                    bg_uniform,
                     size_px: style.px,
                     weight: style.weight,
                     lc,
@@ -2340,13 +2389,14 @@ impl Frame {
                 });
             }
             for child in &node.children {
-                walk(child, bg, out);
+                walk(child, &bg, window_bg, out);
             }
         }
         let mut out = Vec::new();
-        walk(&self.root, window_bg, &mut out);
+        let root = BgField::Solid(window_bg);
+        walk(&self.root, &root, window_bg, &mut out);
         for overlay in &self.overlays {
-            walk(&overlay.node, window_bg, &mut out);
+            walk(&overlay.node, &root, window_bg, &mut out);
         }
         out
     }

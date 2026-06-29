@@ -916,8 +916,6 @@ impl<Msg> Element<Msg> {
         self
     }
 
-    /// Sets the accessible role and state projected into the accessibility
-    /// tree. Text, image, and input leaves project automatically.
     /// Maps the focused element's accumulated type-ahead buffer to a
     /// message: printable keystrokes append (1s window between them,
     /// Escape clears), and the handler sees the whole buffer — "che"
@@ -1011,6 +1009,9 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Sets the accessible role and state projected into the accessibility
+    /// tree. Text, image, and input leaves project their role automatically;
+    /// use this to set one on a custom element, or to override the default.
     pub fn semantics(mut self, semantics: Semantics) -> Self {
         self.semantics = Some(semantics);
         self

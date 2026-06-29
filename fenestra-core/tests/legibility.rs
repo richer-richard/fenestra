@@ -2,8 +2,8 @@
 //! the per-node evidence behind "prove this UI is legible".
 
 use fenestra_core::{
-    Color, Element, Fonts, Frame, FrameState, Semantics, Theme, build_frame, col, lc_abs, oklch,
-    text, wcag2_ratio,
+    Color, Element, Fonts, Frame, FrameState, Semantics, Theme, build_frame, col, lc_abs,
+    linear_gradient, oklch, text, wcag2_ratio,
 };
 
 fn frame_of(el: &Element<()>, theme: &Theme) -> Frame {
@@ -68,6 +68,43 @@ fn legibility_flags_low_contrast() {
         !report[0].passes_wcag2,
         "low-contrast text should fail WCAG 2: {:?}",
         report[0]
+    );
+}
+
+#[test]
+fn legibility_measures_gradient_background_not_solid_ancestor() {
+    // A text node over a GRADIENT fill: the effective background is the gradient
+    // itself, not the nearest *solid* ancestor. White text on a light gradient is
+    // illegible even though it would clear contrast against a dark window bg — the
+    // check must measure the gradient (worst-contrast stop), never fall through it.
+    // Before the fix, `solid_fill` returned None for gradients, so the check used
+    // the window bg → a silent FALSE PASS for any text on an authored gradient.
+    let theme = Theme::light();
+    let white = Color::from_rgba8(255, 255, 255, 255);
+    // A genuinely light gradient (two distinct light colors → stays a gradient).
+    let light_grad = linear_gradient(
+        0.0,
+        [
+            Color::from_rgba8(255, 255, 255, 255),
+            Color::from_rgba8(224, 224, 224, 255),
+        ],
+    );
+    let view: Element<()> = col()
+        .bg(light_grad)
+        .children([text("Invisible on light").color(white)]);
+    let frame = frame_of(&view, &theme);
+    // Window bg is BLACK: the buggy fall-through would report enormous contrast.
+    let report = frame.legibility(Color::from_rgba8(0, 0, 0, 255));
+    assert_eq!(report.len(), 1, "one text node, got {report:?}");
+    let item = &report[0];
+    assert!(
+        !item.bg_uniform,
+        "a gradient background is not a uniform color: {item:?}"
+    );
+    assert!(
+        !item.passes_apca,
+        "white text on a light gradient must FAIL APCA when measured against the \
+         gradient (not the black window bg): {item:?}"
     );
 }
 

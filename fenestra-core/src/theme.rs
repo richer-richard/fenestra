@@ -225,7 +225,7 @@ pub struct Theme {
     /// plain circular arc; `0.0` restores exact circular corners. The single
     /// knob that re-curves the whole kit — set via
     /// [`Theme::with_corner_smoothing`]. An element may still override it
-    /// per-corner with [`Style::corner_smoothing`]. Applied only where a corner
+    /// per-element with [`Style::corner_smoothing`]. Applied only where a corner
     /// radius is present, so square elements are unaffected.
     ///
     /// [`Style::corner_smoothing`]: crate::Style::corner_smoothing
