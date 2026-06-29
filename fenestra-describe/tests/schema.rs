@@ -9,9 +9,16 @@ fn schema_is_a_nontrivial_object_for_the_description() {
     let schema = description_schema();
     assert!(schema.is_object(), "the schema is a JSON object");
     let txt = serde_json::to_string(&schema).unwrap();
-    assert!(txt.len() > 1000, "the schema is substantial: {} bytes", txt.len());
+    assert!(
+        txt.len() > 1000,
+        "the schema is substantial: {} bytes",
+        txt.len()
+    );
     // The root carries the description's own fields.
-    assert!(txt.contains("\"root\""), "the `root` field is present: {txt:.0}");
+    assert!(
+        txt.contains("\"root\""),
+        "the `root` field is present: {txt:.0}"
+    );
     assert!(txt.contains("\"schema\""), "the `schema` field is present");
 }
 
