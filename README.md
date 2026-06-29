@@ -92,6 +92,20 @@ Headless rendering is deterministic (embedded fonts, fixed scale, reduced
 motion), which makes pixel-exact golden tests practical — fenestra's own
 widget kit is tested this way, on CI, with no GPU display attached.
 
+**The verification envelope, stated plainly.** A headless render is a
+deliberate *subset* of the live window — that subset is what makes it
+deterministic — so trust it accordingly. It uses the embedded fonts (Inter
+covers Latin; the real monospace, CJK, emoji, and RTL faces come from the OS
+and so appear only in a real window), forces reduced motion, and is
+referenced against one GPU backend (macOS/Metal; Linux/lavapipe within a
+wider tolerance). The full Liquid-Glass optics — backdrop blur, edge lensing,
+adaptive vibrancy — render only in the headless/golden path; the live
+single-pass window shows the translucent tint plus the specular rim and
+sheen. So headless is the right oracle for layout, semantics, color, and the
+large majority of pixels — but confirm non-Latin/monospace text and full
+glass in a window. On the web target, AccessKit, the OS clipboard, and the
+glass passes are compiled out.
+
 **Working with an AI agent?** [AGENTS.md](AGENTS.md) is the manual for the
 build → render → look → verify loop (and [llms.txt](llms.txt) for
 context loaders).

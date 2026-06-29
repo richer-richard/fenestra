@@ -16,6 +16,17 @@ Colors route through a `Theme` generated from accent hues; flip one value
 for dark mode. Rendering is a pure function of
 `(element tree, theme, size, scale)` plus one retained `FrameState`.
 
+**Verification envelope.** Headless rendering is a deterministic *subset* of
+the live window: embedded fonts (Inter/Latin — the real monospace, CJK,
+emoji, and RTL faces, plus the OS clipboard, appear only in a window),
+reduced motion, and one reference GPU backend (macOS/Metal; Linux/lavapipe
+within a wider tolerance). The full Liquid-Glass optics (backdrop blur, edge
+lensing, adaptive vibrancy) are headless-only; the live single-pass window
+shows the tint plus the specular rim and sheen. Trust headless for layout,
+semantics, color, and most pixels; confirm non-Latin/monospace text and full
+glass in a window. The web target compiles out AccessKit, the clipboard, and
+the glass passes.
+
 ## Docs
 
 - [AGENTS.md](AGENTS.md): how to author and verify fenestra UIs as an
