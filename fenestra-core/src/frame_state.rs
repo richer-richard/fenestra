@@ -328,6 +328,13 @@ impl FrameState {
         self.scroll.retain(|_, s| s.seen == frame_no);
     }
 
+    /// Drops variable-height virtual-list indices whose container was not in the
+    /// frame just built, mirroring [`Self::gc_scroll`] — a dynamically keyed
+    /// virtual list cannot leak one `HeightIndex` per distinct id forever.
+    pub(crate) fn gc_virtual_heights(&mut self, frame_no: u64) {
+        self.virtual_heights.retain(|_, h| h.seen == frame_no);
+    }
+
     /// Scrollbar opacity for an id: 1.0 while scrolling (held briefly), then
     /// fading to 0. With `reduced_motion` the fade is a step function.
     pub(crate) fn scrollbar_alpha(&self, id: WidgetId) -> f32 {
@@ -401,6 +408,14 @@ impl FrameState {
     pub fn exiting_ghost_translate(&self, id: WidgetId) -> Option<(f32, f32)> {
         self.exiting.get(&id).map(|r| r.ghost.style.translate)
     }
+
+    /// Whether variable-height virtual-list bookkeeping is retained for `id`
+    /// (test hook; mirrors [`Self::has_anim`]). Frame-stamped and GC'd, so it is
+    /// only `true` while the container is present.
+    #[doc(hidden)]
+    pub fn has_virtual_heights(&self, id: WidgetId) -> bool {
+        self.virtual_heights.contains_key(&id)
+    }
 }
 
 /// Row-height bookkeeping for one variable-height virtual list:
@@ -413,6 +428,8 @@ pub(crate) struct HeightIndex {
     /// prefix[i] = offset of row i; prefix[count] = total height.
     prefix: Vec<f32>,
     dirty: bool,
+    /// Frame stamp for garbage collection, like `Scroll::seen`.
+    seen: u64,
 }
 
 impl HeightIndex {
@@ -446,9 +463,17 @@ impl HeightIndex {
             heights: Vec::new(),
             prefix: Vec::new(),
             dirty: true,
+            seen: 0,
         };
         index.ensure(count, estimate);
         index
+    }
+
+    /// Stamps this index alive for the current frame, so
+    /// [`FrameState::gc_virtual_heights`] keeps it. Called each frame the
+    /// container materializes (mirrors `Scroll::seen`).
+    pub(crate) fn mark_seen(&mut self, frame_no: u64) {
+        self.seen = frame_no;
     }
 
     /// Offset of a row's top edge.

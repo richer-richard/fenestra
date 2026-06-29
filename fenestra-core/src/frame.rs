@@ -985,11 +985,15 @@ fn expand_virtual<Msg>(
     let offset = state.scroll_offset(id);
     if v.variable {
         const OVERSCAN: usize = 8;
+        let frame_no = state.frame_no;
         let index = state
             .virtual_heights
             .entry(id)
             .or_insert_with(|| crate::frame_state::HeightIndex::new_with(v.count, v.row_height));
         index.ensure(v.count, v.row_height);
+        // Stamp the container alive this frame so `gc_virtual_heights` keeps it;
+        // a container absent next frame is dropped instead of leaking.
+        index.mark_seen(frame_no);
         let first = index.index_at(offset).saturating_sub(OVERSCAN);
         let last = (index.index_at(offset + viewport.max(0.0)) + 1 + OVERSCAN).min(v.count);
         let window = first..last;
@@ -1795,6 +1799,7 @@ pub fn build_frame<Msg>(
     state.anims.retain(|_, a| a.seen == frame_no);
     state.editors.retain(|_, e| e.seen == frame_no);
     state.gc_scroll(frame_no);
+    state.gc_virtual_heights(frame_no);
 
     // Right-to-left: mirror the realized geometry horizontally as a final pass.
     // All motion math (FLIP deltas, `prev_rects` above) stays in logical,
