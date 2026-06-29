@@ -63,7 +63,11 @@ fn verify_focus_order_expectation() {
             "expect": {{ "focus_order": ["email", "go"] }} }}"#
     ));
     let out = verify(&s).expect("scenario runs");
-    assert!(out.report.ok, "focus order matches: {:?}", out.report.checks);
+    assert!(
+        out.report.ok,
+        "focus order matches: {:?}",
+        out.report.checks
+    );
     let names: Vec<&str> = out.report.checks.iter().map(|c| c.name.as_str()).collect();
     assert!(names.contains(&"focus_order"), "{names:?}");
 
@@ -73,7 +77,11 @@ fn verify_focus_order_expectation() {
             "expect": {{ "focus_order": ["go", "email"] }} }}"#
     ));
     let out = verify(&bad).expect("scenario runs");
-    assert!(!out.report.ok, "reversed order should fail: {:?}", out.report.checks);
+    assert!(
+        !out.report.ok,
+        "reversed order should fail: {:?}",
+        out.report.checks
+    );
 }
 
 /// A `layout` expectation flags an off-screen control and passes a normal one.

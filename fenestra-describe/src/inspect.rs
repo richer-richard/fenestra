@@ -153,7 +153,10 @@ pub fn tree_layout_report(tree: &AccessNodeDto, size: (u32, u32)) -> LayoutRepor
         if node.focusable && b.w.min(b.h) < MIN_HIT_TARGET {
             small.push(finding(
                 node,
-                format!("{:.0}x{:.0} below the {MIN_HIT_TARGET:.0}px minimum hit target", b.w, b.h),
+                format!(
+                    "{:.0}x{:.0} below the {MIN_HIT_TARGET:.0}px minimum hit target",
+                    b.w, b.h
+                ),
             ));
         }
         // A signal-bearing node outside the window is clipped / unreachable. A

@@ -230,7 +230,10 @@ fn access_tree_carries_numeric_widget_values() {
     assert_eq!(slider.value_now, Some(0.5), "{slider:?}");
     assert_eq!(slider.value_min, Some(0.0));
     assert_eq!(slider.value_max, Some(1.0));
-    let meter = flat.iter().find(|n| n.role == "meter").expect("a meter node");
+    let meter = flat
+        .iter()
+        .find(|n| n.role == "meter")
+        .expect("a meter node");
     assert_eq!(meter.value_now, Some(62.0), "{meter:?}");
     assert_eq!(meter.value_min, Some(0.0));
     assert_eq!(meter.value_max, Some(100.0));
@@ -260,7 +263,12 @@ fn selector_matches_by_state() {
         ..Default::default()
     };
     let res2 = query(&d, &Theme::light(), (400, 300), &state_only).unwrap();
-    assert_eq!(res2.matches.len(), 1, "state-only selector: {:?}", res2.matches);
+    assert_eq!(
+        res2.matches.len(),
+        1,
+        "state-only selector: {:?}",
+        res2.matches
+    );
     assert_eq!(res2.matches[0].name.as_deref(), Some("A"));
 
     // Range threshold: sliders at or above 0.5.
@@ -335,28 +343,61 @@ fn tree_layout_report_flags_small_targets_and_offscreen() {
         false,
         b(0.0, 0.0, 800.0, 600.0),
         vec![
-            node("tiny", "button", Some("tiny"), true, b(10.0, 10.0, 16.0, 16.0), vec![]),
-            node("ok", "button", Some("ok"), true, b(10.0, 40.0, 80.0, 32.0), vec![]),
-            node("off", "button", Some("offscreen"), true, b(900.0, 10.0, 80.0, 32.0), vec![]),
+            node(
+                "tiny",
+                "button",
+                Some("tiny"),
+                true,
+                b(10.0, 10.0, 16.0, 16.0),
+                vec![],
+            ),
+            node(
+                "ok",
+                "button",
+                Some("ok"),
+                true,
+                b(10.0, 40.0, 80.0, 32.0),
+                vec![],
+            ),
+            node(
+                "off",
+                "button",
+                Some("offscreen"),
+                true,
+                b(900.0, 10.0, 80.0, 32.0),
+                vec![],
+            ),
         ],
     );
     let report = tree_layout_report(&tree, (800, 600));
     assert!(
-        report.small_targets.iter().any(|f| f.name.as_deref() == Some("tiny")),
+        report
+            .small_targets
+            .iter()
+            .any(|f| f.name.as_deref() == Some("tiny")),
         "tiny target flagged: {:?}",
         report.small_targets
     );
     assert!(
-        !report.small_targets.iter().any(|f| f.name.as_deref() == Some("ok")),
+        !report
+            .small_targets
+            .iter()
+            .any(|f| f.name.as_deref() == Some("ok")),
         "an adequately sized control is not flagged"
     );
     assert!(
-        report.offscreen.iter().any(|f| f.name.as_deref() == Some("offscreen")),
+        report
+            .offscreen
+            .iter()
+            .any(|f| f.name.as_deref() == Some("offscreen")),
         "off-window node flagged: {:?}",
         report.offscreen
     );
     assert!(
-        !report.offscreen.iter().any(|f| f.name.as_deref() == Some("ok")),
+        !report
+            .offscreen
+            .iter()
+            .any(|f| f.name.as_deref() == Some("ok")),
         "an on-screen control is not flagged"
     );
 }

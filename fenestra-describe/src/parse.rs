@@ -708,7 +708,9 @@ fn icon_node(i: &IconNode, path: &str, errors: &mut Vec<DescribeError>) -> Eleme
                 format!(
                     "unknown icon {:?}; known names: {}",
                     i.name,
-                    fenestra_kit::icons::lucide::names().collect::<Vec<_>>().join(", ")
+                    fenestra_kit::icons::lucide::names()
+                        .collect::<Vec<_>>()
+                        .join(", ")
                 ),
             ));
             spacer()

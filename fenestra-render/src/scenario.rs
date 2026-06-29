@@ -361,8 +361,8 @@ fn produce(scenario: &Scenario, theme: &Theme, size: (u32, u32)) -> Result<Produ
         let out = engine::render(&scenario.description, theme, size)?;
         let aria = inspect::aria_snapshot(&scenario.description, theme, size)
             .map_err(EngineError::Parse)?;
-        let focus_order = inspect::focus_order(&scenario.description, theme, size)
-            .map_err(EngineError::Parse)?;
+        let focus_order =
+            inspect::focus_order(&scenario.description, theme, size).map_err(EngineError::Parse)?;
         Ok(Produced {
             tree: out.tree,
             aria,
