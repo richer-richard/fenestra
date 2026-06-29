@@ -346,16 +346,35 @@ impl<Msg> Pagination<Msg> {
     }
 }
 
+/// The widest sibling window a pagination strip will honor. The strip shows at
+/// most `2 * siblings + 1` numbers around the current page; real pagers use one
+/// or two, so 50 (up to 101 numbers) is already far beyond any legitimate use
+/// and caps a hostile value before it can balloon the rendered strip into an
+/// out-of-memory allocation.
+const MAX_PAGINATION_SIBLINGS: usize = 50;
+
+/// The largest page count a pagination strip will address. The strip only ever
+/// materializes the first page, the last page, and the window around the
+/// current one — never a cell per page — so this bounds the "last page" label
+/// and the focusable range without affecting any realistic numbered pager.
+const MAX_PAGINATION_PAGES: usize = 10_000;
+
 impl<Msg> From<Pagination<Msg>> for Element<Msg> {
     fn from(p: Pagination<Msg>) -> Self {
-        let count = p.count.max(1);
+        // Clamp hostile inputs before they reach the window math: a ~2e9 `count`
+        // and `siblings` would otherwise build a multi-billion-cell strip (OOM),
+        // and `page + siblings` could overflow `usize`.
+        let count = p.count.clamp(1, MAX_PAGINATION_PAGES);
         let page = p.page.clamp(1, count);
+        let siblings = p.siblings.min(MAX_PAGINATION_SIBLINGS);
         let f = p.on_select;
         let emit = |n: usize| f.as_ref().map(|f| f(n));
 
         // The visible page numbers: first, last, and a window around current.
-        let lo = page.saturating_sub(p.siblings).max(1);
-        let hi = (page + p.siblings).min(count);
+        // Saturating arithmetic keeps the window from overflowing even before
+        // the clamps above take effect.
+        let lo = page.saturating_sub(siblings).max(1);
+        let hi = page.saturating_add(siblings).min(count);
         let mut shown: Vec<usize> = vec![1, count];
         shown.extend(lo..=hi);
         shown.sort_unstable();

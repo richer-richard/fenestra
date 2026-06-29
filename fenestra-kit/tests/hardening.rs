@@ -1,8 +1,11 @@
 //! Robustness regressions from the security/hardening audit: widget
 //! callbacks must never emit values the host cannot use safely.
 
-use fenestra_core::{App, Element, Key, KeyInput, SP4, Theme, col};
-use fenestra_kit::{select, text_input};
+use fenestra_core::{
+    AccessNode, App, Element, Fonts, FrameState, Key, KeyInput, SP4, Semantics, Theme, build_frame,
+    col,
+};
+use fenestra_kit::{pagination, select, text_input};
 use fenestra_shell::{SyntheticEvent, render_app};
 
 struct PickEmpty {
@@ -110,5 +113,35 @@ fn empty_select_never_emits_an_index() {
     assert_eq!(
         app.picked, None,
         "an empty select emitted an option index that does not exist"
+    );
+}
+
+/// Counts the focusable page/arrow cells (the `Button`-roled nodes) a frame
+/// exposes — the pagination strip's materialized cells.
+fn count_buttons(node: &AccessNode) -> usize {
+    let here = usize::from(matches!(node.semantics, Some(Semantics::Button)));
+    here + node.children.iter().map(count_buttons).sum::<usize>()
+}
+
+/// A pagination strip fed an adversarial page count and sibling window must not
+/// try to materialize one cell per page. Before the clamp, `page + siblings`
+/// overflowed `usize` (a debug panic; in release it wrapped to a ~1.8e19-wide
+/// `lo..=hi` range that OOMs building a cell per page). The window is now
+/// clamped to a small constant and the arithmetic saturates, so the strip stays
+/// tiny regardless of input.
+#[test]
+fn pagination_clamps_adversarial_count_and_siblings() {
+    let view: Element<()> = pagination(usize::MAX, usize::MAX)
+        .siblings(usize::MAX)
+        .on_select(|_| ())
+        .into();
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (800.0, 80.0), 1.0);
+    let buttons = count_buttons(&frame.access_tree());
+    assert!(
+        buttons <= 128,
+        "pagination must clamp its window to a small constant; got {buttons} materialized cells"
     );
 }
