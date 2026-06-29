@@ -25,7 +25,7 @@ use crate::state::StateMap;
 pub const SCHEMA_V1: &str = "fenestra/1";
 
 /// A complete serialized UI: a schema tag, the root node, and an optional theme.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Description {
     /// Must equal [`SCHEMA_V1`]. Load-bearing from day one.
@@ -43,9 +43,20 @@ pub struct Description {
     pub state: StateMap,
 }
 
+/// The JSON Schema for a `fenestra/1` [`Description`] — a machine-checkable input
+/// grammar a client can validate or autocomplete against *before* a round-trip,
+/// the formal complement to the prose [`crate::vocabulary::describe_vocabulary`].
+/// Derived from the format types, so it can never drift from what the parser
+/// accepts (the externally-tagged nodes, `deny_unknown_fields`, and the untagged
+/// color/track unions all express precisely in the schema).
+#[must_use]
+pub fn description_schema() -> serde_json::Value {
+    schemars::schema_for!(Description).to_value()
+}
+
 /// One node in the tree. Externally tagged: each node object carries exactly
 /// one variant key. Unknown keys are rejected as unknown variants.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Node {
     // ── Layout containers ─────────────────────────────────────────────────
@@ -140,7 +151,7 @@ pub enum Node {
 }
 
 /// A flex/grid container: children plus a style block.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Container {
     /// Child nodes, in paint order.
@@ -162,7 +173,7 @@ pub struct Container {
 }
 
 /// A run of text and its type styling.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TextNode {
     /// The text to display.
@@ -182,7 +193,7 @@ pub struct TextNode {
 }
 
 /// An activatable button.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ButtonNode {
     /// The visible, accessible label.
@@ -208,7 +219,7 @@ pub struct ButtonNode {
 }
 
 /// A two-state checkbox.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CheckboxNode {
     /// Checked state.
@@ -232,7 +243,7 @@ pub struct CheckboxNode {
 }
 
 /// An on/off switch.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SwitchNode {
     /// On state.
@@ -256,7 +267,7 @@ pub struct SwitchNode {
 }
 
 /// One option of a radio group.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RadioNode {
     /// Selected state (ignored when `group` + `value` are set — derived from state).
@@ -285,7 +296,7 @@ pub struct RadioNode {
 }
 
 /// A numeric slider over the normalized range `0.0..=1.0`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SliderNode {
     /// Current value, `0.0..=1.0`.
@@ -309,7 +320,7 @@ pub struct SliderNode {
 }
 
 /// A text field (single- or multi-line, by node variant).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct InputNode {
     /// Current text value.
@@ -336,7 +347,7 @@ pub struct InputNode {
 }
 
 /// A drop-down selector.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SelectNode {
     /// The list of option labels (must be non-empty).
@@ -359,7 +370,7 @@ pub struct SelectNode {
 }
 
 /// An underline tab strip.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TabsNode {
     /// The list of tab labels (must be non-empty).
@@ -382,7 +393,7 @@ pub struct TabsNode {
 }
 
 /// A compact single-select view switcher (segmented control).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SegmentedNode {
     /// The list of segment labels (must be non-empty).
@@ -408,7 +419,7 @@ pub struct SegmentedNode {
 }
 
 /// A breadcrumb trail of ancestor links ending in the current page.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BreadcrumbsNode {
     /// The crumb labels in order; the last is the current (non-link) page.
@@ -432,7 +443,7 @@ pub struct BreadcrumbsNode {
 }
 
 /// A numbered pagination strip with prev/next arrows.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct PaginationNode {
     /// Total number of pages (must be at least 1).
@@ -458,7 +469,7 @@ pub struct PaginationNode {
 }
 
 /// A horizontal step indicator for a multi-step flow.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StepperNode {
     /// The step titles in order.
@@ -484,7 +495,7 @@ pub struct StepperNode {
 }
 
 /// A compact number stepper (a value flanked by − / + step buttons).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SpinButtonNode {
     /// The displayed value, app-formatted (`"3"`, `"$5.00"`, `"2.5×"`).
@@ -513,7 +524,7 @@ pub struct SpinButtonNode {
 }
 
 /// A measurement meter within a known range, with optional semantic zones.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MeterNode {
     /// The measured value.
@@ -549,7 +560,7 @@ pub struct MeterNode {
 }
 
 /// One section of an accordion: a header title and nested body content.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AccordionItemDto {
     /// The header title.
@@ -559,7 +570,7 @@ pub struct AccordionItemDto {
 }
 
 /// A stack of expandable disclosure sections.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AccordionNode {
     /// The sections, in order.
@@ -582,7 +593,7 @@ pub struct AccordionNode {
 }
 
 /// A status pill badge.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct BadgeNode {
     /// The label text.
@@ -599,7 +610,7 @@ pub struct BadgeNode {
 }
 
 /// A status callout: tinted background, left status border, icon, and message.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct CalloutNode {
     /// Status: `accent` | `danger` | `warning` | `success`.
@@ -615,7 +626,7 @@ pub struct CalloutNode {
 }
 
 /// A metric card with a muted label, large value, and optional delta badge.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StatCardNode {
     /// Muted label (e.g. "Revenue").
@@ -637,7 +648,7 @@ pub struct StatCardNode {
 }
 
 /// A circular initials avatar in the accent tint.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct AvatarNode {
     /// One or two initials to display (e.g. "JD").
@@ -651,7 +662,7 @@ pub struct AvatarNode {
 }
 
 /// A status dot + label indicator.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct StatusNode {
     /// The label text (e.g. "Operational").
@@ -671,7 +682,7 @@ pub struct StatusNode {
 }
 
 /// A keyboard key-cap chord.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct KbdNode {
     /// The key(s) in the chord. Modifier names (`cmd`, `ctrl`, `opt`, `shift`,
@@ -689,7 +700,7 @@ pub struct KbdNode {
 }
 
 /// A 4px progress bar.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProgressNode {
     /// Fill level, clamped to `0.0..=1.0`.
@@ -706,7 +717,7 @@ pub struct ProgressNode {
 }
 
 /// A loading placeholder.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct SkeletonNode {
     /// Shape variant: `rect` (default) | `circle` | `text`.
@@ -730,7 +741,7 @@ pub struct SkeletonNode {
 }
 
 /// A named Lucide icon (24×24, stroked).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct IconNode {
     /// The Lucide icon name (e.g. `"plus"`, `"check"`, `"settings"`). Unknown
@@ -745,7 +756,7 @@ pub struct IconNode {
 }
 
 /// A centered modal dialog with title, children, and an optional close handler.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ModalNode {
     /// The dialog title shown in the header.
@@ -768,7 +779,7 @@ pub struct ModalNode {
 }
 
 /// A hover tooltip wrapping a target node.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TooltipNode {
     /// The tooltip label shown on hover.
@@ -784,7 +795,7 @@ pub struct TooltipNode {
 }
 
 /// A childless decorative node (divider, spacer, spinner).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Leaf {
     /// Layout and appearance.
@@ -799,7 +810,7 @@ pub struct Leaf {
 }
 
 /// A linear gradient background.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct GradientSpec {
     /// Gradient angle in degrees (0 = top→bottom, 90 = left→right).
@@ -811,7 +822,7 @@ pub struct GradientSpec {
 /// Layout and appearance props shared by containers, text, and leaves. Every
 /// field is optional; spacing is in logical pixels. `color`/`size_px`/`weight`
 /// apply only to text nodes.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Style {
     /// Padding on all sides.
@@ -1017,7 +1028,7 @@ pub struct Style {
 /// A Liquid Glass specular edge rim in JSON: the `"glass"` preset, or explicit
 /// levers `{ "light_deg", "intensity", "shade" }`. Mirrors
 /// [`fenestra_core::SpecularEdge`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum EdgeSpec {
     /// A named preset — currently only `"glass"`.
@@ -1035,7 +1046,7 @@ pub enum EdgeSpec {
 
 /// A directional body sheen in JSON: the `"glass"` preset, or explicit levers
 /// `{ "light_deg", "top", "bottom" }`. Mirrors [`fenestra_core::Sheen`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum SheenSpec {
     /// A named preset — currently only `"glass"`.
@@ -1053,7 +1064,7 @@ pub enum SheenSpec {
 
 /// Backdrop-adaptive vibrancy in JSON: the `"glass"` preset, or explicit levers
 /// `{ "pivot", "gain" }`. Mirrors [`fenestra_core::AdaptiveTint`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum AdaptiveSpec {
     /// A named preset — currently only `"glass"`.
@@ -1070,7 +1081,7 @@ pub enum AdaptiveSpec {
 /// A translucent vibrancy material in JSON: a [`ColorSpec`] `tint` plus the
 /// `fill_alpha` / `blur` / `saturation` levers. Mirrors [`fenestra_core::Material`]
 /// — the custom-glass escape hatch behind `surface: "glass"`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MaterialSpec {
     /// Base color the vibrancy tint is derived from.
@@ -1085,7 +1096,7 @@ pub struct MaterialSpec {
 
 /// A foreground filter in JSON: `{ "blur": r }` | `{ "brightness": m }` |
 /// `{ "saturate": m }`. Mirrors [`fenestra_core::ElementFilter`].
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum FilterSpec {
     /// Gaussian blur of this element's own content (radius in logical px).
@@ -1102,7 +1113,7 @@ pub enum FilterSpec {
 /// (`Track` / `GridTemplate`), so `repeat(auto-fit, minmax(180px, 1fr))` — the
 /// responsive grid — is authorable as
 /// `{"repeat": {"count": "auto-fit", "tracks": [{"minmax": ["180px", "1fr"]}]}}`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum TrackSpec {
     /// A single track as a keyword/length string.
@@ -1113,7 +1124,7 @@ pub enum TrackSpec {
 
 /// The structured form of a [`TrackSpec`]: exactly one of `minmax`, `fit_content`,
 /// or `repeat`.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TrackObj {
     /// `minmax(min, max)` — two track strings, e.g. `["180px", "1fr"]`.
@@ -1128,7 +1139,7 @@ pub struct TrackObj {
 }
 
 /// A `repeat(count, tracks)` fragment.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct RepeatSpec {
     /// A positive integer count, or `"auto-fit"` / `"auto-fill"`.
@@ -1138,7 +1149,7 @@ pub struct RepeatSpec {
 }
 
 /// How many times a `repeat(...)` is generated.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum RepeatCount {
     /// Exactly `n` repetitions.
@@ -1150,7 +1161,7 @@ pub enum RepeatCount {
 /// A color reference: a theme role name, or an explicit OKLCH triple. A raw hex
 /// string is not a known role, so it is rejected at color resolution — colors
 /// come from the theme, never an arbitrary literal.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum ColorSpec {
     /// A theme role name, e.g. `"surface"`, `"accent"`, `"text"`, `"danger"`.
@@ -1160,7 +1171,7 @@ pub enum ColorSpec {
 }
 
 /// The OKLCH escape hatch payload: `{ "oklch": [lightness, chroma, hue] }`.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct OklchColor {
     /// `[lightness 0..=1, chroma, hue degrees]`.
@@ -1168,7 +1179,7 @@ pub struct OklchColor {
 }
 
 /// A border: a width in logical pixels and a color.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct Border {
     /// Stroke width in logical pixels.
@@ -1178,7 +1189,7 @@ pub struct Border {
 }
 
 /// A surface-framed toolbar grouping action controls.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ToolbarNode {
     /// The controls, in order.
@@ -1199,7 +1210,7 @@ pub struct ToolbarNode {
 }
 
 /// One item of a menubar dropdown.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MenuItemDto {
     /// The item label.
@@ -1210,7 +1221,7 @@ pub struct MenuItemDto {
 }
 
 /// One top-level menu of a menubar.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MenubarMenuDto {
     /// The trigger title.
@@ -1221,7 +1232,7 @@ pub struct MenubarMenuDto {
 }
 
 /// An application menu bar.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct MenubarNode {
     /// The top-level menus, in order.
@@ -1233,7 +1244,7 @@ pub struct MenubarNode {
 }
 
 /// An edge-anchored drawer / sheet panel.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct DrawerNode {
     /// Optional heading shown at the top of the panel.

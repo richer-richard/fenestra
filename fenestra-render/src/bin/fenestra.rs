@@ -11,7 +11,7 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use fenestra_core::Theme;
-use fenestra_describe::format::Description;
+use fenestra_describe::format::{Description, description_schema};
 use fenestra_describe::inspect::{
     AriaMode, Selector, check_a11y, focus_order, layout_report, match_aria, query,
 };
@@ -137,6 +137,8 @@ enum Command {
     },
     /// Print the description grammar (node types, color roles).
     Vocabulary,
+    /// Print the JSON Schema for the fenestra/1 description format.
+    Schema,
     /// Validate a description without rendering.
     Validate { desc: Option<PathBuf> },
     /// Run a scenario: drive its steps, assert every expectation, one verdict.
@@ -204,6 +206,7 @@ fn main() -> ExitCode {
             out,
         } => cmd_match_png(desc, &baseline, tolerance, budget, &size, theme, out),
         Command::Vocabulary => cmd_vocabulary(),
+        Command::Schema => cmd_schema(),
         Command::Validate { desc } => cmd_validate(desc),
         Command::Verify {
             scenario,
@@ -412,6 +415,11 @@ fn cmd_layout(desc: Option<PathBuf>, size: &str, theme: Option<PathBuf>) -> Exit
 
 fn cmd_vocabulary() -> ExitCode {
     print_json(&describe_vocabulary());
+    ExitCode::SUCCESS
+}
+
+fn cmd_schema() -> ExitCode {
+    print_json(&description_schema());
     ExitCode::SUCCESS
 }
 

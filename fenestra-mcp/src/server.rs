@@ -1,4 +1,4 @@
-//! The fenestra MCP server: eleven tools that render and verify a UI described as
+//! The fenestra MCP server: twelve tools that render and verify a UI described as
 //! `fenestra/1` JSON. Each tool leads with a typed structured result (the access
 //! tree, a report, a diff); visual tools also attach a downscaled preview image.
 //!
@@ -238,6 +238,16 @@ impl FenestraServer {
     }
 
     #[tool(
+        name = "describe_schema",
+        description = "Return the formal JSON Schema for a fenestra/1 description — a machine-checkable input grammar to validate or autocomplete against before rendering, the structured complement to describe_vocabulary's prose grammar."
+    )]
+    async fn describe_schema(&self) -> CallToolResult {
+        let schema = describe::format::description_schema();
+        let text = serde_json::to_string_pretty(&schema).unwrap_or_default();
+        content::ok(text, schema, None)
+    }
+
+    #[tool(
         name = "validate",
         description = "Validate a fenestra/1 description without rendering. Structural problems (unknown fields, bad node tags) and semantic ones (an unknown color role) come back path-pointed. Returns isError when the description is invalid."
     )]
@@ -316,7 +326,8 @@ impl ServerHandler for FenestraServer {
         info.server_info.version = env!("CARGO_PKG_VERSION").to_string();
         info.instructions = Some(
             "fenestra renders and verifies native UIs described as fenestra/1 JSON. Call \
-             describe_vocabulary first to learn the format; render_ui to see a UI and its \
+             describe_vocabulary first to learn the format (describe_schema for the formal \
+             JSON Schema); render_ui to see a UI and its \
              accessibility warnings; query_ui, check_a11y, focus_order, check_layout, \
              match_aria_snapshot, and \
              match_screenshot to assert; interact to drive it; run_scenario to drive steps \
@@ -526,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn tool_list_has_all_eleven_with_schemas() {
+    fn tool_list_has_all_twelve_with_schemas() {
         let tools = FenestraServer::tool_router().list_all();
         let names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
         for expected in [
@@ -539,6 +550,7 @@ mod tests {
             "match_aria_snapshot",
             "match_screenshot",
             "describe_vocabulary",
+            "describe_schema",
             "validate",
             "run_scenario",
         ] {
@@ -547,7 +559,7 @@ mod tests {
                 "missing {expected}; have {names:?}"
             );
         }
-        assert_eq!(names.len(), 11, "exactly eleven tools");
+        assert_eq!(names.len(), 12, "exactly twelve tools");
         // Every tool advertises an input schema object.
         for t in &tools {
             assert!(!t.input_schema.is_empty(), "{} has no input schema", t.name);
