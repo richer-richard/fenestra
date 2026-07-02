@@ -171,7 +171,11 @@ fn load(path: Option<&std::path::Path>) -> Result<Composition, String> {
             (src, false)
         }
     };
-    if is_json {
+    // Sniff the syntax so error messages come from the right parser: a
+    // brace-led document is JSON regardless of extension (otherwise a JSON
+    // doc's good path-pointed compile error would be masked by a RON
+    // syntax error).
+    if is_json || src.trim_start().starts_with('{') {
         return Composition::from_json(&src).map_err(|e| e.to_string());
     }
     Composition::from_ron(&src)

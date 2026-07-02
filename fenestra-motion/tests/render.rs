@@ -114,6 +114,69 @@ fn transparent_background_writes_straight_alpha() {
 }
 
 #[test]
+fn a_single_thread_pool_still_renders_a_sequence() {
+    // Regression: the ordered-writer pipeline must not require a second
+    // rayon thread (the writer used to be a join arm that a 1-thread pool
+    // never reached — producers filled the bounded channel and hung).
+    let pool = rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build()
+        .expect("pool");
+    let comp = comp();
+    let dir = std::env::temp_dir().join(format!("fenestra-motion-1t-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    pool.install(|| comp.render_png_sequence(0..6, &dir))
+        .expect("sequence on one thread");
+    for f in 0..6u64 {
+        assert!(dir.join(format!("frame_{f:05}.png")).exists());
+    }
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn a_write_error_mid_sequence_propagates() {
+    let comp = comp();
+    let dir = std::env::temp_dir().join(format!("fenestra-motion-werr-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    // Squat a directory on the first frame's path: fs::write must fail and
+    // the pipeline must surface it instead of reporting success.
+    std::fs::create_dir_all(dir.join("frame_00000.png")).expect("squat");
+    let err = comp
+        .render_png_sequence(0..6, &dir)
+        .expect_err("the writer's failure is the caller's failure");
+    assert!(
+        matches!(err, fenestra_motion::MotionError::Io(_)),
+        "an io error, loudly: {err}"
+    );
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn a_failing_ffmpeg_reports_its_stderr_not_a_broken_pipe() {
+    if std::process::Command::new("ffmpeg")
+        .arg("-version")
+        .output()
+        .is_err()
+    {
+        eprintln!("SKIP: no ffmpeg on PATH");
+        return;
+    }
+    let comp = comp();
+    // An output directory that doesn't exist: ffmpeg exits nonzero after
+    // failing to open it, closing our pipe mid-stream. The error must carry
+    // ffmpeg's own diagnostic, not the writer's broken pipe.
+    let out = std::path::Path::new("/nonexistent-fenestra-motion-dir/out.mp4");
+    let err = comp
+        .render_video(0..12, out)
+        .expect_err("unwritable output fails");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("ffmpeg failed"),
+        "ffmpeg's stderr tail survives the broken pipe: {msg}"
+    );
+}
+
+#[test]
 fn missing_ffmpeg_binary_fails_with_its_name() {
     let comp = comp();
     let out = std::env::temp_dir().join("fenestra-motion-missing.mp4");

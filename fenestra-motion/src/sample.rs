@@ -84,6 +84,7 @@ impl<'a> SampledScene<'a> {
 
     /// Visible clip ids in paint order (bottom first). The ids borrow the
     /// composition, not this scene, so they outlive a probe chain.
+    #[must_use]
     pub fn paint_order(&self) -> Vec<&'a str> {
         self.entries
             .iter()
@@ -94,6 +95,7 @@ impl<'a> SampledScene<'a> {
 
     /// One clip's resolved props, bbox, and visibility; `None` for an
     /// unknown id.
+    #[must_use]
     pub fn resolve(&self, id: &str) -> Option<ResolvedClip> {
         let entry = self
             .entries
@@ -110,6 +112,7 @@ impl<'a> SampledScene<'a> {
     /// This frame's element tree: a full-canvas z-stack, one anchored
     /// wrapper per visible clip carrying the resolved style props. The
     /// renderer rasterizes exactly this.
+    #[must_use]
     pub fn element(&self) -> Element<()> {
         #[expect(
             clippy::cast_precision_loss,

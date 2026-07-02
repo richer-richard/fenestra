@@ -191,8 +191,13 @@ impl Composition {
     ) -> Result<(), MotionError> {
         let size = format!("{}x{}", self.width, self.height);
         let rate = self.fps.to_string();
+        // -nostats -loglevel error keeps stderr near-silent during a healthy
+        // encode: the pipe stays far below the OS buffer, so ffmpeg never
+        // blocks on stderr (which would stop it reading stdin and deadlock
+        // the frame writer). Real errors still print, bounded, before exit.
         let mut child = std::process::Command::new(ffmpeg)
-            .args(["-y", "-f", "rawvideo", "-pix_fmt", "rgba", "-s", &size])
+            .args(["-y", "-nostats", "-loglevel", "error"])
+            .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-s", &size])
             .args(["-r", &rate, "-i", "-", "-pix_fmt", "yuv420p"])
             .arg(out.as_ref())
             .stdin(std::process::Stdio::piped())
@@ -217,59 +222,77 @@ impl Composition {
         );
         drop(stdin);
         let output = child.wait_with_output()?;
-        piped?;
+        // An ffmpeg failure closes our pipe mid-stream, so `piped` holds a
+        // broken-pipe error that would mask the real diagnostic: report the
+        // encoder's own stderr first, and never leave a truncated file
+        // behind on any error path.
         if !output.status.success() {
+            let _ = std::fs::remove_file(out.as_ref());
             let stderr = String::from_utf8_lossy(&output.stderr);
             let tail: Vec<&str> = stderr.lines().rev().take(12).collect();
             let tail: Vec<&str> = tail.into_iter().rev().collect();
             return Err(MotionError::Ffmpeg(tail.join("\n")));
         }
+        if let Err(e) = piped {
+            let _ = std::fs::remove_file(out.as_ref());
+            return Err(e);
+        }
         Ok(())
     }
 
     /// The shared sink pipeline: frames render (and `produce` post-process)
-    /// on rayon workers; `consume` sees them strictly in frame order via a
-    /// bounded reorder buffer, so parallelism reorders nothing and adds no
-    /// error beyond the GPU's own ±1 LSB noise.
+    /// on rayon workers while a dedicated OS thread `consume`s them strictly
+    /// in frame order, so parallelism reorders nothing and adds no error
+    /// beyond the GPU's own ±1 LSB noise. The channel bounds in-flight
+    /// sends (a slow writer backpressures the workers); the reorder map
+    /// briefly buffers out-of-order completions. The writer must NOT be a
+    /// rayon task: on a single-thread pool a join arm never gets stolen and
+    /// the producers would fill the channel and hang.
     fn for_each_frame_ordered(
         &self,
         range: FrameRange,
         produce: impl Fn(&RgbaImage) -> Result<Vec<u8>, MotionError> + Sync + Send,
         mut consume: impl FnMut(u64, Vec<u8>) -> Result<(), MotionError> + Send,
     ) -> Result<(), MotionError> {
-        // Bound the in-flight buffer so a slow writer backpressures the
-        // workers instead of buffering the whole sequence in memory.
         let (tx, rx) = mpsc::sync_channel::<(u64, Vec<u8>)>(rayon::current_num_threads() * 2);
         let frames: Vec<u64> = (range.start.0..range.end.0).collect();
-        let (rendered, written) = rayon::join(
-            move || -> Result<(), MotionError> {
-                frames.into_par_iter().try_for_each_with(
-                    tx,
-                    |tx, frame| -> Result<(), MotionError> {
-                        let img = self.render_frame(Frames(frame))?;
-                        let bytes = produce(&img)?;
-                        // A closed channel means the writer bailed; its
-                        // error is the one to report.
-                        let _ = tx.send((frame, bytes));
-                        Ok(())
-                    },
-                )
-            },
-            move || -> Result<(), MotionError> {
+        // Set by the writer on failure so producers stop burning GPU time on
+        // frames nobody will consume.
+        let cancelled = std::sync::atomic::AtomicBool::new(false);
+        std::thread::scope(|s| {
+            let writer = s.spawn(|| -> Result<(), MotionError> {
                 let mut next = range.start.0;
                 let mut pending: BTreeMap<u64, Vec<u8>> = BTreeMap::new();
                 for (frame, bytes) in rx {
                     pending.insert(frame, bytes);
                     while let Some(bytes) = pending.remove(&next) {
-                        consume(next, bytes)?;
+                        if let Err(e) = consume(next, bytes) {
+                            cancelled.store(true, std::sync::atomic::Ordering::Relaxed);
+                            return Err(e);
+                        }
                         next += 1;
                     }
                 }
                 Ok(())
-            },
-        );
-        rendered?;
-        written
+            });
+            let rendered = frames.into_par_iter().try_for_each_with(
+                tx,
+                |tx, frame| -> Result<(), MotionError> {
+                    if cancelled.load(std::sync::atomic::Ordering::Relaxed) {
+                        return Ok(());
+                    }
+                    let img = self.render_frame(Frames(frame))?;
+                    let bytes = produce(&img)?;
+                    // A closed channel means the writer bailed; its error is
+                    // the one to report.
+                    let _ = tx.send((frame, bytes));
+                    Ok(())
+                },
+            );
+            let written = writer.join().expect("the writer thread does not panic");
+            rendered?;
+            written
+        })
     }
 }
 

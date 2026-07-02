@@ -116,6 +116,7 @@ impl Composition {
     }
 
     /// Total frame count: the declared duration, or the furthest clip end.
+    #[must_use]
     pub fn total_frames(&self) -> Frames {
         self.duration
             .unwrap_or_else(|| Frames(self.clips.iter().map(|c| c.span.end.0).max().unwrap_or(0)))
@@ -127,6 +128,7 @@ impl Composition {
     }
 
     /// Every clip id, in insertion order.
+    #[must_use]
     pub fn clip_ids(&self) -> Vec<&str> {
         self.clips.iter().map(|c| c.id.as_str()).collect()
     }
@@ -134,6 +136,7 @@ impl Composition {
     /// Samples the composition at `frame`: every clip's props resolve, and
     /// the scene can build its element tree, measure bboxes, and report
     /// paint order — all windowless.
+    #[must_use]
     pub fn sample(&self, frame: Frames) -> SampledScene<'_> {
         SampledScene::new(self, frame)
     }

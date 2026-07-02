@@ -148,6 +148,7 @@ Structural, pre-raster — the point of the crate:
 
 ```rust
 use fenestra_motion::verify::{discontinuities, monotone, settled, Direction};
+use fenestra_motion::{Frames, Prop};
 
 // Props and bboxes at any instant, no pixels:
 let scene = comp.sample(Frames(45));
@@ -156,7 +157,7 @@ assert!(title.visible);
 assert!((title.props.opacity - 1.0).abs() < 1e-6);
 let bbox = title.bbox.unwrap();               // post-transform AABB
 assert!(bbox.y1 <= 720.0 - 48.0);             // respects the safe area
-assert_eq!(scene.paint_order(), ["plate", "bar", "title"]);
+assert_eq!(scene.paint_order(), ["plate", "bar", "title", "subtitle"]);
 
 // Temporal lints over ranges:
 assert!(discontinuities(&comp, None).is_empty());   // no undeclared jumps

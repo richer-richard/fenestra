@@ -161,6 +161,21 @@ pub struct Clip {
     pub(crate) tracks: Vec<(Prop, AnyTrack)>,
 }
 
+impl std::fmt::Debug for Clip {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Clip")
+            .field("id", &self.id)
+            .field("span", &self.span)
+            .field("z", &self.z)
+            .field("anchor", &self.anchor)
+            .field(
+                "tracks",
+                &self.tracks.iter().map(|(p, _)| p).collect::<Vec<_>>(),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
 impl Clip {
     /// A clip with static content (set via [`element`](Self::element)),
     /// active over `span` (comp frames, half-open). Z-order is insertion

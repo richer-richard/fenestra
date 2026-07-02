@@ -207,6 +207,7 @@ function of integer frame number — sample any frame standalone, in any
 order, in parallel.
 
 ```rust
+use fenestra_core::text;
 use fenestra_motion::{Clip, Composition, Frames, Prop, Track, key, EASE_CRISP};
 
 let comp = Composition::new(1280, 720, 60).duration(Frames(240)).clip(

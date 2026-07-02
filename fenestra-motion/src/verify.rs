@@ -103,6 +103,7 @@ fn prop_scalar(prop: Prop, p: &ResolvedProps) -> Option<f32> {
 /// its threshold (`eps` overrides every per-prop default) between adjacent
 /// in-span frames, except across a declared [`Composition::cut`]. Span
 /// edges are entrances/exits, not glitches, and are always allowed.
+#[must_use]
 pub fn discontinuities(comp: &Composition, eps: Option<f32>) -> Vec<LintProblem> {
     let mut problems = Vec::new();
     let duration = comp.total_frames();
@@ -147,6 +148,7 @@ pub enum Direction {
 /// Verifies a scalar prop moves in one direction over `range` (comp
 /// frames). Color and pair props have no single order and report as
 /// unsupported.
+#[must_use]
 pub fn monotone(
     comp: &Composition,
     clip_id: &str,
@@ -200,6 +202,7 @@ pub fn monotone(
 /// Verifies nothing changes after `after`: every animated prop holds its
 /// value, and no clip appears or disappears, from `after` to the end of the
 /// timeline.
+#[must_use]
 pub fn settled(comp: &Composition, after: Frames) -> Vec<LintProblem> {
     let mut problems = Vec::new();
     let duration = comp.total_frames();
@@ -251,6 +254,7 @@ impl Composition {
     /// Auto-selects the frames worth pinning as goldens: every clip's span
     /// edges, every keyframe (comp-absolute), and every segment midpoint —
     /// deduped, sorted, clamped inside the timeline.
+    #[must_use]
     pub fn sentinel_frames(&self) -> Vec<Frames> {
         let duration = self.total_frames();
         let mut out: Vec<Frames> = Vec::new();
@@ -260,7 +264,7 @@ impl Composition {
             for (_, track) in &clip.tracks {
                 let keys: Vec<u64> = track_key_frames(track)
                     .iter()
-                    .map(|k| clip.span.start.0 + k.0)
+                    .map(|k| clip.span.start.0.saturating_add(k.0))
                     .collect();
                 for pair in keys.windows(2) {
                     out.push(Frames(u64::midpoint(pair[0], pair[1])));
@@ -298,6 +302,9 @@ impl Composition {
         if count == 0 {
             return Err(MotionError::Sheet("the timeline has no frames".into()));
         }
+        // A zero/tiny thumb width would render full-resolution thumbnails
+        // into a degenerate grid; 16px is the floor of legibility.
+        let thumb_width = thumb_width.max(16);
         let scale = f64::from(thumb_width) / f64::from(self.width);
         let tw = u64::from(thumb_width);
         let th = (f64::from(self.height) * scale).round() as u64;

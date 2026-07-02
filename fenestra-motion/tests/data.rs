@@ -168,6 +168,80 @@ fn shipped_lower_third_example_compiles_and_round_trips() {
 }
 
 #[test]
+fn hostile_span_start_errors_instead_of_panicking() {
+    // start = u64::MAX with end < start: the compile must report, not
+    // overflow (`start + 1`) — every CLI subcommand routes through here.
+    let src = r#"(version: 1, width: 100, height: 100, fps: 30, clips: [(
+        id: "x", start: 18446744073709551615, end: 0, element: div(),
+    )])"#;
+    let err = Composition::from_ron(src).expect_err("hostile spans error cleanly");
+    assert!(err.to_string().contains("span"), "{err}");
+}
+
+#[test]
+fn zero_canvas_dimensions_are_rejected_not_clamped() {
+    let src = r#"(version: 1, width: 0, height: 100, fps: 0, clips: [(
+        id: "x", start: 0, end: 10, element: div(),
+    )])"#;
+    let err = Composition::from_ron(src).expect_err("zero dims are author errors");
+    let msg = err.to_string();
+    assert!(msg.contains("width"), "{msg}");
+    assert!(msg.contains("fps"), "{msg}");
+}
+
+#[test]
+fn non_finite_spring_parameters_are_rejected() {
+    let src = r#"(version: 1, width: 100, height: 100, fps: 30, clips: [(
+        id: "x", start: 0, end: 10, element: div(),
+        tracks: [(prop: opacity, keys: [
+            (at: 0, value: scalar(0.0), ease: spring(stiffness: inf, damping: 26.0)),
+            (at: 5, value: scalar(1.0)),
+        ])],
+    )])"#;
+    let err = Composition::from_ron(src).expect_err("inf stiffness is not a spring");
+    assert!(err.to_string().contains("finite"), "{err}");
+}
+
+#[test]
+fn custom_anchor_and_srgb_space_round_trip() {
+    let src = r#"(version: 1, width: 100, height: 100, fps: 30, clips: [(
+        id: "x", start: 0, end: 10,
+        anchor: custom(0.2, 0.8),
+        element: div(style: (w: 10.0, h: 10.0)),
+        tracks: [(prop: fill_color, space: srgb, keys: [
+            (at: 0, value: color("accent")),
+            (at: 5, value: color("danger")),
+        ])],
+    )])"#;
+    let comp = Composition::from_ron(src).expect("compiles");
+    let out = comp.to_ron().expect("serializes");
+    assert!(out.contains("custom"), "{out}");
+    assert!(out.contains("srgb"), "{out}");
+    let again = Composition::from_ron(&out).expect("re-parses");
+    let a = comp.sample(Frames(3)).resolve("x").unwrap().props;
+    let b = again.sample(Frames(3)).resolve("x").unwrap().props;
+    assert_eq!(a, b);
+}
+
+#[test]
+fn hand_written_json_parses_the_documented_shape() {
+    let src = r#"{
+        "version": 1, "width": 100, "height": 100, "fps": 30,
+        "clips": [{
+            "id": "x", "start": 0, "end": 10,
+            "element": {"text": {"content": "hi"}},
+            "tracks": [{"prop": "opacity", "keys": [
+                {"at": 0, "value": {"scalar": 0.0}, "ease": "crisp"},
+                {"at": 5, "value": {"scalar": 1.0}}
+            ]}]
+        }]
+    }"#;
+    let comp = Composition::from_json(src).expect("hand-written JSON parses");
+    let props = comp.sample(Frames(5)).resolve("x").unwrap().props;
+    assert_eq!(props.opacity, 1.0);
+}
+
+#[test]
 fn prop_names_serialize_snake_case() {
     // The doc grammar speaks snake_case; spot-check the enum mapping.
     let comp = Composition::from_ron(LOWER_THIRD).expect("ron");

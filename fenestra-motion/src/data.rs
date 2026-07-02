@@ -18,7 +18,7 @@ use crate::composition::Composition;
 use crate::easing::{
     EASE_CRISP, EASE_EDITORIAL, EASE_POP, Ease, Spring, ease_in, ease_in_out, ease_out,
 };
-use crate::timeline::{ColorSpace, Key, Track, key};
+use crate::timeline::{Key, Track, key};
 
 /// The one schema version this build reads and writes.
 const DOC_VERSION: u32 = 1;
@@ -389,6 +389,8 @@ impl Composition {
     /// # Errors
     /// [`DataError::NotSerializable`] for compositions built in code —
     /// closures don't serialize; only data-form documents round-trip.
+    /// A serializer failure (practically unreachable for a compiled doc)
+    /// reports as [`DataError::Parse`].
     pub fn to_ron(&self) -> Result<String, DataError> {
         let doc = self.source.as_ref().ok_or(DataError::NotSerializable)?;
         ron_options()
@@ -420,6 +422,18 @@ impl MotionDoc {
                 "version: this build reads version {DOC_VERSION}, got {}",
                 self.version
             ));
+        }
+        // Zero dimensions are author errors here, not clamps: the code-path
+        // builder forgives them, but a document saying `width: 0` means a
+        // generator bug the author needs to hear about.
+        for (name, value) in [
+            ("width", self.width),
+            ("height", self.height),
+            ("fps", self.fps),
+        ] {
+            if value == 0 {
+                problems.push(format!("{name}: must be at least 1"));
+            }
         }
         let theme = match self.theme {
             Some(ThemeDoc::Dark) => Theme::dark(),
@@ -455,10 +469,14 @@ impl MotionDoc {
             }
             seen_ids.push(&clip_doc.id);
             if clip_doc.end <= clip_doc.start {
+                // Skip compiling the clip entirely: `start` is untrusted
+                // u64, and building a span around it would overflow on
+                // hostile values (start = u64::MAX panicked here once).
                 problems.push(at(&format!(
                     ".span: empty ({}..{})",
                     clip_doc.start, clip_doc.end
                 )));
+                continue;
             }
             // Validate the element vocabulary once, strictly.
             let desc = describe_doc(clip_doc.element.clone());
@@ -509,7 +527,8 @@ fn resolve_background(spec: &ColorSpec, theme: &Theme) -> Result<Color, String> 
 /// track rules, and the content node becomes a rebuilt-per-frame factory.
 fn compile_clip(doc: &ClipDoc, theme: &Theme) -> Result<Clip, Vec<String>> {
     let mut problems = Vec::new();
-    let mut clip = Clip::new(&doc.id, doc.start..doc.end.max(doc.start + 1))
+    // The caller has already rejected empty/inverted spans.
+    let mut clip = Clip::new(&doc.id, doc.start..doc.end)
         .z(doc.z)
         .anchor(doc.anchor.into());
 
@@ -571,6 +590,26 @@ fn build_track(doc: &TrackDoc, prop: Prop, theme: &Theme) -> Result<AnyTrack, Ve
                 k.at
             ));
         }
+        // Non-finite easing parameters would poison every sampled value
+        // (NaN transforms); reject them at the untrusted boundary.
+        match k.ease {
+            Some(EaseDoc::Spring {
+                stiffness,
+                damping,
+                velocity,
+            }) if !(stiffness.is_finite() && damping.is_finite() && velocity.is_finite()) => {
+                problems.push(format!("frame {}: spring parameters must be finite", k.at));
+            }
+            Some(EaseDoc::Bezier(x1, y1, x2, y2))
+                if !(x1.is_finite() && y1.is_finite() && x2.is_finite() && y2.is_finite()) =>
+            {
+                problems.push(format!(
+                    "frame {}: bezier control points must be finite",
+                    k.at
+                ));
+            }
+            _ => {}
+        }
     }
     if !problems.is_empty() {
         return Err(problems);
@@ -617,6 +656,5 @@ fn build_track(doc: &TrackDoc, prop: Prop, theme: &Theme) -> Result<AnyTrack, Ve
             AnyTrack::Scalar(Track::new(keys))
         }
     };
-    let _ = ColorSpace::Oklab;
     Ok(track)
 }
