@@ -130,6 +130,77 @@ fn translated_element_hit_tests_where_it_paints() {
     );
 }
 
+/// A transformed element clipped away by an ancestor at its LAYOUT position
+/// but translated INTO the ancestor's visible area must hit-test where it
+/// paints — the ancestor clip (`node.visible`) is stored in untransformed
+/// layout space, so it must be tested against the point *before* this node's
+/// own transform is undone, not after (the other order produces a false
+/// miss: the child's own translated-out-of-clip layout slot never matches
+/// the ancestor's untransformed clip rect).
+#[test]
+fn transformed_element_hit_tests_through_an_ancestor_clip() {
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+
+    // A 200x200 clipping container; its child stacks below a 300px spacer
+    // (landing at layout y=[300,340], entirely below the clip), then is
+    // translated up by 300 to paint at y=[0,40] — inside the clip.
+    let view: Element<()> = col().w(200.0).h(200.0).overflow_hidden().children([
+        col().children([
+            div().h(300.0),
+            div()
+                .id("revealed")
+                .w(100.0)
+                .h(40.0)
+                .translate(0.0, -300.0),
+        ]),
+    ]);
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 200.0), 1.0);
+
+    let id = frame.get(&by::id("revealed")).id;
+    let painted_center = Point::new(50.0, 20.0);
+    assert!(
+        frame.hit_chain(painted_center).contains(&id),
+        "element translated into an ancestor's clip must hit-test where it paints, {painted_center:?}"
+    );
+}
+
+/// Wheel routing must follow paint-time transforms the same way click
+/// hit-testing does: a scrollable container translated away from its layout
+/// slot must resolve `scrollable_at` at its PAINTED position, matching
+/// `hit_chain`'s behavior for the same point.
+#[test]
+fn translated_scroll_container_resolves_wheel_routing_where_it_paints() {
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+
+    // A 100x100 scrollable list shifted +150px in x: its layout rect stays
+    // put, but paint — and therefore wheel routing — shifts right by 150.
+    let rows: Vec<Element<()>> = (0..20).map(|i| div().h(20.0).children([text(format!("row {i}"))])).collect();
+    let view: Element<()> = col().w(400.0).h(200.0).children([col()
+        .id("list")
+        .w(100.0)
+        .h(100.0)
+        .scroll_y()
+        .translate(150.0, 0.0)
+        .children(rows)]);
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (400.0, 200.0), 1.0);
+
+    let list = frame.get(&by::id("list")).id;
+    let layout_center = frame.rect_of(list).expect("list rect").center();
+    let painted_center = Point::new(layout_center.x + 150.0, layout_center.y);
+
+    assert_eq!(
+        frame.scrollable_at(painted_center),
+        Some(list),
+        "wheel routing resolves the translated container at its painted location {painted_center:?}"
+    );
+}
+
 /// A non-finite or enormous font size hangs parley's line breaker (its advance
 /// arithmetic overflows toward infinity and never fits a line). `resolve_text`
 /// clamps the size to a finite, sane range; reaching the end of this test —

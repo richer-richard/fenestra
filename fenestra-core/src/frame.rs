@@ -2655,11 +2655,20 @@ impl Frame {
             if node.style.display == Display::None {
                 return None;
             }
+            // Same transform-aware mapping as `walk_hit`: the ancestor clip
+            // (`node.visible`) is in untransformed layout space and must be
+            // tested before this node's own transform is undone, so wheel
+            // routing agrees with click routing on transformed scrollables.
             if let Some(v) = node.visible
                 && !v.contains(point)
             {
                 return None;
             }
+            let point = match node_transform(node) {
+                Some(t) if t.determinant().abs() > 1e-12 => t.inverse() * point,
+                Some(_) => return None,
+                None => point,
+            };
             if !node.rect.contains(point) && node.style.clip {
                 return None;
             }
@@ -2702,22 +2711,31 @@ impl Frame {
         if node.style.display == Display::None {
             return false;
         }
-        // Paint applies the node's transform (translate/rotate/skew/scale, about
-        // the rect center) to its whole subtree, so map the test point into the
-        // node's local space by the inverse of the same `node_transform` matrix:
-        // the activatable region then tracks the painted one ("what you hit-test
-        // is exactly what you painted"). A singular transform (e.g. scale 0)
-        // paints nothing, so it hit-tests as a clean miss.
-        let point = match node_transform(node) {
-            Some(t) if t.determinant().abs() > 1e-12 => t.inverse() * point,
-            Some(_) => return false,
-            None => point,
-        };
+        // `node.visible` is the intersection of every ANCESTOR's clip rect,
+        // computed by `realize` purely from untransformed layout rects — it
+        // has no knowledge of paint-time transforms. Paint matches that: an
+        // ancestor's clip layer is pushed in the ancestor's own paint call,
+        // wrapping this node's transformed sub-scene from the outside, so it
+        // clips in the space *before* this node's own transform is entered.
+        // Test it against the incoming point first.
         if let Some(v) = node.visible
             && !v.contains(point)
         {
             return false;
         }
+        // Paint applies the node's OWN transform (translate/rotate/skew/scale,
+        // about the rect center) to its whole subtree, so map the test point
+        // into the node's local space by the inverse of the same
+        // `node_transform` matrix: the activatable region then tracks the
+        // painted one ("what you hit-test is exactly what you painted"). A
+        // singular transform (e.g. scale 0) paints nothing, so it hit-tests as
+        // a clean miss. `node.rect` and this node's own `style.clip` (checked
+        // just below) are local to this node, so they need the inverted point.
+        let point = match node_transform(node) {
+            Some(t) if t.determinant().abs() > 1e-12 => t.inverse() * point,
+            Some(_) => return false,
+            None => point,
+        };
         let inside = node.rect.contains(point);
         if node.style.clip && !inside {
             return false;
