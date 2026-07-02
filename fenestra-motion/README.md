@@ -233,6 +233,17 @@ divisible by two.
 `cargo run -p fenestra-motion --example <name>`; each demo lints clean,
 asserts its own claim structurally, and is pinned by sentinel goldens.
 
+## Known v1 limitations
+
+- **Color tracks style the clip's ROOT element only.** Fenestra styles
+  don't cascade, so `Prop::TextColor` is a silent no-op on the common
+  `container > text(..)` clip shape (the root has no text of its own).
+  Animate nested colors with `Clip::dynamic` (code-only); a data-form
+  per-node/target-id color track is the deferred fix (see ARCHITECTURE.md).
+- `"transparent"` IS accepted everywhere a color is named in the data form
+  (background AND color tracks) — it is motion's own extension to the
+  color grammar, resolved before falling through to theme-role lookup.
+
 ## Out of scope (v1)
 
 Lottie/bodymovin import, audio, stateful particles/physics, motion blur,

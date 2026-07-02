@@ -13,7 +13,7 @@ use fenestra_describe::format::{ColorSpec, Description, Node, SCHEMA_V1};
 use fenestra_describe::parse::{to_element, to_element_lenient};
 use serde::{Deserialize, Serialize};
 
-use crate::clip::{Anchor, AnyTrack, Clip, Prop};
+use crate::clip::{Anchor, AnyTrack, Clip, Prop, PropKind};
 use crate::composition::Composition;
 use crate::easing::{
     EASE_CRISP, EASE_EDITORIAL, EASE_POP, Ease, Spring, ease_in, ease_in_out, ease_out,
@@ -281,11 +281,11 @@ pub enum ValueDoc {
 }
 
 impl ValueDoc {
-    fn kind_name(&self) -> &'static str {
+    fn kind(&self) -> PropKind {
         match self {
-            Self::Scalar(_) => "scalar",
-            Self::Pair(..) => "pair",
-            Self::Color(_) => "color",
+            Self::Scalar(_) => PropKind::Scalar,
+            Self::Pair(..) => PropKind::Pair,
+            Self::Color(_) => PropKind::Color,
         }
     }
 }
@@ -441,7 +441,7 @@ impl MotionDoc {
         };
         let background = match &self.background {
             None => Color::TRANSPARENT,
-            Some(spec) => match resolve_background(spec, &theme) {
+            Some(spec) => match resolve_motion_color(spec, &theme) {
                 Ok(c) => c,
                 Err(msg) => {
                     problems.push(format!("background: {msg}"));
@@ -478,14 +478,18 @@ impl MotionDoc {
                 )));
                 continue;
             }
-            // Validate the element vocabulary once, strictly.
+            // Validate the element vocabulary once, strictly, then reuse the
+            // SAME built Description for the per-frame factory below — it's
+            // immutable across frames, so building it (and cloning the
+            // content Node) here once, instead of every frame, roughly
+            // halves the data-form path's per-frame tree cost.
             let desc = describe_doc(clip_doc.element.clone());
             if let Err(errs) = to_element(&desc, &theme) {
                 for e in errs {
                     problems.push(at(&format!(".element: {e}")));
                 }
             }
-            match compile_clip(clip_doc, &theme) {
+            match compile_clip(clip_doc, desc, &theme) {
                 Ok(clip) => comp = comp.clip(clip),
                 Err(mut errs) => {
                     problems.extend(errs.drain(..).map(|e| at(&e)));
@@ -513,8 +517,13 @@ fn describe_doc(root: Node) -> Description {
     }
 }
 
-/// The background grammar: `"transparent"`, a theme role, or oklch.
-fn resolve_background(spec: &ColorSpec, theme: &Theme) -> Result<Color, String> {
+/// The motion color grammar: `"transparent"` (motion's own extension — a
+/// document-authoring convenience, not part of describe's shared
+/// [`ColorSpec`], so it works identically wherever a document names a
+/// color: the background field AND any fill/stroke/text color track, so a
+/// track can fade to nothing exactly like it fades between any two
+/// theme-role colors), a theme role, or oklch.
+fn resolve_motion_color(spec: &ColorSpec, theme: &Theme) -> Result<Color, String> {
     if let ColorSpec::Role(role) = spec
         && role == "transparent"
     {
@@ -525,18 +534,19 @@ fn resolve_background(spec: &ColorSpec, theme: &Theme) -> Result<Color, String> 
 
 /// Compiles one clip: tracks validate against their props, keys against
 /// track rules, and the content node becomes a rebuilt-per-frame factory.
-fn compile_clip(doc: &ClipDoc, theme: &Theme) -> Result<Clip, Vec<String>> {
+fn compile_clip(doc: &ClipDoc, desc: Description, theme: &Theme) -> Result<Clip, Vec<String>> {
     let mut problems = Vec::new();
     // The caller has already rejected empty/inverted spans.
     let mut clip = Clip::new(&doc.id, doc.start..doc.end)
         .z(doc.z)
         .anchor(doc.anchor.into());
 
-    let node = doc.element.clone();
+    // `desc` is immutable across frames (the caller already validated it
+    // strictly); capture it once instead of re-cloning the content Node and
+    // rebuilding a Description every frame.
     let content_theme = theme.clone();
     clip = clip.element(move || {
         // Validated strictly at compile; lenient here can no longer fail.
-        let desc = describe_doc(node.clone());
         let (el, _) = to_element_lenient(&desc, &content_theme);
         el.map(|_| ())
     });
@@ -577,18 +587,28 @@ fn build_track(doc: &TrackDoc, prop: Prop, theme: &Theme) -> Result<AnyTrack, Ve
         }
     }
 
-    let expects = match prop {
-        Prop::ScaleXY => "pair",
-        Prop::FillColor | Prop::StrokeColor | Prop::TextColor => "color",
-        _ => "scalar",
-    };
+    let expects = prop.kind();
     for k in &doc.keys {
-        if k.value.kind_name() != expects {
+        if k.value.kind() != expects {
             problems.push(format!(
-                "expects a {expects} value, got {} at frame {}",
-                k.value.kind_name(),
+                "expects a {} value, got {} at frame {}",
+                expects.name(),
+                k.value.kind().name(),
                 k.at
             ));
+        }
+        // A non-finite value would poison every sampled frame (NaN/inf
+        // transforms), AND every temporal lint compares `delta > bound`,
+        // which is false for NaN — so a NaN track would lint clean while
+        // rendering garbage. Reject at the untrusted boundary.
+        match &k.value {
+            ValueDoc::Scalar(v) if !v.is_finite() => {
+                problems.push(format!("frame {}: value must be finite", k.at));
+            }
+            ValueDoc::Pair(x, y) if !(x.is_finite() && y.is_finite()) => {
+                problems.push(format!("frame {}: value must be finite", k.at));
+            }
+            _ => {}
         }
         // Non-finite easing parameters would poison every sampled value
         // (NaN transforms); reject them at the untrusted boundary.
@@ -617,7 +637,7 @@ fn build_track(doc: &TrackDoc, prop: Prop, theme: &Theme) -> Result<AnyTrack, Ve
 
     let ease_of = |k: &KeyDoc| k.ease.map_or(Ease::Linear, Into::into);
     let track = match expects {
-        "pair" => {
+        PropKind::Pair => {
             let keys = doc.keys.iter().map(|k| {
                 let ValueDoc::Pair(x, y) = k.value else {
                     unreachable!("kind checked above")
@@ -626,13 +646,13 @@ fn build_track(doc: &TrackDoc, prop: Prop, theme: &Theme) -> Result<AnyTrack, Ve
             });
             AnyTrack::Pair(Track::new(keys))
         }
-        "color" => {
+        PropKind::Color => {
             let mut keys: Vec<Key<Color>> = Vec::new();
             for k in &doc.keys {
                 let ValueDoc::Color(spec) = &k.value else {
                     unreachable!("kind checked above")
                 };
-                match resolve_color(spec, theme) {
+                match resolve_motion_color(spec, theme) {
                     Ok(c) => keys.push(key(k.at, c).ease(ease_of(k))),
                     Err(e) => problems.push(format!("frame {}: {e}", k.at)),
                 }
@@ -646,7 +666,7 @@ fn build_track(doc: &TrackDoc, prop: Prop, theme: &Theme) -> Result<AnyTrack, Ve
                 _ => AnyTrack::Color(track),
             }
         }
-        _ => {
+        PropKind::Scalar => {
             let keys = doc.keys.iter().map(|k| {
                 let ValueDoc::Scalar(v) = k.value else {
                     unreachable!("kind checked above")

@@ -167,7 +167,11 @@ pub fn monotone(
     let mut problems = Vec::new();
     let mut prev: Option<f32> = None;
     for frame in range {
-        let local = Frames(frame.saturating_sub(clip.span.start.0));
+        // Clamp into the span like every other sampler (sample, settled):
+        // the renderer freezes at the last in-span frame past span.end, so
+        // reading raw track values beyond it would check motion nobody
+        // ever sees.
+        let local = local_of(clip, Frames(frame));
         let props = clip.resolve_props(local, comp.fps);
         let Some(value) = prop_scalar(prop, &props) else {
             return vec![LintProblem {

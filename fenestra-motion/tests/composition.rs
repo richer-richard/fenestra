@@ -11,6 +11,30 @@ fn box_clip(id: &str, span: std::ops::Range<u64>) -> Clip {
 }
 
 #[test]
+fn total_frames_is_bounded_regardless_of_declared_duration() {
+    // A hostile-scale duration must not make sinks/CLI collect a
+    // near-u64::MAX Vec<u64> or iterate forever.
+    let comp = Composition::new(640, 360, 60).duration(Frames(u64::MAX));
+    assert!(
+        comp.total_frames().0 <= 10_000_000,
+        "total_frames must clamp: {}",
+        comp.total_frames()
+    );
+}
+
+#[test]
+fn total_frames_is_bounded_by_an_extreme_clip_span_too() {
+    // No explicit duration: total_frames falls back to the furthest clip
+    // end, which must be bounded the same way.
+    let comp = Composition::new(640, 360, 60).clip(box_clip("huge", 0..u64::MAX));
+    assert!(
+        comp.total_frames().0 <= 10_000_000,
+        "total_frames must clamp: {}",
+        comp.total_frames()
+    );
+}
+
+#[test]
 fn clip_is_visible_only_within_its_span() {
     let comp = Composition::new(640, 360, 60).clip(box_clip("title", 10..20));
     assert!(!comp.sample(Frames(9)).resolve("title").unwrap().visible);

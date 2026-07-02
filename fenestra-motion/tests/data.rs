@@ -112,6 +112,23 @@ fn code_built_compositions_do_not_serialize() {
 }
 
 #[test]
+fn mutating_a_loaded_composition_invalidates_serialization() {
+    // A builder call after from_ron makes the composition code-built again
+    // — to_ron must refuse rather than silently drop the mutation and
+    // serialize the stale doc from disk.
+    let comp = Composition::from_ron(LOWER_THIRD)
+        .expect("ron")
+        .cut(Frames(1));
+    let err = comp
+        .to_ron()
+        .expect_err("a mutated composition is no longer the loaded document");
+    assert!(
+        err.to_string().contains("data form"),
+        "explains the data-form boundary: {err}"
+    );
+}
+
+#[test]
 fn wrong_version_is_rejected() {
     let src = LOWER_THIRD.replace("version: 1", "version: 2");
     let err = Composition::from_ron(&src).expect_err("future versions are not guessed at");
@@ -200,6 +217,67 @@ fn non_finite_spring_parameters_are_rejected() {
     )])"#;
     let err = Composition::from_ron(src).expect_err("inf stiffness is not a spring");
     assert!(err.to_string().contains("finite"), "{err}");
+}
+
+#[test]
+fn non_finite_scalar_values_are_rejected() {
+    let src = r#"(version: 1, width: 100, height: 100, fps: 30, clips: [(
+        id: "x", start: 0, end: 10, element: div(),
+        tracks: [(prop: opacity, keys: [
+            (at: 0, value: scalar(inf)),
+            (at: 5, value: scalar(1.0)),
+        ])],
+    )])"#;
+    let err = Composition::from_ron(src).expect_err("inf is not a valid opacity");
+    assert!(err.to_string().contains("finite"), "{err}");
+}
+
+#[test]
+fn nan_scalar_value_is_rejected() {
+    let src = r#"(version: 1, width: 100, height: 100, fps: 30, clips: [(
+        id: "x", start: 0, end: 10, element: div(),
+        tracks: [(prop: translate_x, keys: [
+            (at: 0, value: scalar(NaN)),
+            (at: 5, value: scalar(10.0)),
+        ])],
+    )])"#;
+    let err = Composition::from_ron(src).expect_err("NaN must not silently pass every lint");
+    assert!(err.to_string().contains("finite"), "{err}");
+}
+
+#[test]
+fn non_finite_pair_value_is_rejected() {
+    let src = r#"(version: 1, width: 100, height: 100, fps: 30, clips: [(
+        id: "x", start: 0, end: 10, element: div(),
+        tracks: [(prop: scale_xy, keys: [
+            (at: 0, value: pair(inf, 1.0)),
+            (at: 5, value: pair(1.0, 1.0)),
+        ])],
+    )])"#;
+    let err = Composition::from_ron(src).expect_err("inf in a pair value must error");
+    assert!(err.to_string().contains("finite"), "{err}");
+}
+
+#[test]
+fn a_color_track_can_animate_to_transparent() {
+    // "transparent" is accepted for the background field; a color TRACK
+    // must accept the identical grammar — fading a fill to nothing is a
+    // basic motion move, not just a canvas-level setting.
+    let src = r#"(version: 1, width: 100, height: 100, fps: 30, clips: [(
+        id: "x", start: 0, end: 10,
+        element: div(style: (w: 10.0, h: 10.0, bg: "accent")),
+        tracks: [(prop: fill_color, keys: [
+            (at: 0, value: color("accent")),
+            (at: 9, value: color("transparent")),
+        ])],
+    )])"#;
+    let comp = Composition::from_ron(src).expect("transparent is a valid color-track value");
+    let end = comp.sample(Frames(9)).resolve("x").unwrap().props.fill;
+    assert_eq!(
+        end,
+        Some(fenestra_core::Color::TRANSPARENT),
+        "the track settles on true transparency: {end:?}"
+    );
 }
 
 #[test]

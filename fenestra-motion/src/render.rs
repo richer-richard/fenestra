@@ -14,11 +14,11 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::Path;
 use std::sync::mpsc;
 
-use fenestra_core::{Fonts, FrameState};
+use fenestra_core::{Color, Fonts, FrameState};
 use fenestra_shell::{ShellError, render_element_over};
 use image::RgbaImage;
 use rayon::prelude::*;
@@ -83,6 +83,23 @@ thread_local! {
     static FONTS: RefCell<Fonts> = RefCell::new(Fonts::embedded());
 }
 
+/// Kills and reaps the wrapped ffmpeg child on drop if it's still running.
+/// `std::process::Child` is not automatically waited on drop, so a panic
+/// unwinding out of `render_video_with` (e.g. a rayon worker panic mid
+/// pipe) before the normal `wait()` would otherwise orphan the process.
+/// A no-op in the ordinary path: by the time this drops there, the child
+/// has already exited and `try_wait` reports so.
+struct KillOnDrop(std::process::Child);
+
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
 impl Composition {
     /// Rasterizes one frame to straight-alpha RGBA8 — random access: any
     /// frame, any order, identical to the same frame in a full run up to
@@ -104,6 +121,11 @@ impl Composition {
     /// fails.
     pub fn render_frame_at(&self, frame: Frames, scale: f64) -> Result<RgbaImage, MotionError> {
         let el = self.sample(frame).element();
+        // `element()` already paints `self.background` as a root fill when
+        // it has any alpha (SampledScene::element) — that rect IS the
+        // background, so the base clear color stays transparent. Passing
+        // `self.background` again here would composite it a second time,
+        // darkening/increasing the opacity of any non-opaque background.
         let mut img = FONTS.with_borrow_mut(|fonts| {
             let mut state = FrameState::new();
             state.reduced_motion = true;
@@ -112,7 +134,7 @@ impl Composition {
                 &self.theme,
                 (self.width, self.height),
                 scale,
-                self.background,
+                Color::TRANSPARENT,
                 fonts,
                 &mut state,
             )
@@ -140,10 +162,14 @@ impl Composition {
     ) -> Result<(), MotionError> {
         let dir = dir.as_ref();
         std::fs::create_dir_all(dir)?;
-        self.for_each_frame_ordered(range.into(), encode_png, |frame, bytes| {
-            std::fs::write(dir.join(format!("frame_{frame:05}.png")), bytes)?;
-            Ok(())
-        })
+        self.for_each_frame_ordered(
+            range.into(),
+            |img| encode_png(&img),
+            |frame, bytes| {
+                std::fs::write(dir.join(format!("frame_{frame:05}.png")), bytes)?;
+                Ok(())
+            },
+        )
     }
 
     /// Renders one frame straight to a PNG file — the agent inspection
@@ -192,43 +218,54 @@ impl Composition {
         let size = format!("{}x{}", self.width, self.height);
         let rate = self.fps.to_string();
         // -nostats -loglevel error keeps stderr near-silent during a healthy
-        // encode: the pipe stays far below the OS buffer, so ffmpeg never
-        // blocks on stderr (which would stop it reading stdin and deadlock
-        // the frame writer). Real errors still print, bounded, before exit.
-        let mut child = std::process::Command::new(ffmpeg)
-            .args(["-y", "-nostats", "-loglevel", "error"])
-            .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-s", &size])
-            .args(["-r", &rate, "-i", "-", "-pix_fmt", "yuv420p"])
-            .arg(out.as_ref())
-            .stdin(std::process::Stdio::piped())
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|e| {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    MotionError::FfmpegMissing(ffmpeg.display().to_string())
-                } else {
-                    MotionError::Io(e)
-                }
-            })?;
-        let mut stdin = child.stdin.take().expect("piped stdin");
+        // encode, but that alone doesn't ELIMINATE the hazard (a codec that
+        // keeps emitting error-level lines without exiting could still fill
+        // the OS pipe buffer): stderr is drained on its own thread for the
+        // whole piping duration below, so ffmpeg can never block writing it.
+        let mut child = KillOnDrop(
+            std::process::Command::new(ffmpeg)
+                .args(["-y", "-nostats", "-loglevel", "error"])
+                .args(["-f", "rawvideo", "-pix_fmt", "rgba", "-s", &size])
+                .args(["-r", &rate, "-i", "-", "-pix_fmt", "yuv420p"])
+                .arg(out.as_ref())
+                .stdin(std::process::Stdio::piped())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+                .map_err(|e| {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        MotionError::FfmpegMissing(ffmpeg.display().to_string())
+                    } else {
+                        MotionError::Io(e)
+                    }
+                })?,
+        );
+        let mut stdin = child.0.stdin.take().expect("piped stdin");
+        let mut stderr = child.0.stderr.take().expect("piped stderr");
+        let stderr_reader = std::thread::spawn(move || {
+            let mut buf = String::new();
+            let _ = stderr.read_to_string(&mut buf);
+            buf
+        });
         let piped = self.for_each_frame_ordered(
             range.into(),
-            |img| Ok(img.as_raw().clone()),
+            |img| Ok(img.into_raw()),
             |_, bytes| {
                 stdin.write_all(&bytes)?;
                 Ok(())
             },
         );
         drop(stdin);
-        let output = child.wait_with_output()?;
+        let status = child.0.wait()?;
+        let stderr = stderr_reader
+            .join()
+            .expect("the stderr reader thread does not panic");
         // An ffmpeg failure closes our pipe mid-stream, so `piped` holds a
         // broken-pipe error that would mask the real diagnostic: report the
         // encoder's own stderr first, and never leave a truncated file
         // behind on any error path.
-        if !output.status.success() {
+        if !status.success() {
             let _ = std::fs::remove_file(out.as_ref());
-            let stderr = String::from_utf8_lossy(&output.stderr);
             let tail: Vec<&str> = stderr.lines().rev().take(12).collect();
             let tail: Vec<&str> = tail.into_iter().rev().collect();
             return Err(MotionError::Ffmpeg(tail.join("\n")));
@@ -251,7 +288,7 @@ impl Composition {
     fn for_each_frame_ordered(
         &self,
         range: FrameRange,
-        produce: impl Fn(&RgbaImage) -> Result<Vec<u8>, MotionError> + Sync + Send,
+        produce: impl Fn(RgbaImage) -> Result<Vec<u8>, MotionError> + Sync + Send,
         mut consume: impl FnMut(u64, Vec<u8>) -> Result<(), MotionError> + Send,
     ) -> Result<(), MotionError> {
         let (tx, rx) = mpsc::sync_channel::<(u64, Vec<u8>)>(rayon::current_num_threads() * 2);
@@ -282,7 +319,7 @@ impl Composition {
                         return Ok(());
                     }
                     let img = self.render_frame(Frames(frame))?;
-                    let bytes = produce(&img)?;
+                    let bytes = produce(img)?;
                     // A closed channel means the writer bailed; its error is
                     // the one to report.
                     let _ = tx.send((frame, bytes));

@@ -7,8 +7,11 @@ use fenestra_core::{Color, Element};
 use crate::timeline::{FrameRange, Frames, Track};
 
 /// An animatable property of a clip. Transform props apply about the clip's
-/// [`Anchor`]; color props style the clip's *root* element (fenestra styles
-/// don't cascade, so deeper nodes are [`Clip::dynamic`]'s business).
+/// [`Anchor`]; color props style the clip's *root* element ONLY (fenestra
+/// styles don't cascade). This is a real gap in the data form specifically:
+/// the common clip shape `container > text(..)` has no text of its own on
+/// the root, so [`Prop::TextColor`] is a silent no-op there — animate
+/// nested colors with [`Clip::dynamic`] instead (code-only; see its docs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Prop {
     /// Subtree opacity, `0.0..=1.0`.
@@ -29,20 +32,38 @@ pub enum Prop {
     /// paints path strokes with the text color, so paths take
     /// [`Prop::TextColor`]).
     StrokeColor,
-    /// The root element's text color.
+    /// The root element's text color. A no-op if the root itself has no
+    /// text (e.g. a container wrapping a nested `text()` — see the enum
+    /// docs); animate nested text color with [`Clip::dynamic`].
     TextColor,
 }
 
-/// The value shape a prop's track must carry.
+/// The value shape a prop's track must carry. The one source of truth for
+/// the prop→shape mapping — [`Prop::kind`] and [`AnyTrack::kind`] both
+/// answer through this type, so a data-form validator (`fenestra-motion`'s
+/// own `data` module) can dispatch on it instead of re-deriving the mapping
+/// as parallel strings, which a compiler can't check for exhaustiveness.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum PropKind {
+pub(crate) enum PropKind {
     Scalar,
     Pair,
     Color,
 }
 
+impl PropKind {
+    /// The name as it reads in an author-facing message: "scalar" / "pair"
+    /// / "color".
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Scalar => "scalar",
+            Self::Pair => "pair",
+            Self::Color => "color",
+        }
+    }
+}
+
 impl Prop {
-    fn kind(self) -> PropKind {
+    pub(crate) fn kind(self) -> PropKind {
         match self {
             Self::Opacity | Self::TranslateX | Self::TranslateY | Self::Scale | Self::Rotate => {
                 PropKind::Scalar
@@ -66,7 +87,7 @@ pub enum AnyTrack {
 }
 
 impl AnyTrack {
-    fn kind(&self) -> PropKind {
+    pub(crate) fn kind(&self) -> PropKind {
         match self {
             Self::Scalar(_) => PropKind::Scalar,
             Self::Pair(_) => PropKind::Pair,

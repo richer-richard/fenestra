@@ -47,7 +47,7 @@ fn bezier_eval_is_accurate_on_plateau_curves() {
         worst = worst.max(err);
     }
     assert!(
-        worst <= 2e-5,
+        worst <= 1e-5,
         "identity-curve residual {worst} exceeds the documented bound"
     );
 }
@@ -74,7 +74,7 @@ fn bezier_eval_matches_bisection_reference_on_shipped_curves() {
             let y_ref = 3.0 * s * s * t * y1 + 3.0 * s * t * t * y2 + t * t * t;
             let err = (curve.eval(x) - y_ref).abs();
             assert!(
-                err <= 2e-5,
+                err <= 1e-5,
                 "({x1},{y1},{x2},{y2}) at x={x}: eval residual {err}"
             );
         }

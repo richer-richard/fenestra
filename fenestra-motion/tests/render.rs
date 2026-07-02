@@ -177,6 +177,65 @@ fn a_failing_ffmpeg_reports_its_stderr_not_a_broken_pipe() {
 }
 
 #[test]
+#[cfg(unix)]
+fn a_chatty_encoders_stderr_does_not_deadlock_the_frame_writer() {
+    // A test-double "ffmpeg" that bursts well past the OS pipe buffer
+    // (~64KB) to stderr BEFORE it starts reading stdin at all: if stderr
+    // isn't drained concurrently with the frame-writing loop, the encoder
+    // blocks on its own stderr write, never reaches stdin, and our writer
+    // blocks writing frames — a real deadlock, not a hypothetical one.
+    let script =
+        std::env::temp_dir().join(format!("motion-chatty-ffmpeg-{}.sh", std::process::id()));
+    std::fs::write(
+        &script,
+        "#!/bin/sh\nyes 'warning: something' | head -c 200000 >&2\ncat >/dev/null\nexit 0\n",
+    )
+    .expect("write test double");
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mut perms = std::fs::metadata(&script).expect("stat").permissions();
+        perms.set_mode(0o755);
+        std::fs::set_permissions(&script, perms).expect("chmod");
+    }
+
+    let out = std::env::temp_dir().join(format!("motion-chatty-out-{}.mp4", std::process::id()));
+    let (tx, rx) = std::sync::mpsc::channel();
+    let out_for_thread = out.clone();
+    let script_for_thread = script.clone();
+    // A hung render leaks this thread; the test still fails promptly via
+    // the timeout below instead of hanging the whole suite.
+    std::thread::spawn(move || {
+        let result = comp().render_video_with(0..12, &out_for_thread, &script_for_thread);
+        let _ = tx.send(result);
+    });
+    let result = rx
+        .recv_timeout(std::time::Duration::from_secs(20))
+        .expect("render_video_with must not deadlock on a chatty encoder's stderr");
+    result.expect("a chatty-but-well-behaved encoder should still succeed");
+
+    let _ = std::fs::remove_file(&out);
+    let _ = std::fs::remove_file(&script);
+}
+
+#[test]
+fn semi_transparent_composition_background_is_not_double_composited() {
+    // An empty canvas (no clips) with a half-opaque background: the base
+    // clear color IS the background — nothing should paint over it a
+    // second time, which would darken/increase its opacity.
+    let comp = Composition::new(64, 64, 30)
+        .duration(Frames(1))
+        .background(Color::new([0.2, 0.4, 0.6, 0.5]));
+    let img = comp.render_frame(Frames(0)).expect("render");
+    let px = img.get_pixel(32, 32).0;
+    // Straight alpha ~127 (0.5 * 255); double-compositing over itself would
+    // push this toward ~191 (0.5 + 0.5*0.5) and darken the RGB channels.
+    assert!(
+        px[3] >= 120 && px[3] <= 135,
+        "background alpha applied exactly once, got {px:?}"
+    );
+}
+
+#[test]
 fn missing_ffmpeg_binary_fails_with_its_name() {
     let comp = comp();
     let out = std::env::temp_dir().join("fenestra-motion-missing.mp4");

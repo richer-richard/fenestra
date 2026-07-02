@@ -37,7 +37,7 @@ const ENTER: u64 = 16;
 
 /// Per-word entrance stagger: one clip per word, offsets measured by
 /// probing a layout pass (no hand-tuned pixel constants), entrances offset
-/// by [`STAGGER_STEP`] frames — the manual form of the pattern a text
+/// by `STAGGER_STEP` frames — the manual form of the pattern a text
 /// animator would generalize.
 #[must_use]
 pub fn title_stagger() -> Composition {

@@ -93,6 +93,28 @@ fn monotone_verifies_direction_over_a_range() {
 }
 
 #[test]
+fn monotone_clamps_the_local_frame_to_the_span_like_the_renderer_does() {
+    // Span 0..10 (span.len = 10, frozen local = 9). The track rises 0..9,
+    // then a LATER segment (local 9..20) falls — but the clip is only
+    // visible/animating up to local frame 9; every renderer (sample,
+    // settled) freezes local at 9 for comp frames >= 10, so the value
+    // holds flat at 100 rather than following the track down to 50.
+    // monotone must read the same frozen value, not the raw track.
+    let comp =
+        Composition::new(320, 180, 30)
+            .duration(Frames(20))
+            .clip(box_clip("m", 0..10).animate(
+                Prop::TranslateX,
+                Track::new([key(0, 0.0f32), key(9, 100.0), key(20, 50.0)]),
+            ));
+    let problems = monotone(&comp, "m", Prop::TranslateX, 0..20, Direction::Increasing);
+    assert!(
+        problems.is_empty(),
+        "the renderer freezes at 100 past span end; that's flat, not a decrease: {problems:?}"
+    );
+}
+
+#[test]
 fn settled_means_nothing_changes_afterward() {
     let comp =
         Composition::new(320, 180, 30)

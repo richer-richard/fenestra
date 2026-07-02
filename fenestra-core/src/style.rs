@@ -1123,6 +1123,21 @@ impl Default for Style {
 }
 
 impl Style {
+    /// The pivot a paint-time transform rotates/scales about: the rect's
+    /// [`transform_origin`](Self::transform_origin) point (center by
+    /// default), projected into absolute coordinates. Shared by every
+    /// transform this style drives — the static paint matrix
+    /// ([`paint_affine`](Self::paint_affine)) and an exit animation's own
+    /// scale/translate — so a leaving element's animated half pivots about
+    /// the same point its frozen static half does.
+    #[must_use]
+    pub fn transform_origin_point(&self, rect: kurbo::Rect) -> kurbo::Point {
+        kurbo::Point::new(
+            rect.x0 + f64::from(self.transform_origin.0) * rect.width(),
+            rect.y0 + f64::from(self.transform_origin.1) * rect.height(),
+        )
+    }
+
     /// The paint-time affine this style applies over its (untransformed)
     /// layout rect — translate / rotate / skew / scale (uniform, then
     /// non-uniform) composed about the rect's
@@ -1144,11 +1159,7 @@ impl Style {
         if !has_transform {
             return None;
         }
-        // The pivot: the rect's transform-origin point (center by default).
-        let p = kurbo::Point::new(
-            rect.x0 + f64::from(s.transform_origin.0) * rect.width(),
-            rect.y0 + f64::from(s.transform_origin.1) * rect.height(),
-        );
+        let p = s.transform_origin_point(rect);
         // T(translate) · T(p) · R · Skew · S · T(-p)
         let mut a = kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
             * kurbo::Affine::translate((p.x, p.y));

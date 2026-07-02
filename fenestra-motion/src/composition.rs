@@ -8,6 +8,13 @@ use crate::clip::Clip;
 use crate::sample::SampledScene;
 use crate::timeline::Frames;
 
+/// The largest frame count [`Composition::total_frames`] will report,
+/// regardless of a declared `duration` or a clip's span end — both are
+/// untrusted (document/CLI-reachable) and otherwise unbounded `u64`s that
+/// would make sinks collect a multi-exabyte `Vec<u64>` or loop effectively
+/// forever. ~46 hours at 60fps; no real composition approaches this.
+const MAX_FRAMES: u64 = 10_000_000;
+
 /// A motion composition: `width × height` logical px at `fps`, holding
 /// clips. Sampling is pure — `sample(frame)` depends only on
 /// `(composition, frame)`.
@@ -61,6 +68,7 @@ impl Composition {
     /// Total length in frames. Defaults to the last clip's span end.
     pub fn duration(mut self, frames: impl Into<Frames>) -> Self {
         self.duration = Some(frames.into());
+        self.source = None;
         self
     }
 
@@ -68,6 +76,7 @@ impl Composition {
     /// straight into the PNG sequence).
     pub fn background(mut self, color: Color) -> Self {
         self.background = color;
+        self.source = None;
         self
     }
 
@@ -75,6 +84,7 @@ impl Composition {
     /// default).
     pub fn theme(mut self, theme: Theme) -> Self {
         self.theme = theme;
+        self.source = None;
         self
     }
 
@@ -90,6 +100,7 @@ impl Composition {
             clip.id
         );
         self.clips.push(clip);
+        self.source = None;
         self
     }
 
@@ -97,6 +108,7 @@ impl Composition {
     /// allow value jumps across declared cuts (and clip span edges) only.
     pub fn cut(mut self, frame: impl Into<Frames>) -> Self {
         self.cuts.push(frame.into());
+        self.source = None;
         self
     }
 
@@ -115,11 +127,15 @@ impl Composition {
         self.fps
     }
 
-    /// Total frame count: the declared duration, or the furthest clip end.
+    /// Total frame count: the declared duration, or the furthest clip end
+    /// — clamped to `MAX_FRAMES` regardless of source, since both are
+    /// untrusted `u64`s reachable from a document or CLI flag.
     #[must_use]
     pub fn total_frames(&self) -> Frames {
-        self.duration
-            .unwrap_or_else(|| Frames(self.clips.iter().map(|c| c.span.end.0).max().unwrap_or(0)))
+        let raw = self
+            .duration
+            .unwrap_or_else(|| Frames(self.clips.iter().map(|c| c.span.end.0).max().unwrap_or(0)));
+        Frames(raw.0.min(MAX_FRAMES))
     }
 
     /// The canvas base color.

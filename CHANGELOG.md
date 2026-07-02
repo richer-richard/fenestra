@@ -31,6 +31,27 @@ verification envelope documented. Additive; every prior golden is byte-identical
 
 ### Fixed
 
+- **`fenestra-motion`: a 10-angle multi-agent review found and fixed 15 issues**
+  before the crate's PR merged — none shipped. Two reproduced live before the
+  fix: a hostile document (`start: u64::MAX`-class span) panicked with an
+  integer overflow through every CLI subcommand, and a chatty ffmpeg encoder
+  (>64KB to stderr before reading stdin) deadlocked the frame writer. Also: a
+  semi-transparent composition background was composited twice (darkened);
+  non-finite (`NaN`/`inf`) keyframe *values* were accepted and silently passed
+  every temporal lint (only easing parameters were checked); `to_ron`/`to_json`
+  serialized the stale load-time document after builder mutations, dropping
+  edits silently; frame counts were unbounded end to end (CLI `--frames` and
+  document `duration`); `verify::monotone` didn't clamp to the clip span like
+  every other sampler, reporting phantom violations past `span.end`; exit
+  animations still pivoted about the hardcoded rect center instead of the
+  element's own `transform_origin` — the one paint site this PR's
+  `Style::paint_affine` unification missed; the ffmpeg video sink cloned every
+  frame's full pixel buffer; data-form clips deep-cloned their content tree
+  every frame instead of once; and a color track couldn't animate to
+  `"transparent"` (only the background field could). Full account in
+  ARCHITECTURE.md. Every fix landed with a test that failed first; all gates
+  green, the full `fenestra-kit` golden corpus and motion's own sentinel
+  goldens byte/tolerance-compared clean.
 - **Agent-reachable DoS vectors clamped.** Authored grid `repeat(count)` is bounded so
   `count × fragment_len ≤ 1024` where it realizes into taffy (a count near 32767
   allocated ~1 GB; ≥32768 overflowed taffy's i16 grid coordinates); `pagination` clamps

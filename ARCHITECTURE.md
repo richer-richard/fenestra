@@ -2977,7 +2977,10 @@ afterthought. Additive throughout; every prior golden byte-identical.
   sequencing sugar; clip `.trim()`; shared named timings; parameterized documents;
   data-driven duration; effect tracks over core's effect nodes; a fitText helper;
   a fenestra agent-skill pack in their router shape; motion blur via subframe
-  accumulation; a GUI scrubber built in fenestra itself.
+  accumulation; a GUI scrubber built in fenestra itself; per-node/target-id color
+  tracks (`Prop::TextColor` styles the clip's root only — a no-op on the common
+  `container > text(..)` shape; the data form's only escape hatch today is
+  `Clip::dynamic`, which is code-only).
 - **Demos live in the library (`demos` module, kit precedent)** so tests, examples,
   and users share one definition: the lower third is the shipped RON document
   compiled at `include_str!` (data-form flagship, straight-alpha delivery);
@@ -2999,3 +3002,133 @@ afterthought. Additive throughout; every prior golden byte-identical.
   (the contact sheet gained its hairline thumb borders from that look); the
   determinism probes (same-scene-twice, cross-process gallery byte-compare) ran
   before the contract was written down.
+
+## fenestra-motion: xhigh multi-agent review + fix pass (2026-07-02)
+
+Ten independent finder angles (5 correctness + reuse/simplify/efficiency/altitude/
+conventions) fanned out over the PR #16 diff, one verifier per surviving candidate,
+one gap-sweep pass; 15 findings survived verification and are all fixed, each
+test-first, in this pass. Two were reproduced live before fixing (a real overflow
+panic and a real deadlock), turning "plausible" into "confirmed" before writing
+code.
+
+- **A semi-transparent composition background was composited twice** — once as
+  the GPU clear color, once as `SampledScene::element()`'s root fill rect —
+  darkening/increasing the opacity of any `0 < alpha < 1` background (opaque and
+  fully-transparent backgrounds masked it, which is why no golden caught it). Fix:
+  `element()` stays the single source of truth for the background (it already
+  paints it as a root rect whenever alpha > 0); `render_frame_at` now clears to
+  `Color::TRANSPARENT` and lets the element tree paint its own background exactly
+  once. More robust than the alternative (stripping the root fill) since it keeps
+  `element()` self-describing for any future caller, not just the current two.
+- **Non-finite key VALUES (not just easing parameters) were accepted by the data
+  form.** A `scalar(inf)` or `scalar(NaN)` compiled clean and, worse, **passed
+  every temporal lint silently** — `delta > bound` is `false` for NaN, so a
+  NaN-poisoned timeline lints clean while rendering garbage, defeating the
+  verification layer's whole thesis for exactly that input. Extended the
+  finiteness check already covering spring/bezier params to `ValueDoc::Scalar`
+  and `ValueDoc::Pair`.
+- **`to_ron`/`to_json` serialized the frozen load-time document after builder
+  mutations**, silently dropping any `.clip()`/`.duration()`/`.background()`/
+  `.theme()`/`.cut()` call made after `from_ron` — a `load → edit → save`
+  round-trip lost the edit with no error. Every builder now clears `source` on
+  mutation, so a mutated composition honestly reports `NotSerializable` (the
+  boundary that already exists for code-built compositions) instead of
+  serializing stale data.
+- **Frame counts were unbounded end to end**: a document's `duration`/clip `end`
+  near `u64::MAX`, or a CLI `--frames` range reaching toward it, would try to
+  `Vec::collect` an astronomical frame-index list (allocation abort) or iterate
+  effectively forever in the lints — the exact DoS class the hardening pass
+  closed elsewhere in the workspace, now closed here too. `Composition::total_frames()`
+  clamps to `MAX_FRAMES` (10M, ~46h at 60fps) as the single choke point
+  regardless of source (declared duration or clip span), and the CLI clamps
+  `--frames` against it.
+- **`verify::monotone` didn't clamp the local frame to the clip's span**, unlike
+  `sample`/`settled` — reading raw (unfrozen) track values past `span.end` and
+  reporting phantom violations (or false passes) on motion the renderer never
+  actually shows (it freezes at the last in-span frame). Now shares the same
+  `local_of` clamp helper the other samplers already use.
+- **Exit animations still pivoted about the hardcoded rect center**, the one
+  paint site the `Style::paint_affine`/`transform_origin` unification (this PR's
+  own headline core change) missed: an element with a non-default
+  `transform_origin` and a scaling `.exit_to()` would have its static half pivot
+  at `transform_origin` and its animated half pivot at the rect center — two
+  disagreeing pivots. Extracted the pivot math into
+  `Style::transform_origin_point(rect)` (used by `paint_affine` internally, a
+  pure refactor) and had `paint_exits` call the same function. Verified via a new
+  `FrameState::exiting_ghost_pivot` test hook (mirroring the existing
+  `exiting_ghost_translate` hook) rather than a fragile pixel comparison. Latent
+  today — nothing combines `transform_origin` with an exit yet — but it's the
+  new feature's real gap, now closed for the same content that motion itself
+  measures bboxes through.
+- **The mp4 sink cloned every frame's full RGBA buffer** (8.3MB at 1080p) because
+  the shared sink's `produce` callback borrowed the image. Changed `produce` to
+  take `RgbaImage` by value; the video path now moves the buffer out
+  (`into_raw()`) instead of copying it — the PNG path is unaffected (it still
+  only borrows for encoding).
+- **Data-form clips deep-cloned their entire `describe::Node` tree every single
+  frame** inside the per-frame content closure, roughly doubling the per-frame
+  tree cost of the data-form path. The `Description` (immutable across frames)
+  is now built once at compile time — reusing the SAME value the strict
+  validation pass already builds — and captured by the closure instead of
+  rebuilt.
+- **A color track could never animate to `"transparent"`**, only the background
+  field could: the identical string in a `fill_color`/`stroke_color`/
+  `text_color` track hit describe's `resolve_color` and errored as an unknown
+  role, so "fade a fill to nothing" was inexpressible in the data form. Renamed
+  `resolve_background` to `resolve_motion_color` (motion's own color-grammar
+  extension — `"transparent"` isn't part of shared `ColorSpec`) and reused it for
+  every color resolution site, background and tracks alike.
+- **`Prop::TextColor` is a silent no-op on the common `container > text(..)` clip
+  shape** (fenestra styles don't cascade, so a root-only color overlay never
+  reaches nested text) — documented explicitly (rustdoc on `Prop`/`TextColor`,
+  README "Known v1 limitations") rather than "fixed": the real fix is per-node/
+  target-id color tracks or a describe-level recolor mechanism, filed on the
+  deferred menu. Distinguishing this from the previous finding: `"transparent"`
+  was a fixable **grammar** gap; nested-node targeting is a **schema/design**
+  gap too large for a review-fix pass.
+- **The bezier accuracy tests asserted `2e-5` while `CubicBezier::eval`'s rustdoc
+  promises `≤1e-5`** — a regression landing between the two bounds would pass CI
+  while violating the documented contract. Tightened both asserts to `1e-5`
+  (worst observed residual is 4.3e-6, so this was slack, not risk).
+- **ffmpeg's stderr was undrained during the whole frame-writing loop** (only
+  read at the end via `wait_with_output`): a codec emitting enough error-level
+  output to fill the ~64KB OS pipe buffer before exiting would block on its own
+  stderr write, never reach reading stdin, and deadlock the frame writer.
+  Reproduced live with a shell test-double that bursts 200KB to stderr before
+  consuming stdin (hung exactly at the test's 20s bound under the old code,
+  resolves in well under a second fixed). Fixed by draining stderr on a
+  dedicated thread for the whole piping duration, joined after `stdin` is
+  dropped. Paired with a `KillOnDrop` guard around the child so a panic
+  unwinding out of `render_video_with` (e.g. a rayon worker panic mid-pipe)
+  can't orphan the ffmpeg process — `Child` is never auto-reaped on drop in std.
+- **`SampledScene::measure` hand-rolled a 4-corner-transform-then-min/max AABB
+  fold** that kurbo (already a dependency) ships as `Affine::transform_rect_bbox`
+  — verified byte-for-byte identical computation; replaced the ~14-line fold
+  with the one-line call.
+- **`data.rs`'s track-kind dispatch re-derived `clip.rs`'s private `PropKind`
+  enum as parallel `&'static str` literals** ("scalar"/"pair"/"color"), with a
+  non-exhaustive `_` fallthrough that would silently misclassify a future prop
+  kind instead of failing to compile. Made `PropKind` (+ `Prop::kind`/
+  `AnyTrack::kind`) `pub(crate)`, gave `ValueDoc` its own `kind() -> PropKind`,
+  and switched every dispatch to match on the enum — now compiler-exhaustive.
+- **The CLI integration test suite's `write_doc()` helper shared one pid-keyed
+  temp path across all 9 tests that call it**, racing under `cargo test`'s
+  default thread-per-test parallelism (one test's write could truncate the file
+  while another's spawned `motion` subprocess was mid-read) — a latent CI flake
+  source. Added a per-call atomic counter to the filename; verified flake-free
+  across three repeated full-parallelism runs.
+
+Net: five bugs with real (if narrow) production impact, four hostile-input/DoS
+closures matching the workspace's established clamp-over-panic posture, two
+genuine capability gaps (one fixed in-scope, one documented and deferred), two
+correctness-adjacent cleanups (kurbo reuse, exhaustive dispatch) that also removed
+latent bug surface, and one test-infrastructure flake source. Every fix landed
+with a test that failed first (two by live reproduction: the overflow panic and
+the ffmpeg deadlock, both observed hanging/panicking under the old code before the
+fix). All gates green; the full `fenestra-kit` 121-golden corpus, the motion
+sentinel goldens, and every existing workspace test byte/tolerance-compared clean
+— nothing outside `fenestra-core`/`fenestra-motion`/`fenestra-shell` was touched,
+and every core change is additive (new `Style` fields/methods, a new
+`FrameState` test hook) with zero behavioral change to existing default-identity
+content.

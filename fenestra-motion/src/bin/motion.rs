@@ -183,8 +183,9 @@ fn load(path: Option<&std::path::Path>) -> Result<Composition, String> {
 }
 
 fn parse_range(spec: Option<&str>, comp: &Composition) -> Result<(u64, u64), String> {
+    let total = comp.total_frames().0;
     match spec {
-        None => Ok((0, comp.total_frames().0)),
+        None => Ok((0, total)),
         Some(s) => {
             let (a, b) = s
                 .split_once("..")
@@ -193,6 +194,10 @@ fn parse_range(spec: Option<&str>, comp: &Composition) -> Result<(u64, u64), Str
                 .parse::<u64>()
                 .map_err(|e| format!("--frames start: {e}"))?;
             let b = b.parse::<u64>().map_err(|e| format!("--frames end: {e}"))?;
+            // Clamp to the comp's own duration: a range typo (or a document
+            // with an inflated duration) must not collect/render toward
+            // u64::MAX frames.
+            let (a, b) = (a.min(total), b.min(total));
             if b <= a {
                 return Err(format!("--frames {s:?} is empty (end must exceed start)"));
             }

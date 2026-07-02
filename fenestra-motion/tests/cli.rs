@@ -30,7 +30,13 @@ const DOC: &str = r#"(
 )"#;
 
 fn write_doc() -> PathBuf {
-    let path = std::env::temp_dir().join(format!("motion-cli-{}.ron", std::process::id()));
+    // Every test in this binary calls write_doc(); cargo runs them on
+    // parallel threads, so a pid-only path is shared and one test's write
+    // can truncate the file while another's spawned `motion` subprocess is
+    // still reading it. A per-call counter gives each caller its own file.
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let path = std::env::temp_dir().join(format!("motion-cli-{}-{n}.ron", std::process::id()));
     std::fs::write(&path, DOC).expect("write doc");
     path
 }
@@ -185,6 +191,41 @@ fn render_frame_range_writes_a_sequence() {
         );
     }
     assert!(!dir.join("frame_00006.png").exists(), "range is half-open");
+    std::fs::remove_dir_all(&dir).expect("cleanup");
+}
+
+#[test]
+fn render_frames_beyond_the_timeline_clamps_instead_of_hanging() {
+    // The shipped doc (write_doc) declares duration: 60. A --frames range
+    // reaching toward u64::MAX must clamp to the comp's own duration, not
+    // attempt to collect/render billions of frames.
+    let doc = write_doc();
+    let dir = std::env::temp_dir().join(format!("motion-cli-huge-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let out = motion()
+        .args([
+            "render",
+            doc.to_str().unwrap(),
+            "--frames",
+            "0..18446744073709551615",
+            "--out",
+            dir.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        dir.join("frame_00059.png").exists(),
+        "renders up to duration"
+    );
+    assert!(
+        !dir.join("frame_00060.png").exists(),
+        "clamped at the comp's own duration, not u64::MAX"
+    );
     std::fs::remove_dir_all(&dir).expect("cleanup");
 }
 

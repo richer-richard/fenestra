@@ -198,22 +198,7 @@ impl<'a> SampledScene<'a> {
             .transform_origin(fx, fy);
         match style.paint_affine(rect) {
             None => Some(rect),
-            Some(a) => {
-                let corners = [
-                    a * kurbo::Point::new(rect.x0, rect.y0),
-                    a * kurbo::Point::new(rect.x1, rect.y0),
-                    a * kurbo::Point::new(rect.x1, rect.y1),
-                    a * kurbo::Point::new(rect.x0, rect.y1),
-                ];
-                let xs = corners.iter().map(|c| c.x);
-                let ys = corners.iter().map(|c| c.y);
-                Some(kurbo::Rect::new(
-                    xs.clone().fold(f64::INFINITY, f64::min),
-                    ys.clone().fold(f64::INFINITY, f64::min),
-                    xs.fold(f64::NEG_INFINITY, f64::max),
-                    ys.fold(f64::NEG_INFINITY, f64::max),
-                ))
-            }
+            Some(a) => Some(a.transform_rect_bbox(rect)),
         }
     }
 }
