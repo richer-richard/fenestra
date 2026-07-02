@@ -14,5 +14,8 @@ workspace = true
 
 [dependencies]
 fenestra-core.workspace = true
+fenestra-shell.workspace = true
 kurbo.workspace = true
 color.workspace = true
+image.workspace = true
+rayon.workspace = true

@@ -12,6 +12,7 @@
 mod clip;
 mod composition;
 mod easing;
+mod render;
 mod sample;
 mod timeline;
 
@@ -21,5 +22,6 @@ pub use easing::{
     EASE_CRISP, EASE_EDITORIAL, EASE_POP, Ease, Spring, ease_in, ease_in_out, ease_out, hold,
     linear, spring,
 };
+pub use render::MotionError;
 pub use sample::{ResolvedClip, SampledScene};
 pub use timeline::{ColorSpace, FrameRange, Frames, Key, Track, TrackValue, key};

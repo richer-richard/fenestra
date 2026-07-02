@@ -40,6 +40,10 @@ insta = "1.47.2"
 proptest = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+# Resolved on crates.io 2026-07-02 (never pinned from memory): rayon 1.12.0
+# (MIT OR Apache-2.0), ron 0.12.2 (MIT OR Apache-2.0).
+rayon = "1.12.0"
+ron = "0.12.2"
 pollster = "0.4.0"
 wasm-bindgen-futures = "0.4.73"
 rfd = "0.17.2"
