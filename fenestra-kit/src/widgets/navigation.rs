@@ -368,8 +368,9 @@ impl<Msg> From<Pagination<Msg>> for Element<Msg> {
         let emit = |n: usize| f.as_ref().map(|f| f(n));
 
         // The visible page numbers: first, last, and a window around current.
-        // Saturating arithmetic keeps the window from overflowing even before
-        // the clamps above take effect.
+        // `count` is deliberately uncapped (see above), so `page` can still
+        // reach `usize::MAX`; saturating arithmetic keeps `page + siblings`
+        // from overflowing even though `page`/`siblings` are already clamped.
         let lo = page.saturating_sub(siblings).max(1);
         let hi = page.saturating_add(siblings).min(count);
         let mut shown: Vec<usize> = vec![1, count];

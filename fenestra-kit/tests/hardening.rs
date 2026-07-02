@@ -3,7 +3,7 @@
 
 use fenestra_core::{
     AccessNode, App, Element, Fonts, FrameState, Key, KeyInput, SP4, Semantics, Theme, build_frame,
-    col,
+    by, col,
 };
 use fenestra_kit::{pagination, select, text_input};
 use fenestra_shell::{SyntheticEvent, render_app};
@@ -116,13 +116,6 @@ fn empty_select_never_emits_an_index() {
     );
 }
 
-/// Counts the focusable page/arrow cells (the `Button`-roled nodes) a frame
-/// exposes — the pagination strip's materialized cells.
-fn count_buttons(node: &AccessNode) -> usize {
-    let here = usize::from(matches!(node.semantics, Some(Semantics::Button)));
-    here + node.children.iter().map(count_buttons).sum::<usize>()
-}
-
 /// Collects every accessible label in the tree, so a test can assert a
 /// particular page cell was (or was not) materialized by name.
 fn collect_labels(node: &AccessNode, out: &mut Vec<String>) {
@@ -150,7 +143,7 @@ fn pagination_clamps_adversarial_count_and_siblings() {
     let mut fonts = Fonts::embedded();
     let mut state = FrameState::new();
     let frame = build_frame(&view, &theme, &mut fonts, &mut state, (800.0, 80.0), 1.0);
-    let buttons = count_buttons(&frame.access_tree());
+    let buttons = frame.get_all(&by::role(Semantics::Button)).len();
     assert!(
         buttons <= 128,
         "pagination must clamp its window to a small constant; got {buttons} materialized cells"
