@@ -147,16 +147,14 @@ fn transformed_element_hit_tests_through_an_ancestor_clip() {
     // A 200x200 clipping container; its child stacks below a 300px spacer
     // (landing at layout y=[300,340], entirely below the clip), then is
     // translated up by 300 to paint at y=[0,40] — inside the clip.
-    let view: Element<()> = col().w(200.0).h(200.0).overflow_hidden().children([
-        col().children([
+    let view: Element<()> = col()
+        .w(200.0)
+        .h(200.0)
+        .overflow_hidden()
+        .children([col().children([
             div().h(300.0),
-            div()
-                .id("revealed")
-                .w(100.0)
-                .h(40.0)
-                .translate(0.0, -300.0),
-        ]),
-    ]);
+            div().id("revealed").w(100.0).h(40.0).translate(0.0, -300.0),
+        ])]);
     let frame = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 200.0), 1.0);
 
     let id = frame.get(&by::id("revealed")).id;
@@ -180,7 +178,9 @@ fn translated_scroll_container_resolves_wheel_routing_where_it_paints() {
 
     // A 100x100 scrollable list shifted +150px in x: its layout rect stays
     // put, but paint — and therefore wheel routing — shifts right by 150.
-    let rows: Vec<Element<()>> = (0..20).map(|i| div().h(20.0).children([text(format!("row {i}"))])).collect();
+    let rows: Vec<Element<()>> = (0..20)
+        .map(|i| div().h(20.0).children([text(format!("row {i}"))]))
+        .collect();
     let view: Element<()> = col().w(400.0).h(200.0).children([col()
         .id("list")
         .w(100.0)
@@ -221,4 +221,29 @@ fn pathological_font_size_does_not_hang_layout() {
             "size {size} should still lay out the text"
         );
     }
+}
+
+/// A variable-height virtual list's row count feeds an O(count) allocation
+/// (`HeightIndex::ensure` builds a `heights`/`prefix` `Vec<f32>` per row) with
+/// no clamp: `usize::MAX` attempts a capacity-overflow-panicking allocation
+/// before any window math runs. Builder-only (the describe/JSON format has
+/// no virtual-list variant), but the same clamp-over-panic contract other
+/// hostile counts follow applies to the native builder too.
+#[test]
+fn pathological_virtual_row_count_does_not_panic() {
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    let view: Element<()> = col().w(200.0).h(120.0).children([col()
+        .h(120.0)
+        .scroll_y()
+        .id("huge")
+        .virtual_rows_variable(usize::MAX, 24.0, |i| {
+            col().h(24.0).shrink0().children([text(format!("row {i}"))])
+        })]);
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 120.0), 1.0);
+    assert!(
+        frame.rect_of(frame.get(&by::id("huge")).id).is_some(),
+        "a hostile row count should still build a frame, not panic"
+    );
 }
