@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks", "fenestra-describe", "fenestra-render", "fenestra-mcp"]
+members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks", "fenestra-describe", "fenestra-render", "fenestra-mcp", "fenestra-motion"]
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -22,6 +22,7 @@ fenestra-shell = { version = "0.39.0", path = "fenestra-shell" }
 fenestra-kit = { version = "0.39.0", path = "fenestra-kit" }
 fenestra-describe = { version = "0.39.0", path = "fenestra-describe" }
 fenestra-render = { version = "0.39.0", path = "fenestra-render" }
+fenestra-charts = { version = "0.39.0", path = "fenestra-charts" }
 
 winit = "0.30.13"
 wgpu = "29.0.3"
@@ -40,9 +41,22 @@ insta = "1.47.2"
 proptest = "1.11"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
+# Resolved on crates.io 2026-07-02 (never pinned from memory): rayon 1.12.0
+# (MIT OR Apache-2.0), ron 0.12.2 (MIT OR Apache-2.0).
+rayon = "1.12.0"
+ron = "0.12.2"
 pollster = "0.4.0"
 wasm-bindgen-futures = "0.4.73"
-rfd = "0.17.2"
+# `wayland` (the default Linux backend) pulls wayland-scanner -> quick-xml
+# 0.39, which RUSTSEC-2026-0194/0195 flag as high-severity; wayland-scanner's
+# latest release still pins that range, so bumping quick-xml directly isn't
+# possible yet. `xdg-portal` (also a default feature) reaches the file
+# dialog over the desktop portal D-Bus API instead, which works under both
+# X11 and Wayland sessions and needs neither wayland-client nor
+# wayland-scanner — so disabling `wayland` drops the vulnerable chain
+# entirely rather than just silencing the advisory. Revisit once
+# wayland-scanner ships a quick-xml >=0.41 release.
+rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 web-time = "1.1.0"
 
 # vello and wgpu are unusably slow without optimization; keep our own crates

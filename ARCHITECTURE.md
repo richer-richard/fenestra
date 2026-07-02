@@ -2848,3 +2848,380 @@ Recorded, not built this pass — roughly by value-per-effort:
 9. **`Element` → JSON emitter** — the boundary is one-directional; a round-trip
    serializer would let an agent import a builder-written UI as JSON. L–XL.
 10. **New widgets** — rating, OTP/PIN, OKLCH color picker; avatar/badge maturity. S–L each.
+
+## Hardening + correctness pass (post-0.39)
+
+An adversarial self-review (six read-only reviewer teammates over disjoint dimensions,
+every finding re-verified against source) surfaced agent-reachable DoS vectors and three
+retained-state/correctness bugs. Closed this pass; additive, every prior golden
+byte-identical (regenerated gallery art wobbles only within the GPU tolerance).
+
+- **Count/repetition inputs are clamped, not just scalars.** The hardening audit had
+  clamped *scalar* hostile values (dimensions, blur, colours, GPU sizes) but left *count*
+  inputs floored-at-1 and un-ceilinged, sitting upstream of O(n)/O(n²) allocation or
+  per-iteration rebuilds — all reachable from pure `fenestra/1` JSON through every
+  frame-building MCP tool. Three clamps, all clamp-over-panic like `MAX_DIMENSION`: each
+  grid template *axis* bounds its realized track total — summed across every
+  `repeat(...)` and single-track entry, not just clamped per-entry — to
+  `MAX_GRID_TRACKS` (1024) where it realizes into taffy (a total near 32767 allocated
+  ~1 GB; ≥32768 overflowed taffy's i16 grid coordinates); a first pass that clamped only
+  one `repeat()`'s count left two escapes (many small clamped repeats summing past the
+  ceiling; an oversized fragment riding through a count already clamped to 1) — closed
+  by tracking one running budget across the whole axis at the template-to-taffy boundary
+  — fixed in core, so the native builder is covered too, not just JSON; `pagination`
+  clamps `siblings` (≤50, the window driver) with saturating window math (`count` is
+  floored at 1 but otherwise uncapped — the strip never materializes more than a small
+  window regardless of page count, so only `siblings` bore any DoS risk; capping `count`
+  too just broke legitimate large pagers); the scenario engine bounds `tab`/`shift_tab`
+  repeats to `MAX_TAB_REPEAT` (4096). The describe parser was fuzzed (parse panics), but
+  valid-but-enormous counts are a different failure mode — caught only by an adversary
+  modelling allocation, not malformed bytes.
+
+- **Hit-testing follows paint-time transforms — the invariant restored.**
+  `translate`/`rotate`/`skew`/`scale` apply at paint about the element centre, but
+  `walk_hit` tested the untransformed layout rect, so a transformed interactive element
+  painted in one place and activated in another — silently breaking the M3 contract "what
+  you hit-test is exactly what you painted" (true until paint-time transforms landed
+  later). The paint affine is now a single source of truth (`node_transform`):
+  `paint_node` draws the subtree under it and `walk_hit` inverts it to map the test point
+  into the node's local space (a singular transform, e.g. scale 0, hit-tests as a clean
+  miss). Hit-testing is geometry-only, so every paint golden is byte-identical.
+
+- **Duplicate `WidgetId`s are caught in debug.** `child(index, key)` ignores the index
+  when a key is set, so two elements with the same `.id("…")` (or a non-unique keyed-list
+  key) realize identical ids and silently share every `FrameState` map
+  (scroll/focus/editor/anim/hover). `build_frame` now `debug_assert!`s frame-wide
+  uniqueness via `Frame::first_duplicate_id` (namespace = root + every overlay) — loud in
+  dev/tests, compiled out of release where a stale shared id is a latent bug, not a crash.
+  Verified silent across the whole suite.
+
+- **`virtual_heights` is frame-stamped.** It was the one retained `FrameState` map never
+  GC'd, leaking a `HeightIndex` per distinct variable-virtual-list container id —
+  contradicting the "all retained state is frame-stamped" invariant. It now carries the
+  same `seen`/`frame_no` stamp as scroll, stamped on touch and dropped by
+  `gc_virtual_heights` beside `gc_scroll`.
+
+- **The verification envelope is documented (not narrowed).** README + llms.txt now state
+  plainly that a headless render is a deterministic *subset* of the live window — embedded
+  Latin/Inter fonts (real mono/CJK/emoji/RTL and the OS clipboard only in a window),
+  reduced motion, one reference GPU backend, and the full Liquid-Glass optics (backdrop
+  blur, edge lensing, adaptive tint) headless-only (live keeps tint + rim + sheen); the
+  web target compiles out AccessKit/clipboard/glass. The divergence is structural —
+  determinism *requires* a fixed font stack and reduced motion — so the honest fix is
+  disclosure at the pitch, not silence.
+
+- **Process.** Two implementation teammates on disjoint crates (core; kit + render) built
+  under strict TDD; the docs and the integration/re-verify (fmt, clippy -D, full workspace
+  test, flagship-example render + eyeball) were the lead's, every teammate diff re-read
+  against source. One teammate's connection dropped mid-fix; its three committed fixes were
+  cherry-picked and the fourth (transform hit-test) finished by the lead from its committed
+  helper + test.
+
+## fenestra-motion: frame-pure motion graphics (2026-07-02)
+
+A new workspace crate: compositions are pure functions of integer frame number,
+sampled into element trees, rasterized through the existing headless pipeline, and
+sunk to PNG sequences / an ffmpeg pipe. The target user is an agent authoring a
+timeline and asserting on it without a human eye; the verification layer (pre-raster
+probes, temporal lints, sentinel goldens, contact sheets) is the point, not an
+afterthought. Additive throughout; every prior golden byte-identical.
+
+- **The Keyframes decision: share the math, not the type.** Core's `Keyframes` is a
+  looping, wall-clock-phased ambient-motion timeline whose stops are theme closures —
+  wrong on every axis motion needs (typed tracks, integer frames, hold-at-ends,
+  random access, serde), and lifting it would gut its kit consumers for zero shared
+  surface. What IS shared, one implementation two consumers: `CubicBezier::eval`
+  (already public; accuracy bound documented as |x(t)−x| ≤ 1e-5 — the kickoff's
+  bisection fallback proved unreachable, a grid search over extreme control points
+  shows Newton's worst residual at 4.3e-6, so tests lock the bound instead of dead
+  code), and the closed-form damped spring lifted to public `SpringSpec::step(v0, t)`
+  with the initial-velocity term motion needs (`anim::spring_progress` delegates at
+  v0 = 0). Color deliberately splits: interactive transitions keep OKLCH-shorter-hue;
+  motion defaults to Oklab per its spec with per-track sRGB opt-in.
+- **Core seams are additive and shared, never forked.** `Style.scale_xy` (ScaleXY
+  cannot be synthesized from uniform scale + rotate + translate) and
+  `Style.transform_origin` (CSS semantics, center default) compose into
+  `Style::paint_affine` — the paint matrix extracted as one public function that
+  painting draws under, hit-testing inverts, exit ghosts replay frozen (their
+  duplicate math deleted), and motion projects bboxes through. The shell gains
+  `render_element_over(el, theme, size, scale, bg, fonts, state)`: caller base color
+  (transparent renders real alpha; vello output is premultiplied, so motion
+  un-premultiplies for straight-alpha PNGs) and preview scales (scale 1.0 keeps the
+  two-pass glass pipeline; other scales render single-pass like the live window).
+- **The determinism contract is layered — and the byte-identity the kickoff asked
+  for is physically unattainable on the GPU path.** Probed on the Metal reference:
+  the *same vello Scene object* rendered twice differs by ±1 LSB on scattered AA
+  pixels (float accumulation order in the compute rasterizer). The honest, CI-tested
+  contract: (1) sampling/probes/lints are exactly deterministic — pure math;
+  (2) same-frame re-renders and parallel-sequence-vs-standalone-frames agree within
+  ±1 per channel on <0.1% of pixels in-process; (3) cross-machine reproduction uses
+  the golden tolerance harness (3/255, 0.2%). Parallelism adds nothing on top:
+  frames fan out over rayon with per-thread embedded Fonts, the GPU serializes
+  behind the process mutex, and a bounded order-restoring writer emits files in
+  frame order. A bit-exact CPU rasterizer backend (vello_cpu) is the deferred path
+  to true byte-identity.
+- **The data form embeds fenestra/1 rather than inventing an element grammar.** RON
+  primary (with `implicit_some` + unwrapped variant newtypes — verified to carry
+  describe's externally-tagged nodes and untagged color unions), JSON parses the
+  same shape, `version: 1`, `deny_unknown_fields`, path-pointed compile errors in
+  the author's own casing. Clip content is a describe node, so motion documents
+  author real fenestra UI with theme-role/oklch colors; elements validate strictly
+  at compile and re-parse leniently per frame. `Clip::dynamic` is code-only —
+  closures don't serialize, and `to_ron` on a code-built comp says so.
+- **CLI: a separate `motion` binary, not a `fenestra` subcommand.** The `fenestra`
+  bin lives in fenestra-render, which must not depend on motion (layering), and the
+  bin-name ≠ crate-name precedent already exists. Same conventions: document from
+  path or stdin, JSON to stdout, artifacts to `--out`, notes to stderr, exit 0/1/3.
+  `render --frame N --scale 0.25` is the cheap agent look (16× fewer pixels).
+- **Remotion (remotion-dev/skills) reviewed as prior art**; adopted: the named
+  curves (crisp 0.16,1,0.3,1 / editorial 0.45,0,0.55,1 / pop 0.34,1.56,0.64,1), the
+  explicit overshoot rule (geometry extrapolates mid-segment, colors clamp — the
+  rule core's lerp already used), the one-frame `--scale` sanity check, the
+  FORBIDDEN register for wall-clock animation in clip content, video-first layout
+  doctrine in the docs (safe areas, text minimums, slots-not-absolutes, solve
+  crowding with time), and the stagger/typewriter cookbook patterns. Deferred menu
+  (ranked): TransitionSeries-style scene transitions with overlap math; Series
+  sequencing sugar; clip `.trim()`; shared named timings; parameterized documents;
+  data-driven duration; effect tracks over core's effect nodes; a fitText helper;
+  a fenestra agent-skill pack in their router shape; motion blur via subframe
+  accumulation; a GUI scrubber built in fenestra itself; per-node/target-id color
+  tracks (`Prop::TextColor` styles the clip's root only — a no-op on the common
+  `container > text(..)` shape; the data form's only escape hatch today is
+  `Clip::dynamic`, which is code-only).
+- **Demos live in the library (`demos` module, kit precedent)** so tests, examples,
+  and users share one definition: the lower third is the shipped RON document
+  compiled at `include_str!` (data-form flagship, straight-alpha delivery);
+  title_stagger measures word slots by probing a layout pass instead of hand-tuned
+  pixels; chart_race keeps its data in `Track<f32>`s and rebuilds a
+  fenestra-charts bar chart per frame (charts verified wall-clock-free). Each demo
+  lints clean, asserts its claim structurally, and is pinned by sentinel goldens.
+- **Deviations from the kickoff (deliberate).** (1) Byte-identical determinism
+  tests → the layered contract above; hardware wins. (2) `keys![…]` macro → the
+  `key(at, value).ease(..)` builder; the API stays macro-free (llms.txt contract).
+  (3) `.element(el)` takes a factory closure, not an owned element — fenestra trees
+  are single-use and rebuilt every frame by design. (4) The plan lives in the PR
+  description, not `docs/motion-plan.md` — plans don't land in git (standing rule);
+  decisions land here. (5) Bezier bisection fallback omitted as unreachable,
+  accuracy locked by tests instead.
+- **Process.** TDD throughout (every feature's test observed failing first — the
+  bezier "hardening" test refusing to fail is what killed the dead fallback);
+  phase-per-commit with all gates green; goldens inspected by eye at each phase
+  (the contact sheet gained its hairline thumb borders from that look); the
+  determinism probes (same-scene-twice, cross-process gallery byte-compare) ran
+  before the contract was written down.
+
+## fenestra-motion: xhigh multi-agent review + fix pass (2026-07-02)
+
+Ten independent finder angles (5 correctness + reuse/simplify/efficiency/altitude/
+conventions) fanned out over the PR #16 diff, one verifier per surviving candidate,
+one gap-sweep pass; 15 findings survived verification and are all fixed, each
+test-first, in this pass. Two were reproduced live before fixing (a real overflow
+panic and a real deadlock), turning "plausible" into "confirmed" before writing
+code.
+
+- **A semi-transparent composition background was composited twice** — once as
+  the GPU clear color, once as `SampledScene::element()`'s root fill rect —
+  darkening/increasing the opacity of any `0 < alpha < 1` background (opaque and
+  fully-transparent backgrounds masked it, which is why no golden caught it). Fix:
+  `element()` stays the single source of truth for the background (it already
+  paints it as a root rect whenever alpha > 0); `render_frame_at` now clears to
+  `Color::TRANSPARENT` and lets the element tree paint its own background exactly
+  once. More robust than the alternative (stripping the root fill) since it keeps
+  `element()` self-describing for any future caller, not just the current two.
+- **Non-finite key VALUES (not just easing parameters) were accepted by the data
+  form.** A `scalar(inf)` or `scalar(NaN)` compiled clean and, worse, **passed
+  every temporal lint silently** — `delta > bound` is `false` for NaN, so a
+  NaN-poisoned timeline lints clean while rendering garbage, defeating the
+  verification layer's whole thesis for exactly that input. Extended the
+  finiteness check already covering spring/bezier params to `ValueDoc::Scalar`
+  and `ValueDoc::Pair`.
+- **`to_ron`/`to_json` serialized the frozen load-time document after builder
+  mutations**, silently dropping any `.clip()`/`.duration()`/`.background()`/
+  `.theme()`/`.cut()` call made after `from_ron` — a `load → edit → save`
+  round-trip lost the edit with no error. Every builder now clears `source` on
+  mutation, so a mutated composition honestly reports `NotSerializable` (the
+  boundary that already exists for code-built compositions) instead of
+  serializing stale data.
+- **Frame counts were unbounded end to end**: a document's `duration`/clip `end`
+  near `u64::MAX`, or a CLI `--frames` range reaching toward it, would try to
+  `Vec::collect` an astronomical frame-index list (allocation abort) or iterate
+  effectively forever in the lints — the exact DoS class the hardening pass
+  closed elsewhere in the workspace, now closed here too. `Composition::total_frames()`
+  clamps to `MAX_FRAMES` (10M, ~46h at 60fps) as the single choke point
+  regardless of source (declared duration or clip span), and the CLI clamps
+  `--frames` against it.
+- **`verify::monotone` didn't clamp the local frame to the clip's span**, unlike
+  `sample`/`settled` — reading raw (unfrozen) track values past `span.end` and
+  reporting phantom violations (or false passes) on motion the renderer never
+  actually shows (it freezes at the last in-span frame). Now shares the same
+  `local_of` clamp helper the other samplers already use.
+- **Exit animations still pivoted about the hardcoded rect center**, the one
+  paint site the `Style::paint_affine`/`transform_origin` unification (this PR's
+  own headline core change) missed: an element with a non-default
+  `transform_origin` and a scaling `.exit_to()` would have its static half pivot
+  at `transform_origin` and its animated half pivot at the rect center — two
+  disagreeing pivots. Extracted the pivot math into
+  `Style::transform_origin_point(rect)` (used by `paint_affine` internally, a
+  pure refactor) and had `paint_exits` call the same function. Verified via a new
+  `FrameState::exiting_ghost_pivot` test hook (mirroring the existing
+  `exiting_ghost_translate` hook) rather than a fragile pixel comparison. Latent
+  today — nothing combines `transform_origin` with an exit yet — but it's the
+  new feature's real gap, now closed for the same content that motion itself
+  measures bboxes through.
+- **The mp4 sink cloned every frame's full RGBA buffer** (8.3MB at 1080p) because
+  the shared sink's `produce` callback borrowed the image. Changed `produce` to
+  take `RgbaImage` by value; the video path now moves the buffer out
+  (`into_raw()`) instead of copying it — the PNG path is unaffected (it still
+  only borrows for encoding).
+- **Data-form clips deep-cloned their entire `describe::Node` tree every single
+  frame** inside the per-frame content closure, roughly doubling the per-frame
+  tree cost of the data-form path. The `Description` (immutable across frames)
+  is now built once at compile time — reusing the SAME value the strict
+  validation pass already builds — and captured by the closure instead of
+  rebuilt.
+- **A color track could never animate to `"transparent"`**, only the background
+  field could: the identical string in a `fill_color`/`stroke_color`/
+  `text_color` track hit describe's `resolve_color` and errored as an unknown
+  role, so "fade a fill to nothing" was inexpressible in the data form. Renamed
+  `resolve_background` to `resolve_motion_color` (motion's own color-grammar
+  extension — `"transparent"` isn't part of shared `ColorSpec`) and reused it for
+  every color resolution site, background and tracks alike.
+- **`Prop::TextColor` is a silent no-op on the common `container > text(..)` clip
+  shape** (fenestra styles don't cascade, so a root-only color overlay never
+  reaches nested text) — documented explicitly (rustdoc on `Prop`/`TextColor`,
+  README "Known v1 limitations") rather than "fixed": the real fix is per-node/
+  target-id color tracks or a describe-level recolor mechanism, filed on the
+  deferred menu. Distinguishing this from the previous finding: `"transparent"`
+  was a fixable **grammar** gap; nested-node targeting is a **schema/design**
+  gap too large for a review-fix pass.
+- **The bezier accuracy tests asserted `2e-5` while `CubicBezier::eval`'s rustdoc
+  promises `≤1e-5`** — a regression landing between the two bounds would pass CI
+  while violating the documented contract. Tightened both asserts to `1e-5`
+  (worst observed residual is 4.3e-6, so this was slack, not risk).
+- **ffmpeg's stderr was undrained during the whole frame-writing loop** (only
+  read at the end via `wait_with_output`): a codec emitting enough error-level
+  output to fill the ~64KB OS pipe buffer before exiting would block on its own
+  stderr write, never reach reading stdin, and deadlock the frame writer.
+  Reproduced live with a shell test-double that bursts 200KB to stderr before
+  consuming stdin (hung exactly at the test's 20s bound under the old code,
+  resolves in well under a second fixed). Fixed by draining stderr on a
+  dedicated thread for the whole piping duration, joined after `stdin` is
+  dropped. Paired with a `KillOnDrop` guard around the child so a panic
+  unwinding out of `render_video_with` (e.g. a rayon worker panic mid-pipe)
+  can't orphan the ffmpeg process — `Child` is never auto-reaped on drop in std.
+- **`SampledScene::measure` hand-rolled a 4-corner-transform-then-min/max AABB
+  fold** that kurbo (already a dependency) ships as `Affine::transform_rect_bbox`
+  — verified byte-for-byte identical computation; replaced the ~14-line fold
+  with the one-line call.
+- **`data.rs`'s track-kind dispatch re-derived `clip.rs`'s private `PropKind`
+  enum as parallel `&'static str` literals** ("scalar"/"pair"/"color"), with a
+  non-exhaustive `_` fallthrough that would silently misclassify a future prop
+  kind instead of failing to compile. Made `PropKind` (+ `Prop::kind`/
+  `AnyTrack::kind`) `pub(crate)`, gave `ValueDoc` its own `kind() -> PropKind`,
+  and switched every dispatch to match on the enum — now compiler-exhaustive.
+- **The CLI integration test suite's `write_doc()` helper shared one pid-keyed
+  temp path across all 9 tests that call it**, racing under `cargo test`'s
+  default thread-per-test parallelism (one test's write could truncate the file
+  while another's spawned `motion` subprocess was mid-read) — a latent CI flake
+  source. Added a per-call atomic counter to the filename; verified flake-free
+  across three repeated full-parallelism runs.
+
+Net: five bugs with real (if narrow) production impact, four hostile-input/DoS
+closures matching the workspace's established clamp-over-panic posture, two
+genuine capability gaps (one fixed in-scope, one documented and deferred), two
+correctness-adjacent cleanups (kurbo reuse, exhaustive dispatch) that also removed
+latent bug surface, and one test-infrastructure flake source. Every fix landed
+with a test that failed first (two by live reproduction: the overflow panic and
+the ffmpeg deadlock, both observed hanging/panicking under the old code before the
+fix). All gates green; the full `fenestra-kit` 121-golden corpus, the motion
+sentinel goldens, and every existing workspace test byte/tolerance-compared clean
+— nothing outside `fenestra-core`/`fenestra-motion`/`fenestra-shell` was touched,
+and every core change is additive (new `Style` fields/methods, a new
+`FrameState` test hook) with zero behavioral change to existing default-identity
+content.
+
+## harden/review-fixes: remaining cleanup candidates + the audit blocker (2026-07-02)
+
+Closing out the three test/cleanup candidates left open from the harden pass's own
+review, and resolving the `cargo-audit`/`cargo-deny` failure that was blocking both
+PR #15 and PR #16 (stacked: `feat/motion` → `harden/review-fixes` → `main`).
+
+- **Reuse.** `variable()` in `fenestra-core/tests/virtualization.rs` was a byte-for-byte
+  copy of `variable_with_id(id)` differing only in the fixed `"var"` id; it now calls
+  `variable_with_id("var")`. `count_buttons` in `fenestra-kit/tests/hardening.rs`
+  hand-rolled a recursive `Semantics::Button` tree walk that duplicates
+  `Frame::get_all(&by::role(...))`, an existing query already used elsewhere in the
+  suite; the test now calls `frame.get_all(&by::role(Semantics::Button)).len()` and the
+  hand-rolled walker is deleted.
+
+- **A stale comment, re-checked against the current code.** `navigation.rs`'s pagination
+  window math claimed its `saturating_add`/`saturating_sub` guarded "before the clamps
+  above take effect" — inaccurate on two counts: the window math runs *after* `count`/
+  `page`/`siblings` are clamped, not before, and (re-verified post-M6, which dropped the
+  `count` ceiling) `count` is now deliberately uncapped, so `page` can still reach
+  `usize::MAX` — meaning the saturating arithmetic on `hi` is genuinely load-bearing
+  today, not a leftover from a since-removed bound. Comment corrected to state the real
+  invariant instead of describing ordering that isn't true.
+
+- **A debug_assert! double-walk, investigated and left as-is — twice.** The
+  duplicate-`WidgetId` `debug_assert!` in `build_frame` calls `frame.first_duplicate_id()`
+  twice (once for the condition, once for the panic message), which looked like a
+  harmless dedup opportunity. Two different "fixes" for it were tried and both broke
+  something a bare read of the code didn't predict:
+  1. Hoisting the call above the macro as a plain `let` would make it run
+     unconditionally even in release builds — `debug_assert!` only compiles to a no-op
+     in release because it expands to `if cfg!(debug_assertions) { assert!(...) }`, a
+     *runtime* branch on a compile-time-constant condition, not conditional
+     compilation; pulling the call out of the macro loses that.
+  2. Wrapping the hoisted call in an explicit `#[cfg(debug_assertions)]` block (to
+     recover the release no-op) instead broke the opposite way: `#[cfg(...)]` is true
+     conditional compilation, so in a release, non-test build `first_duplicate_id`'s
+     only call site vanishes from the compiled crate entirely, and `-D warnings` turns
+     the resulting `dead_code` lint into a hard error. This shipped, then failed CI on
+     `cargo test -p fenestra-core --test perf_gate --release` (macOS/Metal) — caught
+     there, not before, because no local gate in this pass ran a `--release` build of
+     `fenestra-core` on its own. Reverted to the original double-call form, which is
+     the only one of the three that is both correct and lint-clean: the second call
+     only runs on the panic path, so the "double work" never actually costs anything
+     in practice.
+
+- **Three candidates investigated and left alone, not deferred.** The remaining
+  candidates from the harden pass's review (tab-loop cycle detection, a claimed redundant
+  Tab/ShiftTab test direction, a claimed thread+timeout harness inconsistency, a claimed
+  redundant duplicate-id test) were checked against the current source, not just
+  skipped on the prior agent's recommendation: no cycle-detection mechanism exists to fix
+  (adding one would be new behavior, not a bug fix); the Tab/ShiftTab DoS regression test
+  already covers both directions in one combined thread+timeout harness, not two redundant
+  ones; the differing timeout constants across tests are independent per-test choices, not
+  an inconsistency; and the three duplicate-id tests each exercise a genuinely distinct
+  path (`build_frame`'s assert firing, the no-collision case, the forced-collision case).
+  None warranted a change.
+
+- **`cargo-audit`/`cargo-deny`: unfixable transitive advisories, documented and ignored.**
+  Two HIGH-severity (7.5) RUSTSEC advisories in `quick-xml 0.39.4` — RUSTSEC-2026-0194
+  (quadratic run time on duplicate start-tag attributes) and RUSTSEC-2026-0195 (unbounded
+  namespace-declaration allocation) — reach the workspace two ways: through winit's
+  non-optional Wayland backend (`smithay-client-toolkit` → `wayland-scanner`, which pins
+  `quick-xml = "^0.39"`) and independently through `zbus_xml`'s AT-SPI accessibility stack.
+  `cargo update -p quick-xml --precise 0.41.0` fails to resolve: no `wayland-scanner`
+  release yet accepts `quick-xml >= 0.41`. A third, previously unreported advisory
+  surfaced during this pass — RUSTSEC-2026-0192 (`ttf-parser` unmaintained, dated
+  2026-06-28) — reached the same way through winit's optional Wayland Adwaita window
+  decorations (`sctk-adwaita` → `ab_glyph` → `owned_ttf_parser` → `ttf-parser`); neither
+  `ab_glyph` nor `sctk-adwaita` has published a release since September 2025, and no
+  successor crate exists to move to. `cargo-audit` treats "unmaintained" as a non-fatal
+  warning by default, so it hadn't been failing `cargo audit`, but `cargo-deny` does treat
+  it as a hard error, so it was silently failing `cargo deny check` on top of the two
+  already-known findings.
+
+  All three are genuinely unfixable today by a version bump or feature-flag change on
+  fenestra's side — verified by dependency-tree tracing (`cargo tree -i <crate>`) and a
+  resolver dry-run, not assumed. Dropping Wayland support entirely (forcing X11/XWayland
+  on Linux) was considered and rejected as a real platform-support regression, not a
+  bugfix, and out of proportion to two upstream-blocked advisories. Instead: a scoped,
+  dated ignore list in both `.cargo/audit.toml` and `deny.toml`'s `[advisories] ignore`,
+  each entry commented with its dependency chain and a concrete revisit trigger (a new
+  `wayland-scanner`/`zbus_xml` release accepting `quick-xml >= 0.41`; a new `ab_glyph` or
+  `sctk-adwaita` release). This is deliberately narrower than an admin-override merge
+  (which would leave the gate silently red forever with no record of why) and reversible
+  the moment upstream ships a fix — `cargo tree -i` before removing any entry to confirm.

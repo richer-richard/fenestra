@@ -1,5 +1,105 @@
 # Changelog
 
+## Unreleased
+
+A hardening + correctness pass from an adversarial self-review: agent-reachable DoS
+vectors closed, three retained-state/correctness bugs fixed, and the headless
+verification envelope documented. Additive; every prior golden is byte-identical.
+
+### Added
+
+- **`fenestra-motion`: frame-pure motion graphics.** A new workspace crate: a
+  composition is a pure function of integer frame number — typed keyframe tracks
+  (hold-at-ends, per-segment easing: CSS beziers shared with the interactive engine,
+  closed-form damped springs with initial velocity, named curves crisp/editorial/pop),
+  clips with spans/z/anchors, and `Clip::dynamic(|frame| …)` for data-driven trees.
+  Frames rasterize through the existing headless pipeline (new
+  `fenestra_shell::render_element_over`: caller background — transparent renders
+  straight alpha — and preview scale factors); sinks: parallel PNG sequences (rayon +
+  order-restoring writer), an ffmpeg rawvideo pipe (PNG paths never need ffmpeg), and
+  contact sheets with frame numbers burned in. A versioned RON/JSON data form embeds
+  the `fenestra/1` node vocabulary; the `motion` CLI renders/probes/lints/sheets it.
+  Verification layer: pre-raster prop/bbox probes, temporal lints (undeclared jumps
+  vs declared `.cut()`s, monotonicity, settling), auto-selected sentinel frames with
+  golden coverage for the three shipped demos (lower third, per-word stagger, chart
+  race over `fenestra-charts`). Core gains additive shared seams:
+  `SpringSpec::step(v0, t)`, public `Style::paint_affine`, and `Style.scale_xy` +
+  `Style.transform_origin` (hit-testing follows via the shared matrix). The
+  determinism contract is layered and CI-tested: sampling is exactly deterministic;
+  renders agree within the GPU's ±1 LSB antialiasing noise in-process; cross-machine
+  reproduction uses the golden tolerance harness.
+
+### Fixed
+
+- **`fenestra-motion`: a 10-angle multi-agent review found and fixed 15 issues**
+  before the crate's PR merged — none shipped. Two reproduced live before the
+  fix: a hostile document (`start: u64::MAX`-class span) panicked with an
+  integer overflow through every CLI subcommand, and a chatty ffmpeg encoder
+  (>64KB to stderr before reading stdin) deadlocked the frame writer. Also: a
+  semi-transparent composition background was composited twice (darkened);
+  non-finite (`NaN`/`inf`) keyframe *values* were accepted and silently passed
+  every temporal lint (only easing parameters were checked); `to_ron`/`to_json`
+  serialized the stale load-time document after builder mutations, dropping
+  edits silently; frame counts were unbounded end to end (CLI `--frames` and
+  document `duration`); `verify::monotone` didn't clamp to the clip span like
+  every other sampler, reporting phantom violations past `span.end`; exit
+  animations still pivoted about the hardcoded rect center instead of the
+  element's own `transform_origin` — the one paint site this PR's
+  `Style::paint_affine` unification missed; the ffmpeg video sink cloned every
+  frame's full pixel buffer; data-form clips deep-cloned their content tree
+  every frame instead of once; and a color track couldn't animate to
+  `"transparent"` (only the background field could). Full account in
+  ARCHITECTURE.md. Every fix landed with a test that failed first; all gates
+  green, the full `fenestra-kit` golden corpus and motion's own sentinel
+  goldens byte/tolerance-compared clean.
+- **Agent-reachable DoS vectors clamped.** Each grid template axis is bounded so its
+  realized track total — summed across every `repeat(...)` and single-track entry —
+  stays ≤ 1024 where it realizes into taffy (a total near 32767 allocated ~1 GB;
+  ≥32768 overflowed taffy's i16 grid coordinates); a per-`repeat()` clamp alone was
+  not enough, since many small clamped repeats can still sum past the ceiling, or an
+  oversized fragment can escape a count already clamped to 1 — the budget is now
+  enforced once, axis-wide, at the template-to-taffy boundary. `pagination` clamps
+  `siblings` (≤50, the window driver) with saturating window math (a `siblings` ≈ 2e9
+  input built a multi-billion-cell strip; `count` is floored at 1 but otherwise
+  uncapped — the strip never materializes more than a small window regardless of page
+  count, so `count` carried no allocation risk, and capping it too just broke
+  legitimate large pagers); and scenario `tab` / `shift_tab` repeats are bounded to
+  4096 (a `u32::MAX` repeat re-derived the whole tree billions of times, hanging the
+  MCP worker). All reachable from pure `fenestra/1` JSON through every frame-building
+  tool; clamp-over-panic at the API boundary.
+- **Hit-testing follows paint-time transforms.** A `translate`/`rotate`/`skew`/`scale`'d
+  interactive element painted in one place but activated at its old layout slot;
+  `walk_hit` now inverts the same affine `paint_node` draws under (shared
+  `node_transform`), so the activatable region matches the painted one — restoring the
+  invariant "what you hit-test is exactly what you painted." Paint output is unchanged.
+- **Duplicate `WidgetId`s are caught.** Two elements sharing an `.id("…")` (or a
+  non-unique keyed-list key) realize the same id and silently share `FrameState`;
+  `build_frame` now `debug_assert!`s frame-wide id uniqueness (compiled out of release).
+- **`virtual_heights` no longer leaks.** The one retained `FrameState` map never
+  garbage-collected is now frame-stamped and GC'd like scroll/anim/editor state.
+
+### Security
+
+- **Three unfixable transitive RUSTSEC advisories are documented and ignored, not
+  silenced.** `quick-xml 0.39.4` (RUSTSEC-2026-0194, RUSTSEC-2026-0195, both HIGH) reaches
+  the workspace through winit's Wayland backend and `zbus_xml`'s AT-SPI stack; no
+  `wayland-scanner` release yet accepts `quick-xml >= 0.41`. `ttf-parser 0.25.1`
+  (RUSTSEC-2026-0192, unmaintained) reaches it through winit's optional Wayland Adwaita
+  decorations; neither `ab_glyph` nor `sctk-adwaita` has published since 2025-09. All
+  three are dated, commented, and scoped in `.cargo/audit.toml` and `deny.toml`, with the
+  dependency chains and revisit triggers recorded in ARCHITECTURE.md. Dropping Wayland
+  support to close them outright was considered and rejected as a platform regression out
+  of proportion to two upstream-blocked advisories.
+
+### Documentation
+
+- **The headless verification envelope is stated plainly** (README, llms.txt): headless
+  is a deterministic subset of the live window — embedded Latin/Inter fonts (real
+  mono/CJK/emoji/RTL and the OS clipboard only in a window), reduced motion, one
+  reference GPU backend, and the full Liquid-Glass optics (backdrop blur, edge lensing,
+  adaptive tint) headless-only (live keeps tint + rim + sheen); the web target compiles
+  out AccessKit/clipboard/glass.
+
 ## 0.39.0 — 2026-06-29
 
 The truthful-verification pass — make the typed access tree and the accessibility

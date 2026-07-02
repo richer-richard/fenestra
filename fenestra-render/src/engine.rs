@@ -228,6 +228,14 @@ fn resolve(h: &Harness<DescribedApp>, sel: &Selector, index: usize) -> Result<Qu
     Ok(q)
 }
 
+/// The most times a single [`Step::Tab`]/[`Step::ShiftTab`] will move focus.
+/// Each repeat dispatches an event and rebuilds the frame (re-deriving the whole
+/// element tree), so an unbounded `u32` repeat is a multi-billion-iteration
+/// hang. A keyboard focus order is tiny — a few hundred stops in even an
+/// enormous UI — so a few thousand covers any real cycle many times over while
+/// turning a hostile `u32::MAX` into a handful of milliseconds.
+const MAX_TAB_REPEAT: u32 = 4_096;
+
 /// Applies one step to the harness.
 fn apply_step(h: &mut Harness<DescribedApp>, step: &Step, index: usize) -> Result<(), EngineError> {
     match step {
@@ -265,12 +273,12 @@ fn apply_step(h: &mut Harness<DescribedApp>, step: &Step, index: usize) -> Resul
             h.key(key);
         }
         Step::Tab(n) => {
-            for _ in 0..*n {
+            for _ in 0..(*n).min(MAX_TAB_REPEAT) {
                 h.tab();
             }
         }
         Step::ShiftTab(n) => {
-            for _ in 0..*n {
+            for _ in 0..(*n).min(MAX_TAB_REPEAT) {
                 h.shift_tab();
             }
         }

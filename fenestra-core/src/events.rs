@@ -470,6 +470,7 @@ pub fn dispatch<Msg: Clone>(
                             && sid == active
                             && let Some((text, style)) = frame.static_text_of(active)
                             && let Some(rect) = frame.rect_of(active)
+                            && let Some(point) = frame.to_layout_point(active, point)
                         {
                             #[expect(
                                 clippy::cast_possible_truncation,
@@ -629,6 +630,7 @@ pub fn dispatch<Msg: Clone>(
                         state.last_press = Some((id, now, count));
                         if let Some((text, style)) = frame.static_text_of(id)
                             && let Some(rect) = frame.rect_of(id)
+                            && let Some(point) = frame.to_layout_point(id, point)
                         {
                             #[expect(
                                 clippy::cast_possible_truncation,
@@ -1037,6 +1039,7 @@ fn input_local<Msg>(
     point: Point,
 ) -> Option<(f64, f64)> {
     let rect = frame.rect_of(id)?;
+    let point = frame.to_layout_point(id, point)?;
     let scroll_x = state.editors.get(&id).map_or(0.0, |e| e.scroll_x);
     let pad = f64::from(el.style().padding.left);
     Some((point.x - rect.x0 - pad + scroll_x, rect.height() * 0.5))

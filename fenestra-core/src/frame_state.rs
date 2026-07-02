@@ -328,6 +328,13 @@ impl FrameState {
         self.scroll.retain(|_, s| s.seen == frame_no);
     }
 
+    /// Drops variable-height virtual-list indices whose container was not in the
+    /// frame just built, mirroring [`Self::gc_scroll`] — a dynamically keyed
+    /// virtual list cannot leak one `HeightIndex` per distinct id forever.
+    pub(crate) fn gc_virtual_heights(&mut self, frame_no: u64) {
+        self.virtual_heights.retain(|_, h| h.seen == frame_no);
+    }
+
     /// Scrollbar opacity for an id: 1.0 while scrolling (held briefly), then
     /// fading to 0. With `reduced_motion` the fade is a step function.
     pub(crate) fn scrollbar_alpha(&self, id: WidgetId) -> f32 {
@@ -401,6 +408,31 @@ impl FrameState {
     pub fn exiting_ghost_translate(&self, id: WidgetId) -> Option<(f32, f32)> {
         self.exiting.get(&id).map(|r| r.ghost.style.translate)
     }
+
+    /// The pivot point the exit animation's own scale/translate composes
+    /// about for `id` (the ghost's `transform_origin` projected into its
+    /// frozen rect — the same point [`Style::paint_affine`](crate::Style::paint_affine)
+    /// pivots the ghost's static transform about), or `None` when no exit is
+    /// tracked for it.
+    #[doc(hidden)]
+    pub fn exiting_ghost_pivot(&self, id: WidgetId) -> Option<(f32, f32)> {
+        self.exiting.get(&id).map(|r| {
+            let p = r.ghost.style.transform_origin_point(r.ghost.rect);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "logical layout coordinates fit f32"
+            )]
+            (p.x as f32, p.y as f32)
+        })
+    }
+
+    /// Whether variable-height virtual-list bookkeeping is retained for `id`
+    /// (test hook; mirrors [`Self::has_anim`]). Frame-stamped and GC'd, so it is
+    /// only `true` while the container is present.
+    #[doc(hidden)]
+    pub fn has_virtual_heights(&self, id: WidgetId) -> bool {
+        self.virtual_heights.contains_key(&id)
+    }
 }
 
 /// Row-height bookkeeping for one variable-height virtual list:
@@ -413,6 +445,8 @@ pub(crate) struct HeightIndex {
     /// prefix[i] = offset of row i; prefix[count] = total height.
     prefix: Vec<f32>,
     dirty: bool,
+    /// Frame stamp for garbage collection, like `Scroll::seen`.
+    seen: u64,
 }
 
 impl HeightIndex {
@@ -446,9 +480,17 @@ impl HeightIndex {
             heights: Vec::new(),
             prefix: Vec::new(),
             dirty: true,
+            seen: 0,
         };
         index.ensure(count, estimate);
         index
+    }
+
+    /// Stamps this index alive for the current frame, so
+    /// [`FrameState::gc_virtual_heights`] keeps it. Called each frame the
+    /// container materializes (mirrors `Scroll::seen`).
+    pub(crate) fn mark_seen(&mut self, frame_no: u64) {
+        self.seen = frame_no;
     }
 
     /// Offset of a row's top edge.

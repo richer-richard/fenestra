@@ -1,8 +1,11 @@
 //! Robustness regressions from the security/hardening audit: widget
 //! callbacks must never emit values the host cannot use safely.
 
-use fenestra_core::{App, Element, Key, KeyInput, SP4, Theme, col};
-use fenestra_kit::{select, text_input};
+use fenestra_core::{
+    AccessNode, App, Element, Fonts, FrameState, Key, KeyInput, SP4, Semantics, Theme, build_frame,
+    by, col,
+};
+use fenestra_kit::{pagination, select, text_input};
 use fenestra_shell::{SyntheticEvent, render_app};
 
 struct PickEmpty {
@@ -110,5 +113,67 @@ fn empty_select_never_emits_an_index() {
     assert_eq!(
         app.picked, None,
         "an empty select emitted an option index that does not exist"
+    );
+}
+
+/// Collects every accessible label in the tree, so a test can assert a
+/// particular page cell was (or was not) materialized by name.
+fn collect_labels(node: &AccessNode, out: &mut Vec<String>) {
+    if let Some(label) = &node.label {
+        out.push(label.clone());
+    }
+    for child in &node.children {
+        collect_labels(child, out);
+    }
+}
+
+/// A pagination strip fed an adversarial page count and sibling window must not
+/// try to materialize one cell per page. Before the clamp, `page + siblings`
+/// overflowed `usize` (a debug panic; in release it wrapped to a ~1.8e19-wide
+/// `lo..=hi` range that OOMs building a cell per page). The window is now
+/// clamped to a small constant and the arithmetic saturates, so the strip stays
+/// tiny regardless of input.
+#[test]
+fn pagination_clamps_adversarial_count_and_siblings() {
+    let view: Element<()> = pagination(usize::MAX, usize::MAX)
+        .siblings(usize::MAX)
+        .on_select(|_| ())
+        .into();
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (800.0, 80.0), 1.0);
+    let buttons = frame.get_all(&by::role(Semantics::Button)).len();
+    assert!(
+        buttons <= 128,
+        "pagination must clamp its window to a small constant; got {buttons} materialized cells"
+    );
+}
+
+/// A legitimate large pager must address its full range. The siblings window is
+/// what bounds the rendered strip (see the adversarial test above), so `count`
+/// itself carries no allocation cost and must never be silently truncated: the
+/// last-page cell, the current-page highlight, and the reachable range all read
+/// straight from `count`/`page`. A 50 000-page table at page 25 000 must expose
+/// a "page 50000" cell and mark 25000 (not a clamped 10000) as current.
+#[test]
+fn pagination_addresses_full_range_of_a_large_pager() {
+    let view: Element<()> = pagination(25_000, 50_000)
+        .siblings(1)
+        .on_select(|_| ())
+        .into();
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (800.0, 80.0), 1.0);
+    let mut labels = Vec::new();
+    collect_labels(&frame.access_tree(), &mut labels);
+    assert!(
+        labels.iter().any(|l| l.contains("50000")),
+        "the last page of a 50000-page pager must be reachable; labels were {labels:?}"
+    );
+    assert!(
+        labels.iter().any(|l| l == "Page 25000, current"),
+        "the true current page (25000) must be highlighted, not a clamped value; labels were {labels:?}"
     );
 }

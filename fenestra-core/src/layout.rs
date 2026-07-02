@@ -87,8 +87,8 @@ pub(crate) fn to_taffy(style: &Style, in_stack: bool) -> taffy::Style {
         flex_grow: style.flex_grow,
         flex_shrink: style.flex_shrink,
         flex_basis: dimension(style.flex_basis),
-        grid_template_columns: style.grid_template_columns.iter().map(template).collect(),
-        grid_template_rows: style.grid_template_rows.iter().map(template).collect(),
+        grid_template_columns: clamp_axis(&style.grid_template_columns),
+        grid_template_rows: clamp_axis(&style.grid_template_rows),
         overflow: taffy::geometry::Point {
             x: overflow(style.overflow_x),
             y: overflow(style.overflow_y),
@@ -164,17 +164,65 @@ fn overflow(v: Overflow) -> taffy::style::Overflow {
     }
 }
 
-/// Maps one fenestra grid template entry to a taffy template component. Generic
-/// over taffy's custom-ident type `S` (inferred from the collection target), so a
-/// `repeat(...)` and a single track share one path.
-fn template<S: CheapCloneStr>(g: &GridTemplate) -> GridTemplateComponent<S> {
-    match g {
-        GridTemplate::Single(t) => GridTemplateComponent::Single(track_sizing(*t)),
-        GridTemplate::Repeat(rep, tracks) => repeat(
-            repetition(*rep),
-            tracks.iter().map(|t| track_sizing(*t)).collect(),
-        ),
+/// Maps a whole fenestra grid template (one axis) to taffy template
+/// components, bounding the *axis-wide* realized track total to
+/// [`MAX_GRID_TRACKS`] — not just each entry individually. Clamping only a
+/// single `repeat()`'s count (the previous approach) leaves two escapes: many
+/// small, individually-clamped repeats can still sum past the ceiling, and a
+/// `repeat(1, [fragment])` whose fragment alone exceeds the ceiling realizes
+/// the whole oversized fragment since its count (already 1) has nothing left
+/// to clamp. Tracking one running budget across every entry — `Single` and
+/// `Repeat` alike, in template order — closes both: a fragment is first
+/// capped to what remains of the budget, then the repeat count is capped to
+/// however many capped-size copies still fit. `auto-fit`/`auto-fill` don't
+/// draw against the budget (taffy bounds their realized count by the
+/// container itself), but their fragment is still capped defensively.
+fn clamp_axis<S: CheapCloneStr>(templates: &[GridTemplate]) -> Vec<GridTemplateComponent<S>> {
+    let mut remaining = MAX_GRID_TRACKS;
+    let mut out = Vec::with_capacity(templates.len());
+    for g in templates {
+        match g {
+            GridTemplate::Single(t) => {
+                if remaining == 0 {
+                    continue;
+                }
+                out.push(GridTemplateComponent::Single(track_sizing(*t)));
+                remaining -= 1;
+            }
+            GridTemplate::Repeat(Repeat::Count(n), tracks) => {
+                if remaining == 0 {
+                    continue;
+                }
+                let per = u16::try_from(tracks.len())
+                    .unwrap_or(u16::MAX)
+                    .clamp(1, remaining);
+                let sized: Vec<_> = tracks
+                    .iter()
+                    .take(per.into())
+                    .map(|t| track_sizing(*t))
+                    .collect();
+                let max_reps = remaining / per; // per <= remaining, per >= 1 => max_reps >= 1
+                let realized = (*n).min(max_reps);
+                out.push(repeat(RepetitionCount::Count(realized), sized));
+                remaining -= realized * per;
+            }
+            GridTemplate::Repeat(rep, tracks) => {
+                // AutoFit / AutoFill: taffy computes the realized repetition
+                // count from the container's available space, so these don't
+                // draw against the axis budget — but still cap one
+                // fragment's own length defensively.
+                let per = tracks.len().min(usize::from(MAX_GRID_TRACKS)).max(1);
+                let sized: Vec<_> = tracks.iter().take(per).map(|t| track_sizing(*t)).collect();
+                let count = match rep {
+                    Repeat::AutoFit => RepetitionCount::AutoFit,
+                    Repeat::AutoFill => RepetitionCount::AutoFill,
+                    Repeat::Count(_) => unreachable!("handled above"),
+                };
+                out.push(repeat(count, sized));
+            }
+        }
     }
+    out
 }
 
 /// One CSS `<track-size>` as a taffy track sizing function.
@@ -212,14 +260,16 @@ fn track_max(m: TrackMax) -> MaxTrackSizingFunction {
     }
 }
 
-/// Maps a fenestra [`Repeat`] to taffy's repetition count.
-fn repetition(r: Repeat) -> RepetitionCount {
-    match r {
-        Repeat::Count(n) => RepetitionCount::Count(n),
-        Repeat::AutoFit => RepetitionCount::AutoFit,
-        Repeat::AutoFill => RepetitionCount::AutoFill,
-    }
-}
+/// The most grid tracks a template axis may realize *in total*, across every
+/// entry (`repeat(...)` and single tracks alike). taffy addresses grid lines
+/// with `i16`, so a template asking for ≥32768 tracks overflows its
+/// coordinates (a debug panic, silent mislayout in release), and even a count
+/// near that ceiling makes taffy allocate a ~1 GB cell-occupancy matrix. No
+/// real layout has a thousand tracks on an axis, so we cap the realized total
+/// well below taffy's limit and clamp a hostile template — authored via JSON
+/// or the builder — silently to it, the same clamp-over-panic contract
+/// [`MAX_DIMENSION`] follows.
+const MAX_GRID_TRACKS: u16 = 1024;
 
 fn grid_line(p: GridPlace) -> Line<GridPlacement> {
     match (p.start, p.span) {

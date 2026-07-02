@@ -1,0 +1,28 @@
+[package]
+name = "fenestra-motion"
+description = "Declarative motion graphics for the fenestra GUI framework: compositions as pure functions of frame number, sampled and verified headlessly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fenestra-core.workspace = true
+fenestra-shell.workspace = true
+fenestra-describe.workspace = true
+fenestra-charts.workspace = true
+kurbo.workspace = true
+color.workspace = true
+image.workspace = true
+rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ron.workspace = true
+# Same resolved version as the fenestra-render CLI (see its manifest note).
+clap = { version = "4.6.1", features = ["derive"] }

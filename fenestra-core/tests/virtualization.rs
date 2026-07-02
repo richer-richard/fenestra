@@ -23,13 +23,18 @@ fn fixed() -> Element<()> {
 
 /// Rows alternate 16/48px; the 24px estimate is wrong for every row.
 fn variable() -> Element<()> {
+    variable_with_id("var")
+}
+
+/// A variable-height virtual list whose scroll container carries `id`.
+fn variable_with_id(id: &str) -> Element<()> {
     col()
         .w(200.0)
         .h(120.0)
         .children([col()
             .h(120.0)
             .scroll_y()
-            .id("var")
+            .id(id)
             .virtual_rows_variable(COUNT, 24.0, |i| {
                 let h = if i.is_multiple_of(2) { 16.0 } else { 48.0 };
                 col().h(h).shrink0().children([text(format!("row {i}"))])
@@ -38,6 +43,36 @@ fn variable() -> Element<()> {
 
 fn build(view: &Element<()>, fonts: &mut Fonts, state: &mut FrameState) -> fenestra_core::Frame {
     build_frame(view, &Theme::light(), fonts, state, (200.0, 120.0), 1.0)
+}
+
+/// A variable virtual list's per-container height index is frame-stamped and
+/// garbage-collected, like scroll/anim/editor state: once the container leaves
+/// the tree its `HeightIndex` is dropped instead of leaking forever (one per
+/// distinct container id).
+#[test]
+fn virtual_heights_are_gc_d_when_the_container_leaves() {
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+
+    let frame_a = build(&variable_with_id("a"), &mut fonts, &mut state);
+    let id_a = frame_a.get(&by::id("a")).id;
+    drop(frame_a);
+    assert!(
+        state.has_virtual_heights(id_a),
+        "container 'a' recorded a height index while present"
+    );
+
+    // Rebuild with a different container id: 'a' is absent this frame.
+    let frame_b = build(&variable_with_id("b"), &mut fonts, &mut state);
+    let id_b = frame_b.get(&by::id("b")).id;
+    assert!(
+        state.has_virtual_heights(id_b),
+        "container 'b' recorded a height index"
+    );
+    assert!(
+        !state.has_virtual_heights(id_a),
+        "container 'a' left the tree; its height index must be GC'd, not leaked"
+    );
 }
 
 /// The realized rows, as (index, rect), sorted by index.

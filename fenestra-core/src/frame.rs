@@ -985,11 +985,15 @@ fn expand_virtual<Msg>(
     let offset = state.scroll_offset(id);
     if v.variable {
         const OVERSCAN: usize = 8;
+        let frame_no = state.frame_no;
         let index = state
             .virtual_heights
             .entry(id)
             .or_insert_with(|| crate::frame_state::HeightIndex::new_with(v.count, v.row_height));
         index.ensure(v.count, v.row_height);
+        // Stamp the container alive this frame so `gc_virtual_heights` keeps it;
+        // a container absent next frame is dropped instead of leaking.
+        index.mark_seen(frame_no);
         let first = index.index_at(offset).saturating_sub(OVERSCAN);
         let last = (index.index_at(offset + viewport.max(0.0)) + 1 + OVERSCAN).min(v.count);
         let window = first..last;
@@ -1795,6 +1799,7 @@ pub fn build_frame<Msg>(
     state.anims.retain(|_, a| a.seen == frame_no);
     state.editors.retain(|_, e| e.seen == frame_no);
     state.gc_scroll(frame_no);
+    state.gc_virtual_heights(frame_no);
 
     // Right-to-left: mirror the realized geometry horizontally as a final pass.
     // All motion math (FLIP deltas, `prev_rects` above) stays in logical,
@@ -1809,7 +1814,7 @@ pub fn build_frame<Msg>(
         }
     }
 
-    Frame {
+    let frame = Frame {
         root: root_node,
         overlays,
         overlay_anchors,
@@ -1820,7 +1825,20 @@ pub fn build_frame<Msg>(
         ring_color_invalid: theme.danger.solid.with_alpha(FOCUS_RING.alpha),
         selection_color: theme.accent.with_alpha(0.25),
         animating,
-    }
+    };
+    // Every element in a frame must own a unique WidgetId: it keys every
+    // FrameState map (scroll/focus/editor/anim/hover). A collision — almost always
+    // a non-unique `.id("…")` or a duplicate keyed-list key — makes two elements
+    // silently cross-talk all of that retained state. Loud in debug; compiled out
+    // of release, where a stale shared id is a latent bug, not a crash.
+    debug_assert!(
+        frame.first_duplicate_id().is_none(),
+        "duplicate WidgetId {:?} within one frame — two elements share an id and \
+         will cross-talk retained state (scroll/focus/editor/anim/hover); check for \
+         a non-unique .id(\"…\") or a duplicate keyed-list key",
+        frame.first_duplicate_id(),
+    );
+    frame
 }
 
 /// Navigates the element tree by child indices.
@@ -1860,6 +1878,21 @@ fn rect_in(node: &FrameNode, id: WidgetId) -> Option<Rect> {
     node.children.iter().find_map(|c| rect_in(c, id))
 }
 
+/// Composes the inverse of every `node_transform` from `node` down to `id`,
+/// mapping `point` from screen space into `id`'s untransformed layout space.
+/// See [`Frame::to_layout_point`].
+fn point_in(node: &FrameNode, id: WidgetId, point: Point) -> Option<Point> {
+    let point = match node_transform(node) {
+        Some(t) if t.determinant().abs() > 1e-12 => t.inverse() * point,
+        Some(_) => return None,
+        None => point,
+    };
+    if node.id == id {
+        return Some(point);
+    }
+    node.children.iter().find_map(|c| point_in(c, id, point))
+}
+
 /// Convenience: lays out and paints in one call with throwaway state.
 pub fn build_scene<Msg>(
     root: &Element<Msg>,
@@ -1874,6 +1907,16 @@ pub fn build_scene<Msg>(
 }
 
 // ---------------------------------------------------------------- painting
+
+/// [`Style::paint_affine`] for a live frame node — the single source of
+/// truth for the paint matrix: `paint_node` draws the subtree under it,
+/// `walk_hit` inverts it (so the activatable region always matches the
+/// painted one — "what you hit-test is exactly what you painted"), exit
+/// ghosts replay it frozen, and offline samplers (`fenestra-motion`) project
+/// bboxes through it.
+fn node_transform(node: &FrameNode) -> Option<kurbo::Affine> {
+    node.style.paint_affine(node.rect)
+}
 
 impl Frame {
     /// Paints the frame into a fresh scene (logical coordinates). Needs the
@@ -2029,38 +2072,9 @@ impl Frame {
         if node.style.display == Display::None {
             return;
         }
-        let s = &node.style;
-        let has_transform = (s.scale - 1.0).abs() > 1e-4
-            || s.translate.0.abs() > 1e-4
-            || s.translate.1.abs() > 1e-4
-            || s.rotate.abs() > 1e-4
-            || s.skew.0.abs() > 1e-4
-            || s.skew.1.abs() > 1e-4;
-        if has_transform {
+        if let Some(a) = node.style.paint_affine(node.rect) {
             let mut sub = Scene::new();
             self.paint_ghost_node_unscaled(&mut sub, fonts, node);
-            let c = node.rect.center();
-            // origin = center: T(translate) · T(c) · R · Skew · S · T(-c)
-            let mut a =
-                kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
-                    * kurbo::Affine::translate((c.x, c.y));
-            if s.rotate.abs() > 1e-4 {
-                a *= kurbo::Affine::rotate(f64::from(s.rotate).to_radians());
-            }
-            if s.skew.0.abs() > 1e-4 || s.skew.1.abs() > 1e-4 {
-                a *= kurbo::Affine::new([
-                    1.0,
-                    f64::from(s.skew.1).to_radians().tan(),
-                    f64::from(s.skew.0).to_radians().tan(),
-                    1.0,
-                    0.0,
-                    0.0,
-                ]);
-            }
-            if (s.scale - 1.0).abs() > 1e-4 {
-                a *= kurbo::Affine::scale(f64::from(s.scale));
-            }
-            a *= kurbo::Affine::translate((-c.x, -c.y));
             scene.append(&sub, Some(a));
             return;
         }
@@ -2123,40 +2137,12 @@ impl Frame {
         }
         // Paint-time transform (translate / rotate / skew / scale, about the
         // element center): paint the subtree into a child scene, then append it
-        // under one Affine, so the transform never disturbs layout or
-        // hit-testing. Press-scale is the common case (uniform scale only).
-        let s = &node.style;
-        let has_transform = (s.scale - 1.0).abs() > 1e-4
-            || s.translate.0.abs() > 1e-4
-            || s.translate.1.abs() > 1e-4
-            || s.rotate.abs() > 1e-4
-            || s.skew.0.abs() > 1e-4
-            || s.skew.1.abs() > 1e-4;
-        if has_transform {
+        // under the node's affine. `node_transform` is the single source of
+        // truth — `walk_hit` inverts the same matrix so the activatable region
+        // follows the painted one. Press-scale is the common case.
+        if let Some(a) = node_transform(node) {
             let mut sub = Scene::new();
             self.paint_node_unscaled(&mut sub, fonts, state, node, mode);
-            let c = node.rect.center();
-            // origin = center: T(translate) · T(c) · R · Skew · S · T(-c)
-            let mut a =
-                kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
-                    * kurbo::Affine::translate((c.x, c.y));
-            if s.rotate.abs() > 1e-4 {
-                a *= kurbo::Affine::rotate(f64::from(s.rotate).to_radians());
-            }
-            if s.skew.0.abs() > 1e-4 || s.skew.1.abs() > 1e-4 {
-                a *= kurbo::Affine::new([
-                    1.0,
-                    f64::from(s.skew.1).to_radians().tan(),
-                    f64::from(s.skew.0).to_radians().tan(),
-                    1.0,
-                    0.0,
-                    0.0,
-                ]);
-            }
-            if (s.scale - 1.0).abs() > 1e-4 {
-                a *= kurbo::Affine::scale(f64::from(s.scale));
-            }
-            a *= kurbo::Affine::translate((-c.x, -c.y));
             scene.append(&sub, Some(a));
             return;
         }
@@ -2339,27 +2325,41 @@ impl Frame {
     /// The accessibility projection of this frame: roles, names, values,
     /// logical rects, and focusability, with open overlays appended after
     /// the root content in paint order. Headless and dependency-free; the
-    /// windowed shell maps it to the platform tree via AccessKit.
+    /// windowed shell maps it to the platform tree via AccessKit. Reported
+    /// rects are the painted bounding box (every ancestor's `node_transform`
+    /// composed in), not the untransformed layout rect — so bounds-driven AT
+    /// tools (magnifiers, explore-by-touch) agree with where the pointer
+    /// actually activates the element.
     pub fn access_tree(&self) -> AccessNode {
-        fn project(node: &FrameNode) -> AccessNode {
+        fn project(node: &FrameNode, ancestor: kurbo::Affine) -> AccessNode {
             let (semantics, label, value, key) = node.access.clone();
+            let this = match node_transform(node) {
+                Some(t) => ancestor * t,
+                None => ancestor,
+            };
+            let rect = if this == kurbo::Affine::IDENTITY {
+                node.rect
+            } else {
+                this.transform_rect_bbox(node.rect)
+            };
             AccessNode {
                 id: node.id,
                 semantics,
                 label,
                 value,
-                rect: node.rect,
+                rect,
                 focusable: node.meta.focusable,
                 invalid: node.meta.invalid,
                 key,
                 live: node.live,
                 selection: node.selection,
-                children: node.children.iter().map(project).collect(),
+                children: node.children.iter().map(|c| project(c, this)).collect(),
             }
         }
-        let mut root = project(&self.root);
+        let mut root = project(&self.root, kurbo::Affine::IDENTITY);
         for overlay in &self.overlays {
-            root.children.push(project(&overlay.node));
+            root.children
+                .push(project(&overlay.node, kurbo::Affine::IDENTITY));
         }
         root
     }
@@ -2624,11 +2624,20 @@ impl Frame {
             if node.style.display == Display::None {
                 return None;
             }
+            // Same transform-aware mapping as `walk_hit`: the ancestor clip
+            // (`node.visible`) is in untransformed layout space and must be
+            // tested before this node's own transform is undone, so wheel
+            // routing agrees with click routing on transformed scrollables.
             if let Some(v) = node.visible
                 && !v.contains(point)
             {
                 return None;
             }
+            let point = match node_transform(node) {
+                Some(t) if t.determinant().abs() > 1e-12 => t.inverse() * point,
+                Some(_) => return None,
+                None => point,
+            };
             if !node.rect.contains(point) && node.style.clip {
                 return None;
             }
@@ -2671,11 +2680,31 @@ impl Frame {
         if node.style.display == Display::None {
             return false;
         }
+        // `node.visible` is the intersection of every ANCESTOR's clip rect,
+        // computed by `realize` purely from untransformed layout rects — it
+        // has no knowledge of paint-time transforms. Paint matches that: an
+        // ancestor's clip layer is pushed in the ancestor's own paint call,
+        // wrapping this node's transformed sub-scene from the outside, so it
+        // clips in the space *before* this node's own transform is entered.
+        // Test it against the incoming point first.
         if let Some(v) = node.visible
             && !v.contains(point)
         {
             return false;
         }
+        // Paint applies the node's OWN transform (translate/rotate/skew/scale,
+        // about the rect center) to its whole subtree, so map the test point
+        // into the node's local space by the inverse of the same
+        // `node_transform` matrix: the activatable region then tracks the
+        // painted one ("what you hit-test is exactly what you painted"). A
+        // singular transform (e.g. scale 0) paints nothing, so it hit-tests as
+        // a clean miss. `node.rect` and this node's own `style.clip` (checked
+        // just below) are local to this node, so they need the inverted point.
+        let point = match node_transform(node) {
+            Some(t) if t.determinant().abs() > 1e-12 => t.inverse() * point,
+            Some(_) => return false,
+            None => point,
+        };
         let inside = node.rect.contains(point);
         if node.style.clip && !inside {
             return false;
@@ -2703,9 +2732,46 @@ impl Frame {
         }
     }
 
+    /// The first `WidgetId` that appears more than once across this frame's
+    /// realized tree — the root plus every overlay, which together form the
+    /// single-frame id namespace that indexes [`FrameState`]. `None` when every id
+    /// is unique (the invariant `build_frame` debug-asserts). Two elements sharing
+    /// an id silently share all retained state (scroll/focus/editor/anim/hover),
+    /// almost always from a non-unique `.id("…")` or a duplicate keyed-list key.
+    pub(crate) fn first_duplicate_id(&self) -> Option<WidgetId> {
+        fn walk(
+            node: &FrameNode,
+            seen: &mut std::collections::HashSet<WidgetId>,
+        ) -> Option<WidgetId> {
+            if !seen.insert(node.id) {
+                return Some(node.id);
+            }
+            node.children.iter().find_map(|c| walk(c, seen))
+        }
+        let mut seen = std::collections::HashSet::new();
+        walk(&self.root, &mut seen)
+            .or_else(|| self.overlays.iter().find_map(|o| walk(&o.node, &mut seen)))
+    }
+
     /// The absolute rect of the element with the given id.
     pub fn rect_of(&self, id: WidgetId) -> Option<Rect> {
         rect_in(&self.root, id).or_else(|| self.overlays.iter().find_map(|o| rect_in(&o.node, id)))
+    }
+
+    /// Maps a screen point into the same untransformed layout space
+    /// `rect_of` reports its rects in, composing the inverse of every paint-
+    /// time transform (`node_transform`) from the root down to `id` — the
+    /// same mapping `walk_hit` performs during hit-testing, so callers that
+    /// need a point *relative to* an id's rect (caret placement, drag
+    /// fractions, text selection) agree with where the pointer actually
+    /// activated it. `None` when `id` isn't in this frame, or a transformed
+    /// ancestor is singular (paints nothing, so no point maps into it).
+    pub(crate) fn to_layout_point(&self, id: WidgetId, point: Point) -> Option<Point> {
+        point_in(&self.root, id, point).or_else(|| {
+            self.overlays
+                .iter()
+                .find_map(|o| point_in(&o.node, id, point))
+        })
     }
 
     /// The toggle overlay anchored at `anchor`, if any.
@@ -2747,6 +2813,7 @@ impl Frame {
         if rect.width() <= 0.0 || rect.height() <= 0.0 {
             return None;
         }
+        let point = self.to_layout_point(id, point)?;
         #[expect(clippy::cast_possible_truncation, reason = "fractions are 0..=1")]
         Some((
             (((point.x - rect.x0) / rect.width()).clamp(0.0, 1.0)) as f32,
@@ -2937,5 +3004,59 @@ mod tests {
         s.focus = Some(id);
         s.focus_visible = false; // focused by pointer, not keyboard
         assert_eq!(state_layer_opacity(&s, id, false), None);
+    }
+
+    fn test_frame(root: &crate::element::Element<()>, size: (f32, f32)) -> Frame {
+        let theme = Theme::light();
+        let mut fonts = Fonts::embedded();
+        let mut state = FrameState::new();
+        build_frame(root, &theme, &mut fonts, &mut state, size, 1.0)
+    }
+
+    /// Two siblings pinned to the same `.id("…")` realize the *same* `WidgetId`
+    /// (the key wins over the child index), so they would silently share every
+    /// `FrameState` map — scroll, focus, editor, anim. `build_frame` must trip its
+    /// debug assert instead of shipping the collision.
+    #[test]
+    #[should_panic(expected = "duplicate WidgetId")]
+    #[cfg_attr(
+        not(debug_assertions),
+        ignore = "the collision check is a debug_assert!, compiled out in release"
+    )]
+    fn duplicate_ids_trip_the_debug_assert() {
+        use crate::element::div;
+        let root = div::<()>().children(vec![
+            div::<()>().id("dup").h(10.0),
+            div::<()>().id("dup").h(10.0),
+        ]);
+        let _ = test_frame(&root, (100.0, 100.0));
+    }
+
+    /// A tree of distinct ids has no collision.
+    #[test]
+    fn unique_ids_have_no_duplicate() {
+        use crate::element::div;
+        let root = div::<()>().children(vec![
+            div::<()>().id("a").h(10.0),
+            div::<()>().id("b").h(10.0),
+            div::<()>().child(div::<()>().id("c").h(10.0)),
+        ]);
+        let frame = test_frame(&root, (100.0, 100.0));
+        assert_eq!(frame.first_duplicate_id(), None);
+    }
+
+    /// The walk reports the colliding id directly (built from a unique tree, then
+    /// forced to collide so `build_frame`'s assert does not pre-empt the check).
+    #[test]
+    fn first_duplicate_id_finds_a_collision() {
+        use crate::element::div;
+        let root = div::<()>().children(vec![
+            div::<()>().id("a").h(10.0),
+            div::<()>().id("b").h(10.0),
+        ]);
+        let mut frame = test_frame(&root, (100.0, 100.0));
+        let collide = frame.root.children[1].id;
+        frame.root.children[0].id = collide;
+        assert_eq!(frame.first_duplicate_id(), Some(collide));
     }
 }
