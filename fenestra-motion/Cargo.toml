@@ -16,6 +16,7 @@ workspace = true
 fenestra-core.workspace = true
 fenestra-shell.workspace = true
 fenestra-describe.workspace = true
+fenestra-charts.workspace = true
 kurbo.workspace = true
 color.workspace = true
 image.workspace = true

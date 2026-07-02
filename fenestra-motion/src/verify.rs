@@ -41,15 +41,17 @@ impl Serialize for Frames {
 }
 
 /// The default per-prop jump threshold for [`discontinuities`]: generous
-/// enough that fast (but eased) motion passes, tight enough that a teleport
-/// fails. Translate thresholds scale with the canvas.
+/// enough that fast (but eased) motion passes — a crisp entrance curve
+/// (control y = 1) legitimately covers ~35% of its distance in the first
+/// frame — tight enough that a teleport fails. Translate thresholds scale
+/// with the canvas.
 fn default_eps(prop: Prop, comp: &Composition) -> f32 {
     #[expect(
         clippy::cast_precision_loss,
         reason = "canvas sizes are far below f32's integer range"
     )]
     match prop {
-        Prop::Opacity => 0.34,
+        Prop::Opacity => 0.5,
         Prop::Scale | Prop::ScaleXY => 0.5,
         Prop::Rotate => 60.0,
         Prop::TranslateX => comp.width as f32 * 0.25,

@@ -45,6 +45,9 @@ the glass passes.
 - [docs.rs/fenestra-shell](https://docs.rs/fenestra-shell): windowed
   runner and the headless renderer/test harness
 - [docs.rs/fenestra-kit](https://docs.rs/fenestra-kit): the widget kit
+- [docs.rs/fenestra-motion](https://docs.rs/fenestra-motion): frame-pure
+  motion graphics — timelines sampled headlessly, temporal lints, contact
+  sheets, PNG/ffmpeg sinks, the `motion` CLI
 
 ## Examples
 
@@ -58,3 +61,6 @@ the glass passes.
   declares the open set, `view_for(key)` routes views, state is shared
 - [gallery.rs](fenestra/examples/gallery.rs): renders every widget
   headlessly to PNGs
+- [lower_third.ron](fenestra-motion/examples/lower_third.ron): a motion
+  composition as data — a transparent-background broadcast lower third the
+  `motion` CLI renders, probes, and lints

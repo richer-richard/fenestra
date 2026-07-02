@@ -12,6 +12,7 @@
 mod clip;
 mod composition;
 mod data;
+pub mod demos;
 mod easing;
 mod render;
 mod sample;

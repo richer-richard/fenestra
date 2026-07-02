@@ -6,6 +6,29 @@ A hardening + correctness pass from an adversarial self-review: agent-reachable 
 vectors closed, three retained-state/correctness bugs fixed, and the headless
 verification envelope documented. Additive; every prior golden is byte-identical.
 
+### Added
+
+- **`fenestra-motion`: frame-pure motion graphics.** A new workspace crate: a
+  composition is a pure function of integer frame number — typed keyframe tracks
+  (hold-at-ends, per-segment easing: CSS beziers shared with the interactive engine,
+  closed-form damped springs with initial velocity, named curves crisp/editorial/pop),
+  clips with spans/z/anchors, and `Clip::dynamic(|frame| …)` for data-driven trees.
+  Frames rasterize through the existing headless pipeline (new
+  `fenestra_shell::render_element_over`: caller background — transparent renders
+  straight alpha — and preview scale factors); sinks: parallel PNG sequences (rayon +
+  order-restoring writer), an ffmpeg rawvideo pipe (PNG paths never need ffmpeg), and
+  contact sheets with frame numbers burned in. A versioned RON/JSON data form embeds
+  the `fenestra/1` node vocabulary; the `motion` CLI renders/probes/lints/sheets it.
+  Verification layer: pre-raster prop/bbox probes, temporal lints (undeclared jumps
+  vs declared `.cut()`s, monotonicity, settling), auto-selected sentinel frames with
+  golden coverage for the three shipped demos (lower third, per-word stagger, chart
+  race over `fenestra-charts`). Core gains additive shared seams:
+  `SpringSpec::step(v0, t)`, public `Style::paint_affine`, and `Style.scale_xy` +
+  `Style.transform_origin` (hit-testing follows via the shared matrix). The
+  determinism contract is layered and CI-tested: sampling is exactly deterministic;
+  renders agree within the GPU's ±1 LSB antialiasing noise in-process; cross-machine
+  reproduction uses the golden tolerance harness.
+
 ### Fixed
 
 - **Agent-reachable DoS vectors clamped.** Authored grid `repeat(count)` is bounded so

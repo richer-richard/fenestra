@@ -156,7 +156,8 @@ tooltip modal toast_stack tabs card stat_card badge avatar progress
 spinner table data_table callout virtual_list menu dropdown_menu
 context_menu popover combobox command_palette split_pane tree_view
 date_picker badge_dot progress_indeterminate icons::* icons::lucide::*`;
-sibling crates: fenestra-charts, fenestra-markdown, fenestra-looks
+sibling crates: fenestra-charts, fenestra-markdown, fenestra-looks,
+fenestra-motion (frame-pure motion graphics; see Motion graphics below)
 
 Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
 `TextSize::{Xs..Xl2}`, `Weight::{Regular,Medium,Semibold}`,
@@ -198,6 +199,42 @@ Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
   embedded fonts have none, and VS16 sequences (❤️) fall back to
   monochrome text presentation.
 
+## Motion graphics (fenestra-motion)
+
+Video is the same loop at a different timescale: author a timeline, render
+frames headlessly, inspect them, assert on them. A composition is a pure
+function of integer frame number — sample any frame standalone, in any
+order, in parallel.
+
+```rust
+use fenestra_motion::{Clip, Composition, Frames, Prop, Track, key, EASE_CRISP};
+
+let comp = Composition::new(1280, 720, 60).duration(Frames(240)).clip(
+    Clip::new("title", 0..120)
+        .element(|| text("Q3").size_px(96.0))
+        .animate(Prop::Opacity, Track::new([key(0, 0.0f32).ease(EASE_CRISP), key(30, 1.0)])),
+);
+comp.sample(Frames(45)).resolve("title");     // props + bbox, no pixels
+comp.render_frame(Frames(45));                 // straight-alpha RGBA
+comp.contact_sheet(30, 240);                   // review a timeline in one look
+```
+
+- **Wall-clock animation is FORBIDDEN inside clip content** (`.transition`,
+  `.keyframes`, `.spin`, `.enter`/`.exit`, `.animate_layout`): headless
+  rendering pins it and it breaks frame purity. Animate through tracks or
+  `Clip::dynamic(|frame| …)`.
+- Verify structurally before pixels: `verify::discontinuities` (undeclared
+  jumps; bless real cuts with `.cut(frame)`), `verify::monotone`,
+  `verify::settled`, `sentinel_frames()` for golden coverage.
+- The data form (RON/JSON, `version: 1`) embeds the `fenestra/1` node
+  vocabulary; the `motion` CLI renders/probes/lints/sheets it:
+  `motion render comp.ron --frame 45 --out f.png --scale 0.25` is the
+  cheap mid-authoring look.
+- Design video-first: one message per frame, safe areas (≥80px sides /
+  100px top-bottom at 1080w), headline ≥84px at 1080w, layout slots over
+  scattered absolutes. The crate README has the full doctrine, ffmpeg
+  alpha recipes, and an assertion cookbook.
+
 ## Workspace map
 
 | Crate | Contents |
@@ -206,6 +243,7 @@ Tokens: spacing `SP0..SP16` (4px grid), radii `R_SM R_MD R_LG R_XL R_FULL`,
 | `fenestra-core` | element IR, theme/tokens, layout, text, paint, input, transitions, accessibility projection |
 | `fenestra-shell` | winit/wgpu window runner, headless renderer, synthetic events, snapshot harness |
 | `fenestra-kit` | the themed widget kit (built only on core's public API) |
+| `fenestra-motion` | frame-pure motion graphics: timelines, headless frame/video rendering, temporal lints, the `motion` CLI |
 
 `ARCHITECTURE.md` records every integration decision; read it before
 changing pipeline internals.

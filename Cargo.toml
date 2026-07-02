@@ -22,6 +22,7 @@ fenestra-shell = { version = "0.39.0", path = "fenestra-shell" }
 fenestra-kit = { version = "0.39.0", path = "fenestra-kit" }
 fenestra-describe = { version = "0.39.0", path = "fenestra-describe" }
 fenestra-render = { version = "0.39.0", path = "fenestra-render" }
+fenestra-charts = { version = "0.39.0", path = "fenestra-charts" }
 
 winit = "0.30.13"
 wgpu = "29.0.3"

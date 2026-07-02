@@ -149,6 +149,7 @@ renders headlessly.
 | `fenestra-core` | Element IR, theme/tokens, layout, text, paint, input, transitions |
 | `fenestra-shell` | winit + wgpu window runner and the headless renderer |
 | `fenestra-kit` | The themed widget kit, built only on core's public API |
+| `fenestra-motion` | Frame-pure motion graphics: timelines, headless frame/video rendering, temporal lints, the `motion` CLI |
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pipeline, widget
 identity, transitions, and overlays work — recorded decision-by-decision as

@@ -2909,3 +2909,93 @@ byte-identical (regenerated gallery art wobbles only within the GPU tolerance).
   against source. One teammate's connection dropped mid-fix; its three committed fixes were
   cherry-picked and the fourth (transform hit-test) finished by the lead from its committed
   helper + test.
+
+## fenestra-motion: frame-pure motion graphics (2026-07-02)
+
+A new workspace crate: compositions are pure functions of integer frame number,
+sampled into element trees, rasterized through the existing headless pipeline, and
+sunk to PNG sequences / an ffmpeg pipe. The target user is an agent authoring a
+timeline and asserting on it without a human eye; the verification layer (pre-raster
+probes, temporal lints, sentinel goldens, contact sheets) is the point, not an
+afterthought. Additive throughout; every prior golden byte-identical.
+
+- **The Keyframes decision: share the math, not the type.** Core's `Keyframes` is a
+  looping, wall-clock-phased ambient-motion timeline whose stops are theme closures —
+  wrong on every axis motion needs (typed tracks, integer frames, hold-at-ends,
+  random access, serde), and lifting it would gut its kit consumers for zero shared
+  surface. What IS shared, one implementation two consumers: `CubicBezier::eval`
+  (already public; accuracy bound documented as |x(t)−x| ≤ 1e-5 — the kickoff's
+  bisection fallback proved unreachable, a grid search over extreme control points
+  shows Newton's worst residual at 4.3e-6, so tests lock the bound instead of dead
+  code), and the closed-form damped spring lifted to public `SpringSpec::step(v0, t)`
+  with the initial-velocity term motion needs (`anim::spring_progress` delegates at
+  v0 = 0). Color deliberately splits: interactive transitions keep OKLCH-shorter-hue;
+  motion defaults to Oklab per its spec with per-track sRGB opt-in.
+- **Core seams are additive and shared, never forked.** `Style.scale_xy` (ScaleXY
+  cannot be synthesized from uniform scale + rotate + translate) and
+  `Style.transform_origin` (CSS semantics, center default) compose into
+  `Style::paint_affine` — the paint matrix extracted as one public function that
+  painting draws under, hit-testing inverts, exit ghosts replay frozen (their
+  duplicate math deleted), and motion projects bboxes through. The shell gains
+  `render_element_over(el, theme, size, scale, bg, fonts, state)`: caller base color
+  (transparent renders real alpha; vello output is premultiplied, so motion
+  un-premultiplies for straight-alpha PNGs) and preview scales (scale 1.0 keeps the
+  two-pass glass pipeline; other scales render single-pass like the live window).
+- **The determinism contract is layered — and the byte-identity the kickoff asked
+  for is physically unattainable on the GPU path.** Probed on the Metal reference:
+  the *same vello Scene object* rendered twice differs by ±1 LSB on scattered AA
+  pixels (float accumulation order in the compute rasterizer). The honest, CI-tested
+  contract: (1) sampling/probes/lints are exactly deterministic — pure math;
+  (2) same-frame re-renders and parallel-sequence-vs-standalone-frames agree within
+  ±1 per channel on <0.1% of pixels in-process; (3) cross-machine reproduction uses
+  the golden tolerance harness (3/255, 0.2%). Parallelism adds nothing on top:
+  frames fan out over rayon with per-thread embedded Fonts, the GPU serializes
+  behind the process mutex, and a bounded order-restoring writer emits files in
+  frame order. A bit-exact CPU rasterizer backend (vello_cpu) is the deferred path
+  to true byte-identity.
+- **The data form embeds fenestra/1 rather than inventing an element grammar.** RON
+  primary (with `implicit_some` + unwrapped variant newtypes — verified to carry
+  describe's externally-tagged nodes and untagged color unions), JSON parses the
+  same shape, `version: 1`, `deny_unknown_fields`, path-pointed compile errors in
+  the author's own casing. Clip content is a describe node, so motion documents
+  author real fenestra UI with theme-role/oklch colors; elements validate strictly
+  at compile and re-parse leniently per frame. `Clip::dynamic` is code-only —
+  closures don't serialize, and `to_ron` on a code-built comp says so.
+- **CLI: a separate `motion` binary, not a `fenestra` subcommand.** The `fenestra`
+  bin lives in fenestra-render, which must not depend on motion (layering), and the
+  bin-name ≠ crate-name precedent already exists. Same conventions: document from
+  path or stdin, JSON to stdout, artifacts to `--out`, notes to stderr, exit 0/1/3.
+  `render --frame N --scale 0.25` is the cheap agent look (16× fewer pixels).
+- **Remotion (remotion-dev/skills) reviewed as prior art**; adopted: the named
+  curves (crisp 0.16,1,0.3,1 / editorial 0.45,0,0.55,1 / pop 0.34,1.56,0.64,1), the
+  explicit overshoot rule (geometry extrapolates mid-segment, colors clamp — the
+  rule core's lerp already used), the one-frame `--scale` sanity check, the
+  FORBIDDEN register for wall-clock animation in clip content, video-first layout
+  doctrine in the docs (safe areas, text minimums, slots-not-absolutes, solve
+  crowding with time), and the stagger/typewriter cookbook patterns. Deferred menu
+  (ranked): TransitionSeries-style scene transitions with overlap math; Series
+  sequencing sugar; clip `.trim()`; shared named timings; parameterized documents;
+  data-driven duration; effect tracks over core's effect nodes; a fitText helper;
+  a fenestra agent-skill pack in their router shape; motion blur via subframe
+  accumulation; a GUI scrubber built in fenestra itself.
+- **Demos live in the library (`demos` module, kit precedent)** so tests, examples,
+  and users share one definition: the lower third is the shipped RON document
+  compiled at `include_str!` (data-form flagship, straight-alpha delivery);
+  title_stagger measures word slots by probing a layout pass instead of hand-tuned
+  pixels; chart_race keeps its data in `Track<f32>`s and rebuilds a
+  fenestra-charts bar chart per frame (charts verified wall-clock-free). Each demo
+  lints clean, asserts its claim structurally, and is pinned by sentinel goldens.
+- **Deviations from the kickoff (deliberate).** (1) Byte-identical determinism
+  tests → the layered contract above; hardware wins. (2) `keys![…]` macro → the
+  `key(at, value).ease(..)` builder; the API stays macro-free (llms.txt contract).
+  (3) `.element(el)` takes a factory closure, not an owned element — fenestra trees
+  are single-use and rebuilt every frame by design. (4) The plan lives in the PR
+  description, not `docs/motion-plan.md` — plans don't land in git (standing rule);
+  decisions land here. (5) Bezier bisection fallback omitted as unreachable,
+  accuracy locked by tests instead.
+- **Process.** TDD throughout (every feature's test observed failing first — the
+  bezier "hardening" test refusing to fail is what killed the dead fallback);
+  phase-per-commit with all gates green; goldens inspected by eye at each phase
+  (the contact sheet gained its hairline thumb borders from that look); the
+  determinism probes (same-scene-twice, cross-process gallery byte-compare) ran
+  before the contract was written down.

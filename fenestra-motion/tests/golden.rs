@@ -44,3 +44,26 @@ fn lower_third_contact_sheet_golden() {
     let sheet = comp.contact_sheet(30, 240).expect("sheet");
     assert_png_snapshot(snapshot_dir(), "lower_third_sheet", &sheet);
 }
+
+/// Entrance / hold / exit-adjacent frames for the code demos, pinned.
+#[test]
+fn title_stagger_goldens() {
+    let comp = fenestra_motion::demos::title_stagger();
+    for frame in [8u64, 40, 145] {
+        let img = comp
+            .render_frame(fenestra_motion::Frames(frame))
+            .expect("render");
+        assert_png_snapshot(snapshot_dir(), &format!("title_stagger_f{frame:05}"), &img);
+    }
+}
+
+#[test]
+fn chart_race_goldens() {
+    let comp = fenestra_motion::demos::chart_race();
+    for frame in [0u64, 75, 149] {
+        let img = comp
+            .render_frame(fenestra_motion::Frames(frame))
+            .expect("render");
+        assert_png_snapshot(snapshot_dir(), &format!("chart_race_f{frame:05}"), &img);
+    }
+}
