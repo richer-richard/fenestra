@@ -353,18 +353,15 @@ impl<Msg> Pagination<Msg> {
 /// out-of-memory allocation.
 const MAX_PAGINATION_SIBLINGS: usize = 50;
 
-/// The largest page count a pagination strip will address. The strip only ever
-/// materializes the first page, the last page, and the window around the
-/// current one — never a cell per page — so this bounds the "last page" label
-/// and the focusable range without affecting any realistic numbered pager.
-const MAX_PAGINATION_PAGES: usize = 10_000;
-
 impl<Msg> From<Pagination<Msg>> for Element<Msg> {
     fn from(p: Pagination<Msg>) -> Self {
-        // Clamp hostile inputs before they reach the window math: a ~2e9 `count`
-        // and `siblings` would otherwise build a multi-billion-cell strip (OOM),
-        // and `page + siblings` could overflow `usize`.
-        let count = p.count.clamp(1, MAX_PAGINATION_PAGES);
+        // The strip only ever materializes the first page, the last page, and
+        // the `siblings`-wide window around the current one — never a cell per
+        // page — so the rendered size is bounded by `siblings` alone. Clamp only
+        // that (and saturate the window math) to keep a hostile `siblings`/`page`
+        // from ballooning the strip or overflowing `usize`; `count` carries no
+        // allocation cost and is left uncapped so large pagers stay addressable.
+        let count = p.count.max(1);
         let page = p.page.clamp(1, count);
         let siblings = p.siblings.min(MAX_PAGINATION_SIBLINGS);
         let f = p.on_select;
