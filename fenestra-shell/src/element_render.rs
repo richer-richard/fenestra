@@ -2,7 +2,7 @@
 
 use std::sync::{Mutex, OnceLock};
 
-use fenestra_core::{Element, Fonts, FrameState, Theme, build_frame};
+use fenestra_core::{Color, Element, Fonts, FrameState, Theme, build_frame};
 use image::RgbaImage;
 
 use crate::{Headless, ShellError};
@@ -85,6 +85,62 @@ pub fn render_element_with<Msg>(
     })
     .expect("headless renderer unavailable")
     .expect("headless render failed")
+}
+
+/// Renders an element tree over a caller-supplied base color at a scale
+/// factor — the entry point for offline frame samplers (`fenestra-motion`)
+/// and any render that needs real alpha: `Color::TRANSPARENT` keeps empty
+/// canvas at alpha 0 (note vello output is premultiplied; un-premultiply
+/// before writing straight-alpha formats).
+///
+/// `size` is logical px; the texture is `size × scale` (clamped to the
+/// device limit). At `scale == 1.0` this is the same two-pass pipeline as
+/// [`render_element`] (frosted glass gets its backdrop pass); other scales
+/// render single-pass — glass falls back to its translucent tint, exactly
+/// like the live window — which is fine for the cheap-preview use these
+/// scaled renders exist for.
+///
+/// Caller-provided [`Fonts`] and [`FrameState`] keep this path lock-free up
+/// to the shared GPU: parallel callers build layouts concurrently and
+/// serialize only on the device mutex.
+///
+/// # Errors
+/// [`ShellError`] when no compute-capable GPU adapter exists or the render
+/// fails.
+pub fn render_element_over<Msg>(
+    el: Element<Msg>,
+    theme: &Theme,
+    size: (u32, u32),
+    scale: f64,
+    bg: Color,
+    fonts: &mut Fonts,
+    state: &mut FrameState,
+) -> Result<RgbaImage, ShellError> {
+    let scale = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "physical sizes are clamped to the device range right after"
+    )]
+    let physical = (
+        (f64::from(size.0) * scale).round() as u32,
+        (f64::from(size.1) * scale).round() as u32,
+    );
+    let (pw, ph) = with_headless(|h| h.clamp_size(physical.0, physical.1))?;
+    #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
+    let logical = (size.0 as f32, size.1 as f32);
+    let frame = build_frame(&el, theme, fonts, state, logical, scale);
+    if (scale - 1.0).abs() < f64::EPSILON {
+        return with_headless(|headless| headless.render_plan(&frame, fonts, state, pw, ph, bg))?;
+    }
+    let logical_scene = frame.paint(fonts, state);
+    let mut scene = vello::Scene::new();
+    scene.append(&logical_scene, Some(vello::kurbo::Affine::scale(scale)));
+    with_headless(|headless| headless.render(&scene, pw, ph, bg))?
 }
 
 /// Like [`render_element`], but with caller-provided retained state, so

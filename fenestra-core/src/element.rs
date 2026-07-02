@@ -1533,6 +1533,21 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Non-uniform paint-time scale `(x, y)`, composed with the uniform
+    /// press scale. Never disturbs layout; animatable.
+    pub fn scale_xy(mut self, x: f32, y: f32) -> Self {
+        self.style = self.style.scale_xy(x, y);
+        self
+    }
+
+    /// The pivot for this element's paint-time transforms, as a fraction of
+    /// its rect (CSS `transform-origin`): `(0, 0)` top-left, `(0.5, 0.5)`
+    /// center (the default).
+    pub fn transform_origin(mut self, fx: f32, fy: f32) -> Self {
+        self.style = self.style.transform_origin(fx, fy);
+        self
+    }
+
     /// Continuous-curvature corner smoothing, `0.0..=1.0` (see
     /// [`Style::corner_smoothing`](crate::Style::corner_smoothing)). `0.0`
     /// (default) keeps exact circular arcs; higher values blend toward a

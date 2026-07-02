@@ -328,6 +328,49 @@ fn exit_to_targets_scale_and_translate() {
     assert!(state.has_exiting(toast));
 }
 
+#[test]
+fn exit_transform_pivots_about_the_elements_own_transform_origin() {
+    // A ghost's static frozen transform pivots about its transform_origin
+    // (via Style::paint_affine). The exit animation's OWN scale/translate
+    // must pivot about that SAME point, not a hardcoded rect center — else
+    // the static and animated halves of the paint disagree the instant the
+    // exit begins, visibly "jumping" pivot.
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+
+    let view = |present: bool| -> Element<()> {
+        let mut kids: Vec<Element<()>> = vec![div::<()>().id("keep").w(100.0).h(20.0).shrink0()];
+        if present {
+            kids.push(
+                div::<()>()
+                    .id("corner")
+                    .w(100.0)
+                    .h(20.0)
+                    .shrink0()
+                    .transform_origin(0.0, 0.0)
+                    .exit_to(0.0, 0.5, 0.0, 0.0),
+            );
+        }
+        col::<()>().w(200.0).h(400.0).children(kids)
+    };
+
+    let f1 = build_frame(&view(true), &theme, &mut fonts, &mut state, SIZE, 1.0);
+    let corner = f1.get(&by::id("corner")).id;
+    let rect = f1.rect_of(corner).expect("corner rect");
+    let _f2 = build_frame(&view(false), &theme, &mut fonts, &mut state, SIZE, 1.0);
+
+    let pivot = state
+        .exiting_ghost_pivot(corner)
+        .expect("an in-flight exit reports its pivot");
+    assert!(
+        (f64::from(pivot.0) - rect.x0).abs() < 1e-3 && (f64::from(pivot.1) - rect.y0).abs() < 1e-3,
+        "the exit pivots at the element's top-left transform_origin {:?}, not its rect center {:?}",
+        pivot,
+        rect.center()
+    );
+}
+
 // ---------------------------------------------------------- FLIP + exit
 
 /// An element that both slides (`animate_layout`) and fades (`exit`), removed

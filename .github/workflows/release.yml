@@ -62,7 +62,7 @@ jobs:
           # Order matters: kit dev-depends on shell (golden tests), so shell
           # publishes before kit; then describe (core+kit), cli (describe+shell),
           # and mcp (cli) follow that chain.
-          for crate in fenestra-core fenestra-shell fenestra-kit fenestra-describe fenestra-render fenestra-mcp fenestra-looks fenestra fenestra-charts fenestra-markdown; do
+          for crate in fenestra-core fenestra-shell fenestra-kit fenestra-describe fenestra-render fenestra-mcp fenestra-looks fenestra fenestra-charts fenestra-markdown fenestra-motion; do
             version=$(cargo pkgid -p "$crate" | sed 's/.*[@#]//')
             if is_published "$crate" "$version"; then
               echo "$crate $version already published; skipping"
@@ -105,7 +105,7 @@ jobs:
           set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y libfontconfig1-dev pkg-config
-          for crate in fenestra-core fenestra-shell fenestra-kit fenestra-describe fenestra-render fenestra-mcp fenestra-looks fenestra fenestra-charts fenestra-markdown; do
+          for crate in fenestra-core fenestra-shell fenestra-kit fenestra-describe fenestra-render fenestra-mcp fenestra-looks fenestra fenestra-charts fenestra-markdown fenestra-motion; do
             cargo package -p "$crate" --no-verify
           done
       - name: Attest build provenance for the packaged crates

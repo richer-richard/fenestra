@@ -409,6 +409,23 @@ impl FrameState {
         self.exiting.get(&id).map(|r| r.ghost.style.translate)
     }
 
+    /// The pivot point the exit animation's own scale/translate composes
+    /// about for `id` (the ghost's `transform_origin` projected into its
+    /// frozen rect — the same point [`Style::paint_affine`](crate::Style::paint_affine)
+    /// pivots the ghost's static transform about), or `None` when no exit is
+    /// tracked for it.
+    #[doc(hidden)]
+    pub fn exiting_ghost_pivot(&self, id: WidgetId) -> Option<(f32, f32)> {
+        self.exiting.get(&id).map(|r| {
+            let p = r.ghost.style.transform_origin_point(r.ghost.rect);
+            #[expect(
+                clippy::cast_possible_truncation,
+                reason = "logical layout coordinates fit f32"
+            )]
+            (p.x as f32, p.y as f32)
+        })
+    }
+
     /// Whether variable-height virtual-list bookkeeping is retained for `id`
     /// (test hook; mirrors [`Self::has_anim`]). Frame-stamped and GC'd, so it is
     /// only `true` while the container is present.
