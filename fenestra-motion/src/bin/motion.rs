@@ -63,6 +63,28 @@ enum Command {
         #[arg(long)]
         clip: Option<String>,
     },
+    /// Run the temporal lints (undeclared jumps); exit 1 on problems.
+    Lint {
+        /// Composition path (`.ron` / `.json`), or `-`/omitted for stdin.
+        comp: Option<PathBuf>,
+        /// Override every per-prop jump threshold with one value.
+        #[arg(long)]
+        eps: Option<f32>,
+    },
+    /// Tile every Nth frame into one labeled contact sheet PNG.
+    Sheet {
+        /// Composition path (`.ron` / `.json`), or `-`/omitted for stdin.
+        comp: Option<PathBuf>,
+        /// Thumbnail stride in frames.
+        #[arg(long, default_value_t = 30)]
+        every: u64,
+        /// Thumbnail width in px.
+        #[arg(long, default_value_t = 320)]
+        thumb_width: u32,
+        /// Where to write the sheet.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -91,6 +113,40 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Command::Probe { comp, frame, clip } => {
             let comp = load(comp.as_deref())?;
             probe(&comp, Frames(frame), clip.as_deref())
+        }
+        Command::Lint { comp, eps } => {
+            let comp = load(comp.as_deref())?;
+            let problems = fenestra_motion::verify::discontinuities(&comp, eps);
+            print_json(&json!({
+                "frames": comp.total_frames().0,
+                "problems": problems,
+            }));
+            Ok(if problems.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(EXIT_VERIFY_FAILED)
+            })
+        }
+        Command::Sheet {
+            comp,
+            every,
+            thumb_width,
+            out,
+        } => {
+            let comp = load(comp.as_deref())?;
+            let sheet = comp
+                .contact_sheet(every, thumb_width)
+                .map_err(|e| e.to_string())?;
+            sheet
+                .save(&out)
+                .map_err(|e| format!("write {}: {e}", out.display()))?;
+            eprintln!("wrote {}", out.display());
+            print_json(&json!({
+                "wrote": out,
+                "every": every,
+                "size": [sheet.width(), sheet.height()],
+            }));
+            Ok(ExitCode::SUCCESS)
         }
     }
 }
@@ -207,9 +263,6 @@ fn probe(comp: &Composition, frame: Frames, only: Option<&str>) -> Result<ExitCo
         "paint_order": scene.paint_order(),
         "clips": clips,
     }));
-    // Probes always succeed once the document loads; EXIT_VERIFY_FAILED is
-    // the lint subcommand's business.
-    let _ = EXIT_VERIFY_FAILED;
     Ok(ExitCode::SUCCESS)
 }
 

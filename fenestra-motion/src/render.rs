@@ -41,6 +41,9 @@ pub enum MotionError {
     FfmpegMissing(String),
     /// ffmpeg ran but exited unsuccessfully; carries its stderr tail.
     Ffmpeg(String),
+    /// A contact sheet could not be built (e.g. it would exceed the GPU
+    /// texture ceiling); the message names the fix.
+    Sheet(String),
 }
 
 impl std::fmt::Display for MotionError {
@@ -54,6 +57,7 @@ impl std::fmt::Display for MotionError {
                 "video encoder {bin:?} not found on PATH — install ffmpeg, or use the PNG-sequence sink (which never needs it)"
             ),
             Self::Ffmpeg(tail) => write!(f, "ffmpeg failed:\n{tail}"),
+            Self::Sheet(msg) => write!(f, "contact sheet: {msg}"),
         }
     }
 }
@@ -267,6 +271,22 @@ impl Composition {
         rendered?;
         written
     }
+}
+
+/// Renders a verification artifact (contact sheet) over the theme's opaque
+/// background at scale 1.0 — same fonts and pipeline as frame renders.
+pub(crate) fn render_sheet(
+    el: fenestra_core::Element<()>,
+    theme: &fenestra_core::Theme,
+    size: (u32, u32),
+) -> Result<RgbaImage, MotionError> {
+    FONTS
+        .with_borrow_mut(|fonts| {
+            let mut state = FrameState::new();
+            state.reduced_motion = true;
+            render_element_over(el, theme, size, 1.0, theme.bg, fonts, &mut state)
+        })
+        .map_err(Into::into)
 }
 
 /// Converts premultiplied RGBA8 (vello's output) to straight alpha in

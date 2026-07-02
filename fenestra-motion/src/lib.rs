@@ -16,6 +16,7 @@ mod easing;
 mod render;
 mod sample;
 mod timeline;
+pub mod verify;
 
 pub use clip::{Anchor, AnyTrack, Clip, Prop, ResolvedProps};
 pub use composition::Composition;

@@ -189,6 +189,59 @@ fn render_frame_range_writes_a_sequence() {
 }
 
 #[test]
+fn lint_passes_a_clean_document_and_fails_a_jumpy_one() {
+    let doc = write_doc();
+    let out = motion()
+        .args(["lint", doc.to_str().unwrap()])
+        .output()
+        .expect("run");
+    assert_eq!(out.status.code(), Some(0), "clean doc lints clean");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    assert_eq!(v["problems"].as_array().unwrap().len(), 0);
+
+    // A hold segment snapping mid-span is an undeclared jump: exit 1.
+    let jumpy = DOC.replace("ease: ease_out", "ease: hold");
+    let path = std::env::temp_dir().join(format!("motion-cli-jump-{}.ron", std::process::id()));
+    std::fs::write(&path, jumpy).expect("write");
+    let out = motion()
+        .args(["lint", path.to_str().unwrap()])
+        .output()
+        .expect("run");
+    assert_eq!(out.status.code(), Some(1), "a jump is a lint failure");
+    let v: serde_json::Value = serde_json::from_slice(&out.stdout).expect("json");
+    let problems = v["problems"].as_array().unwrap();
+    assert!(!problems.is_empty());
+    assert_eq!(problems[0]["clip"], "title");
+    std::fs::remove_file(&path).expect("cleanup");
+}
+
+#[test]
+fn sheet_writes_a_labeled_grid_png() {
+    let doc = write_doc();
+    let png = std::env::temp_dir().join(format!("motion-cli-sheet-{}.png", std::process::id()));
+    let _ = std::fs::remove_file(&png);
+    let out = motion()
+        .args([
+            "sheet",
+            doc.to_str().unwrap(),
+            "--every",
+            "20",
+            "--out",
+            png.to_str().unwrap(),
+        ])
+        .output()
+        .expect("run");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let img = image::open(&png).expect("decodes").to_rgba8();
+    assert!(img.width() > 100 && img.height() > 50, "a real sheet");
+    std::fs::remove_file(&png).expect("cleanup");
+}
+
+#[test]
 fn a_broken_document_exits_3_with_the_path_pointed_problem() {
     let path = std::env::temp_dir().join(format!("motion-cli-bad-{}.ron", std::process::id()));
     std::fs::write(
