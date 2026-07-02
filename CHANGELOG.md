@@ -52,14 +52,21 @@ verification envelope documented. Additive; every prior golden is byte-identical
   ARCHITECTURE.md. Every fix landed with a test that failed first; all gates
   green, the full `fenestra-kit` golden corpus and motion's own sentinel
   goldens byte/tolerance-compared clean.
-- **Agent-reachable DoS vectors clamped.** Authored grid `repeat(count)` is bounded so
-  `count × fragment_len ≤ 1024` where it realizes into taffy (a count near 32767
-  allocated ~1 GB; ≥32768 overflowed taffy's i16 grid coordinates); `pagination` clamps
-  `siblings` (≤50) and `count` (≤10 000) with saturating window math (a `{count,
-  siblings}` ≈ 2e9 input built a multi-billion-cell strip); and scenario `tab` /
-  `shift_tab` repeats are bounded to 4096 (a `u32::MAX` repeat re-derived the whole tree
-  billions of times, hanging the MCP worker). All reachable from pure `fenestra/1` JSON
-  through every frame-building tool; clamp-over-panic at the API boundary.
+- **Agent-reachable DoS vectors clamped.** Each grid template axis is bounded so its
+  realized track total — summed across every `repeat(...)` and single-track entry —
+  stays ≤ 1024 where it realizes into taffy (a total near 32767 allocated ~1 GB;
+  ≥32768 overflowed taffy's i16 grid coordinates); a per-`repeat()` clamp alone was
+  not enough, since many small clamped repeats can still sum past the ceiling, or an
+  oversized fragment can escape a count already clamped to 1 — the budget is now
+  enforced once, axis-wide, at the template-to-taffy boundary. `pagination` clamps
+  `siblings` (≤50, the window driver) with saturating window math (a `siblings` ≈ 2e9
+  input built a multi-billion-cell strip; `count` is floored at 1 but otherwise
+  uncapped — the strip never materializes more than a small window regardless of page
+  count, so `count` carried no allocation risk, and capping it too just broke
+  legitimate large pagers); and scenario `tab` / `shift_tab` repeats are bounded to
+  4096 (a `u32::MAX` repeat re-derived the whole tree billions of times, hanging the
+  MCP worker). All reachable from pure `fenestra/1` JSON through every frame-building
+  tool; clamp-over-panic at the API boundary.
 - **Hit-testing follows paint-time transforms.** A `translate`/`rotate`/`skew`/`scale`'d
   interactive element painted in one place but activated at its old layout slot;
   `walk_hit` now inverts the same affine `paint_node` draws under (shared
@@ -70,6 +77,19 @@ verification envelope documented. Additive; every prior golden is byte-identical
   `build_frame` now `debug_assert!`s frame-wide id uniqueness (compiled out of release).
 - **`virtual_heights` no longer leaks.** The one retained `FrameState` map never
   garbage-collected is now frame-stamped and GC'd like scroll/anim/editor state.
+
+### Security
+
+- **Three unfixable transitive RUSTSEC advisories are documented and ignored, not
+  silenced.** `quick-xml 0.39.4` (RUSTSEC-2026-0194, RUSTSEC-2026-0195, both HIGH) reaches
+  the workspace through winit's Wayland backend and `zbus_xml`'s AT-SPI stack; no
+  `wayland-scanner` release yet accepts `quick-xml >= 0.41`. `ttf-parser 0.25.1`
+  (RUSTSEC-2026-0192, unmaintained) reaches it through winit's optional Wayland Adwaita
+  decorations; neither `ab_glyph` nor `sctk-adwaita` has published since 2025-09. All
+  three are dated, commented, and scoped in `.cargo/audit.toml` and `deny.toml`, with the
+  dependency chains and revisit triggers recorded in ARCHITECTURE.md. Dropping Wayland
+  support to close them outright was considered and rejected as a platform regression out
+  of proportion to two upstream-blocked advisories.
 
 ### Documentation
 

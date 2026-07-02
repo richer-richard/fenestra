@@ -23,17 +23,7 @@ fn fixed() -> Element<()> {
 
 /// Rows alternate 16/48px; the 24px estimate is wrong for every row.
 fn variable() -> Element<()> {
-    col()
-        .w(200.0)
-        .h(120.0)
-        .children([col()
-            .h(120.0)
-            .scroll_y()
-            .id("var")
-            .virtual_rows_variable(COUNT, 24.0, |i| {
-                let h = if i.is_multiple_of(2) { 16.0 } else { 48.0 };
-                col().h(h).shrink0().children([text(format!("row {i}"))])
-            })])
+    variable_with_id("var")
 }
 
 /// A variable-height virtual list whose scroll container carries `id`.

@@ -1,0 +1,13 @@
+# cargo-audit config (auto-discovered from the working directory).
+# Run: cargo audit   (CI runs it on every push + weekly)
+#
+# Kept in lockstep with deny.toml's [advisories] ignore list — see
+# ARCHITECTURE.md ("cargo-audit/cargo-deny: unfixable transitive
+# advisories") for the dependency chains and revisit triggers.
+
+[advisories]
+ignore = [
+  "RUSTSEC-2026-0194", # quick-xml: quadratic run time on duplicate attrs
+  "RUSTSEC-2026-0195", # quick-xml: unbounded namespace-decl allocation
+  "RUSTSEC-2026-0192", # ttf-parser: unmaintained
+]

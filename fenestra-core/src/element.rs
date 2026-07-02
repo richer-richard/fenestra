@@ -875,6 +875,17 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// The most rows a virtualized container will address. The fixed-height
+    /// window (`virtual_rows`) is O(1) in `count` — window math only — but
+    /// the variable-height index (`virtual_rows_variable`) builds a
+    /// `heights`/`prefix` `Vec<f32>` per row (`HeightIndex::ensure`), so an
+    /// unclamped hostile `count` (`usize::MAX`) attempts a
+    /// capacity-overflow-panicking allocation before any window is computed.
+    /// Ten million rows is far beyond any in-memory dataset a real app would
+    /// virtualize in one list, so the ceiling never affects realistic usage
+    /// while keeping worst-case allocation in the tens-of-MB range.
+    const MAX_VIRTUAL_ROWS: usize = 10_000_000;
+
     /// Virtualizes this container's rows: `builder(i)` is called only for
     /// the rows inside the scrolled-into-view window (plus overscan), with
     /// spacers standing in for the rest, so a 100k-row list builds a
@@ -889,7 +900,7 @@ impl<Msg> Element<Msg> {
         builder: impl Fn(usize) -> Element<Msg> + 'static,
     ) -> Self {
         self.virtual_rows = Some(VirtualData {
-            count,
+            count: count.min(Self::MAX_VIRTUAL_ROWS),
             row_height,
             variable: false,
             builder: std::rc::Rc::new(builder),
@@ -908,7 +919,7 @@ impl<Msg> Element<Msg> {
         builder: impl Fn(usize) -> Element<Msg> + 'static,
     ) -> Self {
         self.virtual_rows = Some(VirtualData {
-            count,
+            count: count.min(Self::MAX_VIRTUAL_ROWS),
             row_height: estimated_height,
             variable: true,
             builder: std::rc::Rc::new(builder),

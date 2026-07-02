@@ -3,6 +3,24 @@
 
 [advisories]
 yanked = "deny"
+# Transitive-only, no upstream fix available as of 2026-07-02 — see
+# ARCHITECTURE.md ("cargo-audit/cargo-deny: unfixable transitive advisories")
+# for the dependency chains and revisit trigger. Re-run `cargo tree -i
+# <crate>` before removing any entry to confirm a fix has actually shipped.
+ignore = [
+  # quick-xml 0.39.4, via winit's Wayland backend -> smithay-client-toolkit
+  # -> wayland-scanner (pinned to `quick-xml = "^0.39"`) and via zbus_xml's
+  # AT-SPI stack. `cargo update -p quick-xml --precise 0.41.0` fails to
+  # resolve: no wayland-scanner release exists yet that allows quick-xml
+  # >=0.41. Revisit when wayland-scanner or zbus_xml bumps its requirement.
+  "RUSTSEC-2026-0194", # quick-xml: quadratic run time on duplicate attrs
+  "RUSTSEC-2026-0195", # quick-xml: unbounded namespace-decl allocation
+  # ttf-parser 0.25.1 (unmaintained), via winit's Wayland Adwaita
+  # decorations -> sctk-adwaita -> ab_glyph -> owned_ttf_parser. Neither
+  # ab_glyph nor sctk-adwaita has published since 2025-09; no successor
+  # crate to move to yet. Revisit when either releases again.
+  "RUSTSEC-2026-0192", # ttf-parser: unmaintained
+]
 
 [licenses]
 # The workspace itself is MIT OR Apache-2.0. Everything in the tree

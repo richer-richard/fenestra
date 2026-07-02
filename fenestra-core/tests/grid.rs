@@ -283,6 +283,49 @@ fn pathological_repeat_count_survives() {
     );
 }
 
+/// The per-`repeat()` clamp alone does not bound an axis: many small clamped
+/// repeats can still sum past taffy's `i16` grid-line ceiling. 33 entries of
+/// `repeat(1024, [1fr])` each pass the per-component clamp (1024 ≤
+/// `MAX_GRID_TRACKS`) but total 33 × 1024 = 33792 realized tracks — past
+/// taffy's 32768 `i16` ceiling. The axis-wide total must itself be bounded to
+/// `MAX_GRID_TRACKS`, not just each entry individually.
+#[test]
+fn many_clamped_repeats_still_bound_the_axis_total() {
+    let child = div::<()>().id("cell").h(10.0);
+    let cols: Vec<_> = (0..33)
+        .map(|_| GridTemplate::repeat(1024, [Track::Fr(1.0)]))
+        .collect();
+    let grid = div::<()>().w(1024.0).grid_cols(cols).children(vec![child]);
+    let f = frame(grid, (1024.0, 64.0));
+    let w = w_of(&f, "cell");
+    assert!(
+        w.is_finite() && w > 0.0,
+        "child width should be finite, got {w}"
+    );
+}
+
+/// A single `repeat(1, [fragment])` whose fragment alone exceeds
+/// `MAX_GRID_TRACKS` is not bounded by clamping the repeat *count* (already 1)
+/// — the fragment itself must be capped to `MAX_GRID_TRACKS`, or the realized
+/// track total escapes the clamp entirely. 2000 `1fr` tracks in a 1024px
+/// container: unclamped, each column is 1024/2000 = 0.512px; capped to 1024
+/// tracks, each column is 1024/1024 = 1.0px.
+#[test]
+fn oversized_repeat_fragment_is_bounded() {
+    let child = div::<()>().id("cell").h(10.0);
+    let tracks: Vec<_> = (0..2000).map(|_| Track::Fr(1.0)).collect();
+    let grid = div::<()>()
+        .w(1024.0)
+        .grid_cols([GridTemplate::repeat(1, tracks)])
+        .children(vec![child]);
+    let f = frame(grid, (1024.0, 64.0));
+    let w = w_of(&f, "cell");
+    assert!(
+        (w - 1.0).abs() < 0.1,
+        "fragment should be capped to MAX_GRID_TRACKS, giving ~1.0px columns, got {w}"
+    );
+}
+
 /// Plain `Track`s still work through the same builder (backward compatible): a
 /// fixed 100px column plus a `1fr` column splits a 500px container 100 / 400.
 #[test]
