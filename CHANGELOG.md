@@ -8,14 +8,21 @@ verification envelope documented. Additive; every prior golden is byte-identical
 
 ### Fixed
 
-- **Agent-reachable DoS vectors clamped.** Authored grid `repeat(count)` is bounded so
-  `count × fragment_len ≤ 1024` where it realizes into taffy (a count near 32767
-  allocated ~1 GB; ≥32768 overflowed taffy's i16 grid coordinates); `pagination` clamps
-  `siblings` (≤50) and `count` (≤10 000) with saturating window math (a `{count,
-  siblings}` ≈ 2e9 input built a multi-billion-cell strip); and scenario `tab` /
-  `shift_tab` repeats are bounded to 4096 (a `u32::MAX` repeat re-derived the whole tree
-  billions of times, hanging the MCP worker). All reachable from pure `fenestra/1` JSON
-  through every frame-building tool; clamp-over-panic at the API boundary.
+- **Agent-reachable DoS vectors clamped.** Each grid template axis is bounded so its
+  realized track total — summed across every `repeat(...)` and single-track entry —
+  stays ≤ 1024 where it realizes into taffy (a total near 32767 allocated ~1 GB;
+  ≥32768 overflowed taffy's i16 grid coordinates); a per-`repeat()` clamp alone was
+  not enough, since many small clamped repeats can still sum past the ceiling, or an
+  oversized fragment can escape a count already clamped to 1 — the budget is now
+  enforced once, axis-wide, at the template-to-taffy boundary. `pagination` clamps
+  `siblings` (≤50, the window driver) with saturating window math (a `siblings` ≈ 2e9
+  input built a multi-billion-cell strip; `count` is floored at 1 but otherwise
+  uncapped — the strip never materializes more than a small window regardless of page
+  count, so `count` carried no allocation risk, and capping it too just broke
+  legitimate large pagers); and scenario `tab` / `shift_tab` repeats are bounded to
+  4096 (a `u32::MAX` repeat re-derived the whole tree billions of times, hanging the
+  MCP worker). All reachable from pure `fenestra/1` JSON through every frame-building
+  tool; clamp-over-panic at the API boundary.
 - **Hit-testing follows paint-time transforms.** A `translate`/`rotate`/`skew`/`scale`'d
   interactive element painted in one place but activated at its old layout slot;
   `walk_hit` now inverts the same affine `paint_node` draws under (shared

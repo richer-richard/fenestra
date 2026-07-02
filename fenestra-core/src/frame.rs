@@ -3015,6 +3015,10 @@ mod tests {
     /// debug assert instead of shipping the collision.
     #[test]
     #[should_panic(expected = "duplicate WidgetId")]
+    #[cfg_attr(
+        not(debug_assertions),
+        ignore = "the collision check is a debug_assert!, compiled out in release"
+    )]
     fn duplicate_ids_trip_the_debug_assert() {
         use crate::element::div;
         let root = div::<()>().children(vec![

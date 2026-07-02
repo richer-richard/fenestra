@@ -2860,13 +2860,20 @@ byte-identical (regenerated gallery art wobbles only within the GPU tolerance).
   clamped *scalar* hostile values (dimensions, blur, colours, GPU sizes) but left *count*
   inputs floored-at-1 and un-ceilinged, sitting upstream of O(n)/O(n²) allocation or
   per-iteration rebuilds — all reachable from pure `fenestra/1` JSON through every
-  frame-building MCP tool. Three clamps, all clamp-over-panic like `MAX_DIMENSION`: grid
-  `repeat(count)` is bounded so `count × fragment_len ≤ MAX_GRID_TRACKS` (1024) where it
-  realizes into taffy (a count near 32767 allocated ~1 GB; ≥32768 overflowed taffy's i16
-  grid coordinates) — fixed in core, so the native builder is covered too, not just JSON;
-  `pagination` clamps `siblings` (≤50, the window driver) and `count` (≤10 000) with
-  saturating window math; the scenario engine bounds `tab`/`shift_tab` repeats to
-  `MAX_TAB_REPEAT` (4096). The describe parser was fuzzed (parse panics), but
+  frame-building MCP tool. Three clamps, all clamp-over-panic like `MAX_DIMENSION`: each
+  grid template *axis* bounds its realized track total — summed across every
+  `repeat(...)` and single-track entry, not just clamped per-entry — to
+  `MAX_GRID_TRACKS` (1024) where it realizes into taffy (a total near 32767 allocated
+  ~1 GB; ≥32768 overflowed taffy's i16 grid coordinates); a first pass that clamped only
+  one `repeat()`'s count left two escapes (many small clamped repeats summing past the
+  ceiling; an oversized fragment riding through a count already clamped to 1) — closed
+  by tracking one running budget across the whole axis at the template-to-taffy boundary
+  — fixed in core, so the native builder is covered too, not just JSON; `pagination`
+  clamps `siblings` (≤50, the window driver) with saturating window math (`count` is
+  floored at 1 but otherwise uncapped — the strip never materializes more than a small
+  window regardless of page count, so only `siblings` bore any DoS risk; capping `count`
+  too just broke legitimate large pagers); the scenario engine bounds `tab`/`shift_tab`
+  repeats to `MAX_TAB_REPEAT` (4096). The describe parser was fuzzed (parse panics), but
   valid-but-enormous counts are a different failure mode — caught only by an adversary
   modelling allocation, not malformed bytes.
 
