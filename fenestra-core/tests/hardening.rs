@@ -223,6 +223,52 @@ fn pathological_font_size_does_not_hang_layout() {
     }
 }
 
+/// A translated text input now ACTIVATES at its painted location (the
+/// hit-testing fix above), but caret placement must follow the same
+/// transform — `input_local` mapped the raw screen point against the
+/// UNtransformed rect, so a click at the painted left edge of a translated
+/// input dropped the caret near the far end of the text instead of near the
+/// start.
+#[test]
+fn transformed_text_input_places_caret_where_it_paints() {
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+
+    let view: Element<()> = col().w(400.0).h(100.0).children([raw_input("hello", "")
+        .id("input")
+        .w(150.0)
+        .translate(100.0, 0.0)]);
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (400.0, 100.0), 1.0);
+    let id = frame.get(&by::id("input")).id;
+    let layout_rect = frame.rect_of(id).expect("input rect");
+    // A few px in from the painted left edge (layout left + the 100px
+    // translate) — near the start of "hello", not the end.
+    let click = Point::new(layout_rect.x0 + 100.0 + 5.0, layout_rect.center().y);
+
+    let _ = dispatch(
+        &view,
+        &frame,
+        &mut state,
+        &mut fonts,
+        InputEvent::PointerMove {
+            x: click.x as f32,
+            y: click.y as f32,
+        },
+    );
+    let _ = dispatch(&view, &frame, &mut state, &mut fonts, InputEvent::PointerDown);
+
+    // Rebuild to bake the new caret position into the access tree.
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (400.0, 100.0), 1.0);
+    let selection = frame.get(&by::id("input")).selection;
+    assert!(
+        matches!(selection, Some((a, b)) if a == b && a <= 1),
+        "clicking near the painted start of \"hello\" should place the caret \
+         near byte 0, got {selection:?}"
+    );
+}
+
 /// A variable-height virtual list's row count feeds an O(count) allocation
 /// (`HeightIndex::ensure` builds a `heights`/`prefix` `Vec<f32>` per row) with
 /// no clamp: `usize::MAX` attempts a capacity-overflow-panicking allocation

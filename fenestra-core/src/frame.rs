@@ -1878,6 +1878,21 @@ fn rect_in(node: &FrameNode, id: WidgetId) -> Option<Rect> {
     node.children.iter().find_map(|c| rect_in(c, id))
 }
 
+/// Composes the inverse of every `node_transform` from `node` down to `id`,
+/// mapping `point` from screen space into `id`'s untransformed layout space.
+/// See [`Frame::to_layout_point`].
+fn point_in(node: &FrameNode, id: WidgetId, point: Point) -> Option<Point> {
+    let point = match node_transform(node) {
+        Some(t) if t.determinant().abs() > 1e-12 => t.inverse() * point,
+        Some(_) => return None,
+        None => point,
+    };
+    if node.id == id {
+        return Some(point);
+    }
+    node.children.iter().find_map(|c| point_in(c, id, point))
+}
+
 /// Convenience: lays out and paints in one call with throwaway state.
 pub fn build_scene<Msg>(
     root: &Element<Msg>,
@@ -2789,6 +2804,19 @@ impl Frame {
         rect_in(&self.root, id).or_else(|| self.overlays.iter().find_map(|o| rect_in(&o.node, id)))
     }
 
+    /// Maps a screen point into the same untransformed layout space
+    /// `rect_of` reports its rects in, composing the inverse of every paint-
+    /// time transform (`node_transform`) from the root down to `id` — the
+    /// same mapping `walk_hit` performs during hit-testing, so callers that
+    /// need a point *relative to* an id's rect (caret placement, drag
+    /// fractions, text selection) agree with where the pointer actually
+    /// activated it. `None` when `id` isn't in this frame, or a transformed
+    /// ancestor is singular (paints nothing, so no point maps into it).
+    pub(crate) fn to_layout_point(&self, id: WidgetId, point: Point) -> Option<Point> {
+        point_in(&self.root, id, point)
+            .or_else(|| self.overlays.iter().find_map(|o| point_in(&o.node, id, point)))
+    }
+
     /// The toggle overlay anchored at `anchor`, if any.
     pub fn toggle_overlay_of(&self, anchor: WidgetId) -> Option<WidgetId> {
         match self.overlay_anchors.get(&anchor) {
@@ -2828,6 +2856,7 @@ impl Frame {
         if rect.width() <= 0.0 || rect.height() <= 0.0 {
             return None;
         }
+        let point = self.to_layout_point(id, point)?;
         #[expect(clippy::cast_possible_truncation, reason = "fractions are 0..=1")]
         Some((
             (((point.x - rect.x0) / rect.width()).clamp(0.0, 1.0)) as f32,
