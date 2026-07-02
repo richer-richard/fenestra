@@ -1,0 +1,116 @@
+//! The composition: canvas size, frame rate, duration, background, theme,
+//! and the clip list. A composition plus a frame number is everything a
+//! sample needs — no other state exists.
+
+use fenestra_core::{Color, Theme};
+
+use crate::clip::Clip;
+use crate::sample::SampledScene;
+use crate::timeline::Frames;
+
+/// A motion composition: `width × height` logical px at `fps`, holding
+/// clips. Sampling is pure — `sample(frame)` depends only on
+/// `(composition, frame)`.
+pub struct Composition {
+    pub(crate) width: u32,
+    pub(crate) height: u32,
+    pub(crate) fps: u32,
+    pub(crate) duration: Option<Frames>,
+    pub(crate) background: Color,
+    pub(crate) theme: Theme,
+    pub(crate) clips: Vec<Clip>,
+    pub(crate) cuts: Vec<Frames>,
+}
+
+impl Composition {
+    /// A composition of `width × height` logical pixels at `fps` frames per
+    /// second (each clamped to at least 1). The background defaults to
+    /// transparent and the theme to light.
+    pub fn new(width: u32, height: u32, fps: u32) -> Self {
+        Self {
+            width: width.max(1),
+            height: height.max(1),
+            fps: fps.max(1),
+            duration: None,
+            background: Color::TRANSPARENT,
+            theme: Theme::light(),
+            clips: Vec::new(),
+            cuts: Vec::new(),
+        }
+    }
+
+    /// Total length in frames. Defaults to the last clip's span end.
+    pub fn duration(mut self, frames: impl Into<Frames>) -> Self {
+        self.duration = Some(frames.into());
+        self
+    }
+
+    /// The canvas base color (transparent by default: alpha renders
+    /// straight into the PNG sequence).
+    pub fn background(mut self, color: Color) -> Self {
+        self.background = color;
+        self
+    }
+
+    /// The theme clip content resolves its tokens against (light by
+    /// default).
+    pub fn theme(mut self, theme: Theme) -> Self {
+        self.theme = theme;
+        self
+    }
+
+    /// Adds a clip. Paint order is insertion order, overridden per clip by
+    /// [`Clip::z`].
+    ///
+    /// # Panics
+    /// On a duplicate clip id — ids key assertions and the CLI.
+    pub fn clip(mut self, clip: Clip) -> Self {
+        assert!(
+            !self.clips.iter().any(|c| c.id == clip.id),
+            "duplicate clip id {:?}",
+            clip.id
+        );
+        self.clips.push(clip);
+        self
+    }
+
+    /// Declares an intentional discontinuity at `frame`: temporal lints
+    /// allow value jumps across declared cuts (and clip span edges) only.
+    pub fn cut(mut self, frame: impl Into<Frames>) -> Self {
+        self.cuts.push(frame.into());
+        self
+    }
+
+    /// Canvas width in logical px.
+    pub fn width(&self) -> u32 {
+        self.width
+    }
+
+    /// Canvas height in logical px.
+    pub fn height(&self) -> u32 {
+        self.height
+    }
+
+    /// Frames per second — the only clock there is.
+    pub fn fps(&self) -> u32 {
+        self.fps
+    }
+
+    /// Total frame count: the declared duration, or the furthest clip end.
+    pub fn total_frames(&self) -> Frames {
+        self.duration
+            .unwrap_or_else(|| Frames(self.clips.iter().map(|c| c.span.end.0).max().unwrap_or(0)))
+    }
+
+    /// The canvas base color.
+    pub fn background_color(&self) -> Color {
+        self.background
+    }
+
+    /// Samples the composition at `frame`: every clip's props resolve, and
+    /// the scene can build its element tree, measure bboxes, and report
+    /// paint order — all windowless.
+    pub fn sample(&self, frame: Frames) -> SampledScene<'_> {
+        SampledScene::new(self, frame)
+    }
+}

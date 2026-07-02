@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks", "fenestra-describe", "fenestra-render", "fenestra-mcp"]
+members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks", "fenestra-describe", "fenestra-render", "fenestra-mcp", "fenestra-motion"]
 exclude = ["fuzz"]
 
 [workspace.package]

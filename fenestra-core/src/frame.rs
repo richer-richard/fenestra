@@ -1893,45 +1893,14 @@ pub fn build_scene<Msg>(
 
 // ---------------------------------------------------------------- painting
 
-/// The paint-time affine for a node — translate / rotate / skew / scale composed
-/// about the node's (untransformed) rect center — or `None` when the transform is
-/// identity. This is the single source of truth for that matrix: `paint_node`
-/// draws the subtree under it and `walk_hit` inverts it, so the activatable region
-/// always matches the painted one ("what you hit-test is exactly what you
-/// painted", even under a transform).
+/// [`Style::paint_affine`] for a live frame node — the single source of
+/// truth for the paint matrix: `paint_node` draws the subtree under it,
+/// `walk_hit` inverts it (so the activatable region always matches the
+/// painted one — "what you hit-test is exactly what you painted"), exit
+/// ghosts replay it frozen, and offline samplers (`fenestra-motion`) project
+/// bboxes through it.
 fn node_transform(node: &FrameNode) -> Option<kurbo::Affine> {
-    let s = &node.style;
-    let has_transform = (s.scale - 1.0).abs() > 1e-4
-        || s.translate.0.abs() > 1e-4
-        || s.translate.1.abs() > 1e-4
-        || s.rotate.abs() > 1e-4
-        || s.skew.0.abs() > 1e-4
-        || s.skew.1.abs() > 1e-4;
-    if !has_transform {
-        return None;
-    }
-    let c = node.rect.center();
-    // origin = center: T(translate) · T(c) · R · Skew · S · T(-c)
-    let mut a = kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
-        * kurbo::Affine::translate((c.x, c.y));
-    if s.rotate.abs() > 1e-4 {
-        a *= kurbo::Affine::rotate(f64::from(s.rotate).to_radians());
-    }
-    if s.skew.0.abs() > 1e-4 || s.skew.1.abs() > 1e-4 {
-        a *= kurbo::Affine::new([
-            1.0,
-            f64::from(s.skew.1).to_radians().tan(),
-            f64::from(s.skew.0).to_radians().tan(),
-            1.0,
-            0.0,
-            0.0,
-        ]);
-    }
-    if (s.scale - 1.0).abs() > 1e-4 {
-        a *= kurbo::Affine::scale(f64::from(s.scale));
-    }
-    a *= kurbo::Affine::translate((-c.x, -c.y));
-    Some(a)
+    node.style.paint_affine(node.rect)
 }
 
 impl Frame {
@@ -2088,38 +2057,9 @@ impl Frame {
         if node.style.display == Display::None {
             return;
         }
-        let s = &node.style;
-        let has_transform = (s.scale - 1.0).abs() > 1e-4
-            || s.translate.0.abs() > 1e-4
-            || s.translate.1.abs() > 1e-4
-            || s.rotate.abs() > 1e-4
-            || s.skew.0.abs() > 1e-4
-            || s.skew.1.abs() > 1e-4;
-        if has_transform {
+        if let Some(a) = node.style.paint_affine(node.rect) {
             let mut sub = Scene::new();
             self.paint_ghost_node_unscaled(&mut sub, fonts, node);
-            let c = node.rect.center();
-            // origin = center: T(translate) · T(c) · R · Skew · S · T(-c)
-            let mut a =
-                kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
-                    * kurbo::Affine::translate((c.x, c.y));
-            if s.rotate.abs() > 1e-4 {
-                a *= kurbo::Affine::rotate(f64::from(s.rotate).to_radians());
-            }
-            if s.skew.0.abs() > 1e-4 || s.skew.1.abs() > 1e-4 {
-                a *= kurbo::Affine::new([
-                    1.0,
-                    f64::from(s.skew.1).to_radians().tan(),
-                    f64::from(s.skew.0).to_radians().tan(),
-                    1.0,
-                    0.0,
-                    0.0,
-                ]);
-            }
-            if (s.scale - 1.0).abs() > 1e-4 {
-                a *= kurbo::Affine::scale(f64::from(s.scale));
-            }
-            a *= kurbo::Affine::translate((-c.x, -c.y));
             scene.append(&sub, Some(a));
             return;
         }

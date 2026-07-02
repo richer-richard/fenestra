@@ -137,26 +137,11 @@ pub(crate) fn sample_keyframes(
     lerp_style(&resolve(prev), &resolve(next), kf.easing.eval(local), all)
 }
 
-/// Closed-form unit step response of a damped spring: returns the
-/// progress (may overshoot 1.0 when underdamped) and whether the
-/// motion has settled (envelope below 0.1%).
+/// Closed-form unit step response of a damped spring launched from rest:
+/// the transition engine's view of [`SpringSpec::step`](crate::style::SpringSpec::step)
+/// (which also carries an initial-velocity term for offline samplers).
 pub(crate) fn spring_progress(spring: crate::style::SpringSpec, t: f32) -> (f32, bool) {
-    let stiffness = spring.stiffness.max(1.0);
-    let damping = spring.damping.max(0.1);
-    let omega = stiffness.sqrt();
-    let zeta = damping / (2.0 * omega);
-    let x = if zeta < 1.0 {
-        // Underdamped: decaying oscillation (the overshoot case).
-        let wd = omega * (1.0 - zeta * zeta).sqrt();
-        let envelope = (-zeta * omega * t).exp();
-        1.0 - envelope * ((wd * t).cos() + (zeta * omega / wd) * (wd * t).sin())
-    } else {
-        // Critically/overdamped: monotonic approach.
-        let envelope = (-omega * t).exp();
-        1.0 - envelope * (1.0 + omega * t)
-    };
-    let settled = (-zeta.min(1.0) * omega * t).exp() < 0.001;
-    if settled { (1.0, true) } else { (x, false) }
+    spring.step(0.0, t)
 }
 
 /// Interpolates the animatable properties enabled by `transition`; all other
@@ -182,6 +167,16 @@ fn lerp_style(a: &Style, b: &Style, t: f32, transition: Transition) -> Style {
     out.skew = (
         lerp_f32(a.skew.0, b.skew.0, t),
         lerp_f32(a.skew.1, b.skew.1, t),
+    );
+    out.scale_xy = (
+        lerp_f32(a.scale_xy.0, b.scale_xy.0, t),
+        lerp_f32(a.scale_xy.1, b.scale_xy.1, t),
+    );
+    // The pivot rides the visual clamp: extrapolating an origin past its
+    // endpoints would swing the whole transform around a phantom point.
+    out.transform_origin = (
+        lerp_f32(a.transform_origin.0, b.transform_origin.0, t_vis),
+        lerp_f32(a.transform_origin.1, b.transform_origin.1, t_vis),
     );
     if transition.colors {
         out.fill = match (&a.fill, &b.fill) {

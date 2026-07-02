@@ -1,0 +1,18 @@
+[package]
+name = "fenestra-motion"
+description = "Declarative motion graphics for the fenestra GUI framework: compositions as pure functions of frame number, sampled and verified headlessly"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+fenestra-core.workspace = true
+kurbo.workspace = true
+color.workspace = true

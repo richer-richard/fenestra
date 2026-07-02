@@ -1022,6 +1022,16 @@ pub struct Style {
     pub rotate: f32,
     /// Paint-time skew in degrees `(x, y)` about the element center; animatable.
     pub skew: (f32, f32),
+    /// Non-uniform paint-time scale `(x, y)` composed with the uniform
+    /// [`scale`](Self::scale) (`(1.0, 1.0)` = no transform). Like every paint
+    /// transform it never affects layout, and hit-testing follows the paint;
+    /// animatable.
+    pub scale_xy: (f32, f32),
+    /// The pivot for paint-time transforms, as a fraction of the element's
+    /// rect (`(0.0, 0.0)` = top-left, `(0.5, 0.5)` = center, the default —
+    /// CSS `transform-origin` semantics). Values outside `0..=1` pivot
+    /// about a point beyond the rect; animatable.
+    pub transform_origin: (f32, f32),
     /// Clip children to the (rounded) bounds.
     pub clip: bool,
     /// Draw progress of path elements, 0.0..=1.0 (animatable; this is how
@@ -1101,12 +1111,68 @@ impl Default for Style {
             translate: (0.0, 0.0),
             rotate: 0.0,
             skew: (0.0, 0.0),
+            scale_xy: (1.0, 1.0),
+            transform_origin: (0.5, 0.5),
             clip: false,
             path_trim: 1.0,
             backdrop_blur: None,
             element_filter: None,
             text: TextStyle::default(),
         }
+    }
+}
+
+impl Style {
+    /// The paint-time affine this style applies over its (untransformed)
+    /// layout rect — translate / rotate / skew / scale (uniform, then
+    /// non-uniform) composed about the rect's
+    /// [`transform_origin`](Self::transform_origin) point — or `None` when
+    /// the transform is identity. The single source of truth for the paint
+    /// matrix: painting draws under it, hit-testing inverts it, exit ghosts
+    /// replay it frozen, and offline samplers (`fenestra-motion`) project
+    /// bounding boxes through it.
+    pub fn paint_affine(&self, rect: kurbo::Rect) -> Option<kurbo::Affine> {
+        let s = self;
+        let has_transform = (s.scale - 1.0).abs() > 1e-4
+            || (s.scale_xy.0 - 1.0).abs() > 1e-4
+            || (s.scale_xy.1 - 1.0).abs() > 1e-4
+            || s.translate.0.abs() > 1e-4
+            || s.translate.1.abs() > 1e-4
+            || s.rotate.abs() > 1e-4
+            || s.skew.0.abs() > 1e-4
+            || s.skew.1.abs() > 1e-4;
+        if !has_transform {
+            return None;
+        }
+        // The pivot: the rect's transform-origin point (center by default).
+        let p = kurbo::Point::new(
+            rect.x0 + f64::from(s.transform_origin.0) * rect.width(),
+            rect.y0 + f64::from(s.transform_origin.1) * rect.height(),
+        );
+        // T(translate) · T(p) · R · Skew · S · T(-p)
+        let mut a = kurbo::Affine::translate((f64::from(s.translate.0), f64::from(s.translate.1)))
+            * kurbo::Affine::translate((p.x, p.y));
+        if s.rotate.abs() > 1e-4 {
+            a *= kurbo::Affine::rotate(f64::from(s.rotate).to_radians());
+        }
+        if s.skew.0.abs() > 1e-4 || s.skew.1.abs() > 1e-4 {
+            a *= kurbo::Affine::new([
+                1.0,
+                f64::from(s.skew.1).to_radians().tan(),
+                f64::from(s.skew.0).to_radians().tan(),
+                1.0,
+                0.0,
+                0.0,
+            ]);
+        }
+        if (s.scale - 1.0).abs() > 1e-4 {
+            a *= kurbo::Affine::scale(f64::from(s.scale));
+        }
+        if (s.scale_xy.0 - 1.0).abs() > 1e-4 || (s.scale_xy.1 - 1.0).abs() > 1e-4 {
+            a *= kurbo::Affine::scale_non_uniform(f64::from(s.scale_xy.0), f64::from(s.scale_xy.1));
+        }
+        a *= kurbo::Affine::translate((-p.x, -p.y));
+        Some(a)
     }
 }
 
@@ -1121,6 +1187,43 @@ pub struct SpringSpec {
     pub stiffness: f32,
     /// Damping: lower overshoots more. Critical damping ≈ 2·√stiffness.
     pub damping: f32,
+}
+
+impl SpringSpec {
+    /// The closed-form unit step response at `t_secs` seconds with initial
+    /// velocity `v0` (in progress units per second): the analytic solution of
+    /// a damped spring released at 0 toward 1 — no numeric integration, no
+    /// state, so any instant is sampled directly (random access). Returns the
+    /// progress (which may overshoot 1.0 when underdamped) and whether the
+    /// motion has settled (decay envelope below 0.1%, at which point the
+    /// progress is pinned to exactly 1.0).
+    ///
+    /// This is the single closed-form spring shared by the interactive
+    /// transition engine (which always launches from rest, `v0 = 0`) and
+    /// offline frame samplers like `fenestra-motion`. `damping` at or above
+    /// critical is evaluated with the critically-damped solution.
+    pub fn step(self, v0: f32, t_secs: f32) -> (f32, bool) {
+        let t = t_secs.max(0.0);
+        let stiffness = self.stiffness.max(1.0);
+        let damping = self.damping.max(0.1);
+        let omega = stiffness.sqrt();
+        let zeta = damping / (2.0 * omega);
+        let x = if zeta < 1.0 {
+            // Underdamped: decaying oscillation (the overshoot case).
+            // x(t) = 1 − e^{−ζωt}·(cos(ω_d t) + ((ζω − v0)/ω_d)·sin(ω_d t)),
+            // which satisfies x(0) = 0 and x'(0) = v0.
+            let wd = omega * (1.0 - zeta * zeta).sqrt();
+            let envelope = (-zeta * omega * t).exp();
+            1.0 - envelope * ((wd * t).cos() + ((zeta * omega - v0) / wd) * (wd * t).sin())
+        } else {
+            // Critically damped (and the approximation for overdamped):
+            // x(t) = 1 − e^{−ωt}·(1 + (ω − v0)·t), with x'(0) = v0.
+            let envelope = (-omega * t).exp();
+            1.0 - envelope * (1.0 + (omega - v0) * t)
+        };
+        let settled = (-zeta.min(1.0) * omega * t).exp() < 0.001;
+        if settled { (1.0, true) } else { (x, false) }
+    }
 }
 
 /// Declares which properties animate between style states, and how.
@@ -1829,6 +1932,21 @@ impl Style {
     /// Paint-time skew in degrees `(x, y)` about the element center. Animatable.
     pub fn skew(mut self, x_degrees: f32, y_degrees: f32) -> Self {
         self.skew = (x_degrees, y_degrees);
+        self
+    }
+
+    /// Non-uniform paint-time scale `(x, y)`, composed with the uniform
+    /// [`scale`](Self::scale). Never disturbs layout; animatable.
+    pub fn scale_xy(mut self, x: f32, y: f32) -> Self {
+        self.scale_xy = (x, y);
+        self
+    }
+
+    /// The pivot for paint-time transforms as a fraction of the element's
+    /// rect (CSS `transform-origin`): `(0, 0)` top-left, `(0.5, 0.5)` center
+    /// (the default). See [`Style::transform_origin`].
+    pub fn transform_origin(mut self, fx: f32, fy: f32) -> Self {
+        self.transform_origin = (fx, fy);
         self
     }
 

@@ -1133,6 +1133,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fenestra-motion"
+version = "0.39.0"
+dependencies = [
+ "color",
+ "fenestra-core",
+ "kurbo",
+]
+
+[[package]]
 name = "fenestra-render"
 version = "0.39.0"
 dependencies = [
