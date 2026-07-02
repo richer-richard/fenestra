@@ -2385,27 +2385,41 @@ impl Frame {
     /// The accessibility projection of this frame: roles, names, values,
     /// logical rects, and focusability, with open overlays appended after
     /// the root content in paint order. Headless and dependency-free; the
-    /// windowed shell maps it to the platform tree via AccessKit.
+    /// windowed shell maps it to the platform tree via AccessKit. Reported
+    /// rects are the painted bounding box (every ancestor's `node_transform`
+    /// composed in), not the untransformed layout rect — so bounds-driven AT
+    /// tools (magnifiers, explore-by-touch) agree with where the pointer
+    /// actually activates the element.
     pub fn access_tree(&self) -> AccessNode {
-        fn project(node: &FrameNode) -> AccessNode {
+        fn project(node: &FrameNode, ancestor: kurbo::Affine) -> AccessNode {
             let (semantics, label, value, key) = node.access.clone();
+            let this = match node_transform(node) {
+                Some(t) => ancestor * t,
+                None => ancestor,
+            };
+            let rect = if this == kurbo::Affine::IDENTITY {
+                node.rect
+            } else {
+                this.transform_rect_bbox(node.rect)
+            };
             AccessNode {
                 id: node.id,
                 semantics,
                 label,
                 value,
-                rect: node.rect,
+                rect,
                 focusable: node.meta.focusable,
                 invalid: node.meta.invalid,
                 key,
                 live: node.live,
                 selection: node.selection,
-                children: node.children.iter().map(project).collect(),
+                children: node.children.iter().map(|c| project(c, this)).collect(),
             }
         }
-        let mut root = project(&self.root);
+        let mut root = project(&self.root, kurbo::Affine::IDENTITY);
         for overlay in &self.overlays {
-            root.children.push(project(&overlay.node));
+            root.children
+                .push(project(&overlay.node, kurbo::Affine::IDENTITY));
         }
         root
     }
@@ -2813,8 +2827,11 @@ impl Frame {
     /// activated it. `None` when `id` isn't in this frame, or a transformed
     /// ancestor is singular (paints nothing, so no point maps into it).
     pub(crate) fn to_layout_point(&self, id: WidgetId, point: Point) -> Option<Point> {
-        point_in(&self.root, id, point)
-            .or_else(|| self.overlays.iter().find_map(|o| point_in(&o.node, id, point)))
+        point_in(&self.root, id, point).or_else(|| {
+            self.overlays
+                .iter()
+                .find_map(|o| point_in(&o.node, id, point))
+        })
     }
 
     /// The toggle overlay anchored at `anchor`, if any.

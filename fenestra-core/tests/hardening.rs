@@ -257,7 +257,13 @@ fn transformed_text_input_places_caret_where_it_paints() {
             y: click.y as f32,
         },
     );
-    let _ = dispatch(&view, &frame, &mut state, &mut fonts, InputEvent::PointerDown);
+    let _ = dispatch(
+        &view,
+        &frame,
+        &mut state,
+        &mut fonts,
+        InputEvent::PointerDown,
+    );
 
     // Rebuild to bake the new caret position into the access tree.
     let frame = build_frame(&view, &theme, &mut fonts, &mut state, (400.0, 100.0), 1.0);
@@ -291,5 +297,33 @@ fn pathological_virtual_row_count_does_not_panic() {
     assert!(
         frame.rect_of(frame.get(&by::id("huge")).id).is_some(),
         "a hostile row count should still build a frame, not panic"
+    );
+}
+
+/// Pointer hit-testing now activates a transformed element at its painted
+/// position, but the accessibility tree's bounds must follow too — AT tools
+/// that resolve a node by screen position (magnifiers, explore-by-touch)
+/// otherwise target the empty layout slot instead of the painted element.
+#[test]
+fn access_tree_bounds_follow_paint_time_transforms() {
+    let theme = Theme::light();
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+
+    let view: Element<()> = col().w(400.0).h(200.0).children([div()
+        .id("btn")
+        .w(100.0)
+        .h(40.0)
+        .translate(100.0, 0.0)]);
+    let frame = build_frame(&view, &theme, &mut fonts, &mut state, (400.0, 200.0), 1.0);
+
+    let btn = frame.get(&by::id("btn")).id;
+    let layout_rect = frame.rect_of(btn).expect("btn rect");
+    let reported_rect = frame.get(&by::id("btn")).rect;
+
+    assert!(
+        (reported_rect.x0 - (layout_rect.x0 + 100.0)).abs() < 1.0,
+        "accessibility bounds should follow the +100 translate: layout {layout_rect:?}, reported {reported_rect:?}"
     );
 }
