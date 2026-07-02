@@ -1831,16 +1831,13 @@ pub fn build_frame<Msg>(
     // a non-unique `.id("…")` or a duplicate keyed-list key — makes two elements
     // silently cross-talk all of that retained state. Loud in debug; compiled out
     // of release, where a stale shared id is a latent bug, not a crash.
-    #[cfg(debug_assertions)]
-    {
-        let dup = frame.first_duplicate_id();
-        debug_assert!(
-            dup.is_none(),
-            "duplicate WidgetId {dup:?} within one frame — two elements share an id and \
-             will cross-talk retained state (scroll/focus/editor/anim/hover); check for \
-             a non-unique .id(\"…\") or a duplicate keyed-list key",
-        );
-    }
+    debug_assert!(
+        frame.first_duplicate_id().is_none(),
+        "duplicate WidgetId {:?} within one frame — two elements share an id and \
+         will cross-talk retained state (scroll/focus/editor/anim/hover); check for \
+         a non-unique .id(\"…\") or a duplicate keyed-list key",
+        frame.first_duplicate_id(),
+    );
     frame
 }
 

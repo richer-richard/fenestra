@@ -2940,14 +2940,27 @@ PR #15 and PR #16 (stacked: `feat/motion` → `harden/review-fixes` → `main`).
   today, not a leftover from a since-removed bound. Comment corrected to state the real
   invariant instead of describing ordering that isn't true.
 
-- **A debug_assert! double-walk, fixed without changing release behavior.** The
-  duplicate-`WidgetId` `debug_assert!` in `build_frame` called `frame.first_duplicate_id()`
-  twice (once for the condition, once for the panic message) — harmless in practice since
-  the message is only formatted on the failure path, but worth computing once for clarity.
-  The first attempt at this fix hoisted the call above the macro as a plain `let`, which
-  would have made it run unconditionally even in release builds (where `debug_assert!`
-  today compiles the whole check out) — caught before landing and wrapped in an explicit
-  `#[cfg(debug_assertions)]` block instead, preserving the original release-mode no-op.
+- **A debug_assert! double-walk, investigated and left as-is — twice.** The
+  duplicate-`WidgetId` `debug_assert!` in `build_frame` calls `frame.first_duplicate_id()`
+  twice (once for the condition, once for the panic message), which looked like a
+  harmless dedup opportunity. Two different "fixes" for it were tried and both broke
+  something a bare read of the code didn't predict:
+  1. Hoisting the call above the macro as a plain `let` would make it run
+     unconditionally even in release builds — `debug_assert!` only compiles to a no-op
+     in release because it expands to `if cfg!(debug_assertions) { assert!(...) }`, a
+     *runtime* branch on a compile-time-constant condition, not conditional
+     compilation; pulling the call out of the macro loses that.
+  2. Wrapping the hoisted call in an explicit `#[cfg(debug_assertions)]` block (to
+     recover the release no-op) instead broke the opposite way: `#[cfg(...)]` is true
+     conditional compilation, so in a release, non-test build `first_duplicate_id`'s
+     only call site vanishes from the compiled crate entirely, and `-D warnings` turns
+     the resulting `dead_code` lint into a hard error. This shipped, then failed CI on
+     `cargo test -p fenestra-core --test perf_gate --release` (macOS/Metal) — caught
+     there, not before, because no local gate in this pass ran a `--release` build of
+     `fenestra-core` on its own. Reverted to the original double-call form, which is
+     the only one of the three that is both correct and lint-clean: the second call
+     only runs on the panic path, so the "double work" never actually costs anything
+     in practice.
 
 - **Three candidates investigated and left alone, not deferred.** The remaining
   candidates from the harden pass's review (tab-loop cycle detection, a claimed redundant
