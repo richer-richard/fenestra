@@ -20,6 +20,24 @@ pub struct Composition {
     pub(crate) theme: Theme,
     pub(crate) clips: Vec<Clip>,
     pub(crate) cuts: Vec<Frames>,
+    /// The source document when loaded from the data form; code-built
+    /// compositions carry `None` and refuse to serialize.
+    pub(crate) source: Option<Box<crate::data::MotionDoc>>,
+}
+
+impl std::fmt::Debug for Composition {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Composition")
+            .field("width", &self.width)
+            .field("height", &self.height)
+            .field("fps", &self.fps)
+            .field("duration", &self.total_frames())
+            .field(
+                "clips",
+                &self.clips.iter().map(|c| c.id.as_str()).collect::<Vec<_>>(),
+            )
+            .finish_non_exhaustive()
+    }
 }
 
 impl Composition {
@@ -36,6 +54,7 @@ impl Composition {
             theme: Theme::light(),
             clips: Vec::new(),
             cuts: Vec::new(),
+            source: None,
         }
     }
 
@@ -105,6 +124,11 @@ impl Composition {
     /// The canvas base color.
     pub fn background_color(&self) -> Color {
         self.background
+    }
+
+    /// Every clip id, in insertion order.
+    pub fn clip_ids(&self) -> Vec<&str> {
+        self.clips.iter().map(|c| c.id.as_str()).collect()
     }
 
     /// Samples the composition at `frame`: every clip's props resolve, and

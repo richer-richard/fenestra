@@ -15,7 +15,13 @@ workspace = true
 [dependencies]
 fenestra-core.workspace = true
 fenestra-shell.workspace = true
+fenestra-describe.workspace = true
 kurbo.workspace = true
 color.workspace = true
 image.workspace = true
 rayon.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+ron.workspace = true
+# Same resolved version as the fenestra-render CLI (see its manifest note).
+clap = { version = "4.6.1", features = ["derive"] }

@@ -11,6 +11,7 @@
 
 mod clip;
 mod composition;
+mod data;
 mod easing;
 mod render;
 mod sample;
@@ -18,6 +19,10 @@ mod timeline;
 
 pub use clip::{Anchor, AnyTrack, Clip, Prop, ResolvedProps};
 pub use composition::Composition;
+pub use data::{
+    AnchorDoc, ClipDoc, DataError, EaseDoc, KeyDoc, MotionDoc, PropDoc, SpaceDoc, ThemeDoc,
+    TrackDoc, ValueDoc,
+};
 pub use easing::{
     EASE_CRISP, EASE_EDITORIAL, EASE_POP, Ease, Spring, ease_in, ease_in_out, ease_out, hold,
     linear, spring,
