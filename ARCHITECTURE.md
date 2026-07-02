@@ -2916,3 +2916,76 @@ byte-identical (regenerated gallery art wobbles only within the GPU tolerance).
   against source. One teammate's connection dropped mid-fix; its three committed fixes were
   cherry-picked and the fourth (transform hit-test) finished by the lead from its committed
   helper + test.
+
+## harden/review-fixes: remaining cleanup candidates + the audit blocker (2026-07-02)
+
+Closing out the three test/cleanup candidates left open from the harden pass's own
+review, and resolving the `cargo-audit`/`cargo-deny` failure that was blocking both
+PR #15 and PR #16 (stacked: `feat/motion` → `harden/review-fixes` → `main`).
+
+- **Reuse.** `variable()` in `fenestra-core/tests/virtualization.rs` was a byte-for-byte
+  copy of `variable_with_id(id)` differing only in the fixed `"var"` id; it now calls
+  `variable_with_id("var")`. `count_buttons` in `fenestra-kit/tests/hardening.rs`
+  hand-rolled a recursive `Semantics::Button` tree walk that duplicates
+  `Frame::get_all(&by::role(...))`, an existing query already used elsewhere in the
+  suite; the test now calls `frame.get_all(&by::role(Semantics::Button)).len()` and the
+  hand-rolled walker is deleted.
+
+- **A stale comment, re-checked against the current code.** `navigation.rs`'s pagination
+  window math claimed its `saturating_add`/`saturating_sub` guarded "before the clamps
+  above take effect" — inaccurate on two counts: the window math runs *after* `count`/
+  `page`/`siblings` are clamped, not before, and (re-verified post-M6, which dropped the
+  `count` ceiling) `count` is now deliberately uncapped, so `page` can still reach
+  `usize::MAX` — meaning the saturating arithmetic on `hi` is genuinely load-bearing
+  today, not a leftover from a since-removed bound. Comment corrected to state the real
+  invariant instead of describing ordering that isn't true.
+
+- **A debug_assert! double-walk, fixed without changing release behavior.** The
+  duplicate-`WidgetId` `debug_assert!` in `build_frame` called `frame.first_duplicate_id()`
+  twice (once for the condition, once for the panic message) — harmless in practice since
+  the message is only formatted on the failure path, but worth computing once for clarity.
+  The first attempt at this fix hoisted the call above the macro as a plain `let`, which
+  would have made it run unconditionally even in release builds (where `debug_assert!`
+  today compiles the whole check out) — caught before landing and wrapped in an explicit
+  `#[cfg(debug_assertions)]` block instead, preserving the original release-mode no-op.
+
+- **Three candidates investigated and left alone, not deferred.** The remaining
+  candidates from the harden pass's review (tab-loop cycle detection, a claimed redundant
+  Tab/ShiftTab test direction, a claimed thread+timeout harness inconsistency, a claimed
+  redundant duplicate-id test) were checked against the current source, not just
+  skipped on the prior agent's recommendation: no cycle-detection mechanism exists to fix
+  (adding one would be new behavior, not a bug fix); the Tab/ShiftTab DoS regression test
+  already covers both directions in one combined thread+timeout harness, not two redundant
+  ones; the differing timeout constants across tests are independent per-test choices, not
+  an inconsistency; and the three duplicate-id tests each exercise a genuinely distinct
+  path (`build_frame`'s assert firing, the no-collision case, the forced-collision case).
+  None warranted a change.
+
+- **`cargo-audit`/`cargo-deny`: unfixable transitive advisories, documented and ignored.**
+  Two HIGH-severity (7.5) RUSTSEC advisories in `quick-xml 0.39.4` — RUSTSEC-2026-0194
+  (quadratic run time on duplicate start-tag attributes) and RUSTSEC-2026-0195 (unbounded
+  namespace-declaration allocation) — reach the workspace two ways: through winit's
+  non-optional Wayland backend (`smithay-client-toolkit` → `wayland-scanner`, which pins
+  `quick-xml = "^0.39"`) and independently through `zbus_xml`'s AT-SPI accessibility stack.
+  `cargo update -p quick-xml --precise 0.41.0` fails to resolve: no `wayland-scanner`
+  release yet accepts `quick-xml >= 0.41`. A third, previously unreported advisory
+  surfaced during this pass — RUSTSEC-2026-0192 (`ttf-parser` unmaintained, dated
+  2026-06-28) — reached the same way through winit's optional Wayland Adwaita window
+  decorations (`sctk-adwaita` → `ab_glyph` → `owned_ttf_parser` → `ttf-parser`); neither
+  `ab_glyph` nor `sctk-adwaita` has published a release since September 2025, and no
+  successor crate exists to move to. `cargo-audit` treats "unmaintained" as a non-fatal
+  warning by default, so it hadn't been failing `cargo audit`, but `cargo-deny` does treat
+  it as a hard error, so it was silently failing `cargo deny check` on top of the two
+  already-known findings.
+
+  All three are genuinely unfixable today by a version bump or feature-flag change on
+  fenestra's side — verified by dependency-tree tracing (`cargo tree -i <crate>`) and a
+  resolver dry-run, not assumed. Dropping Wayland support entirely (forcing X11/XWayland
+  on Linux) was considered and rejected as a real platform-support regression, not a
+  bugfix, and out of proportion to two upstream-blocked advisories. Instead: a scoped,
+  dated ignore list in both `.cargo/audit.toml` and `deny.toml`'s `[advisories] ignore`,
+  each entry commented with its dependency chain and a concrete revisit trigger (a new
+  `wayland-scanner`/`zbus_xml` release accepting `quick-xml >= 0.41`; a new `ab_glyph` or
+  `sctk-adwaita` release). This is deliberately narrower than an admin-override merge
+  (which would leave the gate silently red forever with no record of why) and reversible
+  the moment upstream ships a fix — `cargo tree -i` before removing any entry to confirm.

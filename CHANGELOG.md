@@ -34,6 +34,19 @@ verification envelope documented. Additive; every prior golden is byte-identical
 - **`virtual_heights` no longer leaks.** The one retained `FrameState` map never
   garbage-collected is now frame-stamped and GC'd like scroll/anim/editor state.
 
+### Security
+
+- **Three unfixable transitive RUSTSEC advisories are documented and ignored, not
+  silenced.** `quick-xml 0.39.4` (RUSTSEC-2026-0194, RUSTSEC-2026-0195, both HIGH) reaches
+  the workspace through winit's Wayland backend and `zbus_xml`'s AT-SPI stack; no
+  `wayland-scanner` release yet accepts `quick-xml >= 0.41`. `ttf-parser 0.25.1`
+  (RUSTSEC-2026-0192, unmaintained) reaches it through winit's optional Wayland Adwaita
+  decorations; neither `ab_glyph` nor `sctk-adwaita` has published since 2025-09. All
+  three are dated, commented, and scoped in `.cargo/audit.toml` and `deny.toml`, with the
+  dependency chains and revisit triggers recorded in ARCHITECTURE.md. Dropping Wayland
+  support to close them outright was considered and rejected as a platform regression out
+  of proportion to two upstream-blocked advisories.
+
 ### Documentation
 
 - **The headless verification envelope is stated plainly** (README, llms.txt): headless
