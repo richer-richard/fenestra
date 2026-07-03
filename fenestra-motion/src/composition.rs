@@ -2,11 +2,11 @@
 //! and the clip list. A composition plus a frame number is everything a
 //! sample needs — no other state exists.
 
+use fenestra_anim::Frames;
 use fenestra_core::{Color, Theme};
 
 use crate::clip::Clip;
 use crate::sample::SampledScene;
-use crate::timeline::Frames;
 
 /// The largest frame count [`Composition::total_frames`] will report,
 /// regardless of a declared `duration` or a clip's span end — both are

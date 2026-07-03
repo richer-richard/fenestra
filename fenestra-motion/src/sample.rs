@@ -4,11 +4,11 @@
 
 use std::cell::OnceCell;
 
+use fenestra_anim::Frames;
 use fenestra_core::{Element, Fonts, Frame, FrameState, Style, build_frame, by, div, stack};
 
 use crate::clip::ResolvedProps;
 use crate::composition::Composition;
-use crate::timeline::Frames;
 
 /// One clip's state at the sampled frame.
 #[derive(Debug, Clone, PartialEq)]

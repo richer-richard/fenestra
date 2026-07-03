@@ -1,16 +1,20 @@
 //! The `motion` command-line front door: render and probe a composition
-//! described as RON (or JSON). Follows the `fenestra` CLI conventions: the
-//! document comes from a path (or stdin with `-`), results print as JSON to
-//! stdout, artifacts go to `--out`, notes to stderr, and the exit code
-//! signals the outcome: `0` ok, `1` a verification failed, `3` a parse or
-//! IO error (clap uses `2` for usage errors).
+//! described as RON (or JSON), and lint it with all three checks from
+//! [`fenestra_motion::verify`] — `discontinuities` (always, whole-document),
+//! plus `monotone` and `settled` behind the `--monotone` / `--settled-after`
+//! flags. Follows the `fenestra` CLI conventions: the document comes from a
+//! path (or stdin with `-`), results print as JSON to stdout, artifacts go
+//! to `--out`, notes to stderr, and the exit code signals the outcome: `0`
+//! ok, `1` a verification failed, `3` a parse or IO error (clap uses `2`
+//! for usage errors).
 
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
-use fenestra_motion::{Composition, Frames, ResolvedClip};
+use fenestra_motion::verify::Direction;
+use fenestra_motion::{Composition, Frames, Prop, ResolvedClip};
 use serde_json::json;
 
 /// Exit code for a failed verification (reserved for `lint`).
@@ -63,13 +67,28 @@ enum Command {
         #[arg(long)]
         clip: Option<String>,
     },
-    /// Run the temporal lints (undeclared jumps); exit 1 on problems.
+    /// Run the temporal lints; exit 1 on problems. `discontinuities`
+    /// (undeclared jumps) always runs, whole-document; `--monotone` and
+    /// `--settled-after` opt into the other two checks, since both need a
+    /// target clip that can't be inferred document-wide.
     Lint {
         /// Composition path (`.ron` / `.json`), or `-`/omitted for stdin.
         comp: Option<PathBuf>,
         /// Override every per-prop jump threshold with one value.
         #[arg(long)]
         eps: Option<f32>,
+        /// Assert a scalar prop moves one way: `<clip_id>:<prop>:<direction>`
+        /// (`prop` is a track prop name like `opacity` or `translate_y`;
+        /// `direction` is `increasing` or `decreasing`).
+        #[arg(long)]
+        monotone: Option<String>,
+        /// Frame range for `--monotone` (defaults to the whole timeline).
+        #[arg(long, requires = "monotone")]
+        frames: Option<String>,
+        /// Also assert nothing moves and no clip appears/disappears after
+        /// this frame.
+        #[arg(long)]
+        settled_after: Option<u64>,
     },
     /// Tile every Nth frame into one labeled contact sheet PNG.
     Sheet {
@@ -114,9 +133,29 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             let comp = load(comp.as_deref())?;
             probe(&comp, Frames(frame), clip.as_deref())
         }
-        Command::Lint { comp, eps } => {
+        Command::Lint {
+            comp,
+            eps,
+            monotone,
+            frames,
+            settled_after,
+        } => {
             let comp = load(comp.as_deref())?;
-            let problems = fenestra_motion::verify::discontinuities(&comp, eps);
+            let mut problems = fenestra_motion::verify::discontinuities(&comp, eps);
+            if let Some(spec) = monotone.as_deref() {
+                let (clip_id, prop, direction) = parse_monotone_spec(spec)?;
+                let (a, b) = parse_range(frames.as_deref(), &comp)?;
+                problems.extend(fenestra_motion::verify::monotone(
+                    &comp,
+                    &clip_id,
+                    prop,
+                    a..b,
+                    direction,
+                ));
+            }
+            if let Some(after) = settled_after {
+                problems.extend(fenestra_motion::verify::settled(&comp, Frames(after)));
+            }
             print_json(&json!({
                 "frames": comp.total_frames().0,
                 "problems": problems,
@@ -203,6 +242,55 @@ fn parse_range(spec: Option<&str>, comp: &Composition) -> Result<(u64, u64), Str
             }
             Ok((a, b))
         }
+    }
+}
+
+/// Parses `--monotone <clip_id>:<prop>:<direction>`. `prop` and `direction`
+/// use the document grammar's names (`opacity`, `translate_y`, ... and
+/// `increasing` / `decreasing`) so one vocabulary covers both the doc and
+/// the CLI.
+fn parse_monotone_spec(spec: &str) -> Result<(String, Prop, Direction), String> {
+    let mut parts = spec.splitn(3, ':');
+    let (Some(clip_id), Some(prop), Some(direction)) = (parts.next(), parts.next(), parts.next())
+    else {
+        return Err(format!(
+            "--monotone wants `<clip_id>:<prop>:<direction>`, got {spec:?}"
+        ));
+    };
+    Ok((
+        clip_id.to_string(),
+        parse_prop(prop)?,
+        parse_direction(direction)?,
+    ))
+}
+
+fn parse_prop(name: &str) -> Result<Prop, String> {
+    Ok(match name {
+        "opacity" => Prop::Opacity,
+        "translate_x" => Prop::TranslateX,
+        "translate_y" => Prop::TranslateY,
+        "scale" => Prop::Scale,
+        "scale_xy" => Prop::ScaleXY,
+        "rotate" => Prop::Rotate,
+        "fill_color" => Prop::FillColor,
+        "stroke_color" => Prop::StrokeColor,
+        "text_color" => Prop::TextColor,
+        other => {
+            return Err(format!(
+                "--monotone: unknown prop {other:?} (want one of opacity, translate_x, \
+                 translate_y, scale, scale_xy, rotate, fill_color, stroke_color, text_color)"
+            ));
+        }
+    })
+}
+
+fn parse_direction(s: &str) -> Result<Direction, String> {
+    match s {
+        "increasing" => Ok(Direction::Increasing),
+        "decreasing" => Ok(Direction::Decreasing),
+        other => Err(format!(
+            "--monotone: unknown direction {other:?} (want `increasing` or `decreasing`)"
+        )),
     }
 }
 

@@ -13,6 +13,7 @@ categories.workspace = true
 workspace = true
 
 [dependencies]
+fenestra-anim.workspace = true
 vello.workspace = true
 kurbo.workspace = true
 peniko.workspace = true

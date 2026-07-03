@@ -6,13 +6,13 @@
 //! Like `fenestra_kit::demo`, these live in the library so tests, examples,
 //! and downstream users share one definition.
 
+use fenestra_anim::{Frames, Track, ease_in_out, key};
 use fenestra_charts::BarChartAxes;
 use fenestra_core::{Theme, Weight, text};
 
 use crate::clip::{Clip, Prop};
 use crate::composition::Composition;
 use crate::easing::EASE_CRISP;
-use crate::timeline::{Frames, Track, key};
 
 /// The broadcast lower third (the data-form flagship): transparent
 /// background rendered with real alpha, a plate, an accent bar sweeping
@@ -120,10 +120,7 @@ fn race_series() -> Vec<(&'static str, Track<f32>)> {
         ("Go", Track::new([key(0, 56.0f32), key(130, 61.0)])),
         (
             "TypeScript",
-            Track::new([
-                key(0, 72.0f32).ease(crate::easing::ease_in_out()),
-                key(130, 38.0),
-            ]),
+            Track::new([key(0, 72.0f32).ease(ease_in_out()), key(130, 38.0)]),
         ),
         ("Python", Track::new([key(0, 41.0f32), key(130, 74.0)])),
     ]

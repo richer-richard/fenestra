@@ -2,9 +2,10 @@
 //! factory or a frame-driven closure), an anchor, and typed animation
 //! tracks.
 
+use fenestra_anim::{FrameRange, Frames, Track};
 use fenestra_core::{Color, Element};
 
-use crate::timeline::{FrameRange, Frames, Track};
+use crate::color_track::ColorTrack;
 
 /// An animatable property of a clip. Transform props apply about the clip's
 /// [`Anchor`]; color props style the clip's *root* element ONLY (fenestra
@@ -75,7 +76,7 @@ impl Prop {
 }
 
 /// A typed track behind one [`Prop`]; built from `Track<f32>`,
-/// `Track<(f32, f32)>`, or `Track<Color>` via `From`.
+/// `Track<(f32, f32)>`, or `ColorTrack` via `From`.
 #[derive(Debug, Clone)]
 pub enum AnyTrack {
     /// An `f32` track (opacity, translate axes, uniform scale, rotate).
@@ -83,7 +84,7 @@ pub enum AnyTrack {
     /// An `(f32, f32)` track ([`Prop::ScaleXY`]).
     Pair(Track<(f32, f32)>),
     /// A color track (fill / stroke / text).
-    Color(Track<Color>),
+    Color(ColorTrack),
 }
 
 impl AnyTrack {
@@ -108,8 +109,8 @@ impl From<Track<(f32, f32)>> for AnyTrack {
     }
 }
 
-impl From<Track<Color>> for AnyTrack {
-    fn from(t: Track<Color>) -> Self {
+impl From<ColorTrack> for AnyTrack {
+    fn from(t: ColorTrack) -> Self {
         Self::Color(t)
     }
 }

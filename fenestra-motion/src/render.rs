@@ -18,13 +18,13 @@ use std::io::{Read as _, Write as _};
 use std::path::Path;
 use std::sync::mpsc;
 
+use fenestra_anim::{FrameRange, Frames};
 use fenestra_core::{Color, Fonts, FrameState};
 use fenestra_shell::{ShellError, render_element_over};
 use image::RgbaImage;
 use rayon::prelude::*;
 
 use crate::composition::Composition;
-use crate::timeline::{FrameRange, Frames};
 
 /// A render or sink failure. Rendering is deterministic, so these are
 /// environmental: no GPU, an IO problem, or a missing/failed encoder.

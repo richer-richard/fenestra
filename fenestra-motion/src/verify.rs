@@ -4,6 +4,7 @@
 //! coverage; the contact sheet tiles a whole timeline into one labeled
 //! image an agent can review in a single look.
 
+use fenestra_anim::Frames;
 use fenestra_core::{Color, TextSize, image_rgba8, text};
 use rayon::prelude::*;
 use serde::Serialize;
@@ -11,7 +12,6 @@ use serde::Serialize;
 use crate::clip::{Prop, ResolvedProps};
 use crate::composition::Composition;
 use crate::render::MotionError;
-use crate::timeline::Frames;
 
 /// One temporal-lint finding, pointed at a clip, prop, and frame.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -27,17 +27,11 @@ pub struct LintProblem {
     pub message: String,
 }
 
-impl Frames {
-    fn range_to(self, end: Frames) -> impl Iterator<Item = Frames> {
-        (self.0..end.0).map(Frames)
-    }
-}
-
-// Serialize Frames as its number for lint reports.
-impl Serialize for Frames {
-    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
-        s.serialize_u64(self.0)
-    }
+/// The half-open frame range `start..end`, as bare `Frames` values —
+/// `Frames` is defined in `fenestra-anim`, so this can't be an inherent
+/// method here (the orphan rule).
+fn range_to(start: Frames, end: Frames) -> impl Iterator<Item = Frames> {
+    (start.0..end.0).map(Frames)
 }
 
 /// The default per-prop jump threshold for [`discontinuities`]: generous
@@ -109,7 +103,7 @@ pub fn discontinuities(comp: &Composition, eps: Option<f32>) -> Vec<LintProblem>
     let duration = comp.total_frames();
     for clip in &comp.clips {
         let last = clip.span.end.min(duration);
-        for frame in clip.span.start.range_to(last) {
+        for frame in range_to(clip.span.start, last) {
             let next = Frames(frame.0 + 1);
             if !clip.span.contains(next) || comp.cuts.contains(&next) {
                 continue;
@@ -222,7 +216,7 @@ pub fn settled(comp: &Composition, after: Frames) -> Vec<LintProblem> {
                 });
             }
         }
-        for frame in after.range_to(duration) {
+        for frame in range_to(after, duration) {
             let next = Frames(frame.0 + 1);
             if next >= duration {
                 break;
@@ -380,8 +374,8 @@ impl Composition {
 /// The key frames of a typed track (clip-relative).
 fn track_key_frames(track: &crate::clip::AnyTrack) -> Vec<Frames> {
     match track {
-        crate::clip::AnyTrack::Scalar(t) => t.keys.iter().map(|k| k.at).collect(),
-        crate::clip::AnyTrack::Pair(t) => t.keys.iter().map(|k| k.at).collect(),
-        crate::clip::AnyTrack::Color(t) => t.keys.iter().map(|k| k.at).collect(),
+        crate::clip::AnyTrack::Scalar(t) => t.key_frames().collect(),
+        crate::clip::AnyTrack::Pair(t) => t.key_frames().collect(),
+        crate::clip::AnyTrack::Color(t) => t.key_frames().collect(),
     }
 }

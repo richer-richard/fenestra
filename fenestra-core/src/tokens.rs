@@ -1,6 +1,11 @@
 //! Mode-independent design tokens: spacing, radii, typography, and motion.
 //! These numbers are the spec; kit widgets and examples never hardcode them.
 
+/// CSS-style cubic-bezier easing, shared with `fenestra-motion`'s offline
+/// sampler and any other frame/tick-based consumer — see
+/// [`fenestra_anim::CubicBezier`] for the accuracy bound and the solver.
+pub use fenestra_anim::CubicBezier;
+
 /// Spacing constants on a 4px grid, in logical pixels.
 pub const SP0: f32 = 0.0;
 /// 2px.
@@ -282,19 +287,6 @@ impl MotionDuration {
     }
 }
 
-/// A cubic bezier easing curve `(x1, y1, x2, y2)`, CSS-style.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct CubicBezier {
-    /// First control point x.
-    pub x1: f32,
-    /// First control point y.
-    pub y1: f32,
-    /// Second control point x.
-    pub x2: f32,
-    /// Second control point y.
-    pub y2: f32,
-}
-
 /// The Material 3 easing families. Use [`EASE_STANDARD`] for two-way state
 /// changes (hover, press, color), [`EASE_DECELERATE`] for entrances (an
 /// element flying in and settling), and [`EASE_ACCELERATE`] for exits (an
@@ -417,46 +409,6 @@ pub const STATE_LAYER: StateLayer = StateLayer {
     disabled_container: 0.12,
     disabled_content: 0.38,
 };
-
-impl CubicBezier {
-    /// Evaluates the easing curve at progress `x` in 0..=1 (CSS
-    /// `cubic-bezier` semantics): solves the parametric x-curve with Newton
-    /// iteration, then returns the y value.
-    ///
-    /// Accuracy: the solved parameter satisfies |x(t) − x| ≤ 1e-5 across the
-    /// valid control-point range (x1, x2 ∈ 0..=1), including plateau curves
-    /// whose x-derivative vanishes mid-range — verified by grid search over
-    /// extreme control points (worst observed residual 4.3e-6) and locked by
-    /// the `motion_shared` accuracy tests. Both the interactive transition
-    /// engine and offline frame samplers (`fenestra-motion`) share this
-    /// solver, so the two always agree on a curve's shape.
-    pub fn eval(self, x: f32) -> f32 {
-        if x <= 0.0 {
-            return 0.0;
-        }
-        if x >= 1.0 {
-            return 1.0;
-        }
-        let bez = |t: f32, p1: f32, p2: f32| {
-            let u = 1.0 - t;
-            3.0 * u * u * t * p1 + 3.0 * u * t * t * p2 + t * t * t
-        };
-        let dbez = |t: f32, p1: f32, p2: f32| {
-            let u = 1.0 - t;
-            3.0 * u * u * p1 + 6.0 * u * t * (p2 - p1) + 3.0 * t * t * (1.0 - p2)
-        };
-        let mut t = x;
-        for _ in 0..8 {
-            let err = bez(t, self.x1, self.x2) - x;
-            let d = dbez(t, self.x1, self.x2);
-            if d.abs() < 1e-6 {
-                break;
-            }
-            t = (t - err / d).clamp(0.0, 1.0);
-        }
-        bez(t, self.y1, self.y2)
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -4,7 +4,7 @@
 //! paint-time transforms — all windowless (no GPU).
 
 use fenestra_core::{Color, div, text};
-use fenestra_motion::{Anchor, Clip, Composition, Frames, Prop, Track, key};
+use fenestra_motion::{Anchor, Clip, ColorTrack, Composition, Frames, Prop, Track, key};
 
 fn box_clip(id: &str, span: std::ops::Range<u64>) -> Clip {
     Clip::new(id, span).element(|| div().w(100.0).h(40.0))
@@ -107,7 +107,7 @@ fn duplicate_prop_tracks_panic() {
 fn track_kind_must_match_the_prop() {
     let _ = box_clip("c", 0..10).animate(
         Prop::Opacity,
-        Track::new([key(0, Color::new([1.0, 0.0, 0.0, 1.0]))]),
+        ColorTrack::new([key(0, Color::new([1.0, 0.0, 0.0, 1.0]))]),
     );
 }
 

@@ -1075,6 +1075,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "fenestra-anim"
+version = "0.1.0"
+dependencies = [
+ "proptest",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fenestra-charts"
 version = "0.39.0"
 dependencies = [
@@ -1088,6 +1097,7 @@ name = "fenestra-core"
 version = "0.39.0"
 dependencies = [
  "color",
+ "fenestra-anim",
  "fontique",
  "insta",
  "kurbo",
@@ -1166,6 +1176,7 @@ version = "0.39.0"
 dependencies = [
  "clap",
  "color",
+ "fenestra-anim",
  "fenestra-charts",
  "fenestra-core",
  "fenestra-describe",

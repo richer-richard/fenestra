@@ -1,0 +1,32 @@
+[package]
+name = "fenestra-anim"
+description = "Frame-pure keyframe animation math: typed tracks, CSS cubic-bezier and closed-form spring easing, and an exact rational timebase — no GUI, no GPU, no fenestra dependency"
+# Versioned on its own line, independent of the workspace's 0.39.0 series:
+# this is a standalone leaf crate meant for external consumers (e.g. the
+# cochlea audio engine) to depend on directly from crates.io.
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+keywords = ["animation", "easing", "keyframe", "interpolation", "spring"]
+categories = ["mathematics"]
+
+[lints]
+workspace = true
+
+# Leaf crate: no dependency on any fenestra crate, wgpu, vello, parley,
+# taffy, or winit. `serde` is optional — motion's RON form needs it, plain
+# numeric callers (e.g. cochlea) don't.
+[dependencies]
+serde = { workspace = true, optional = true }
+
+[features]
+serde = ["dep:serde"]
+
+[dev-dependencies]
+proptest.workspace = true
+serde_json.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true

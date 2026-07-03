@@ -10,25 +10,26 @@
 //! in parallel, with identical results.
 
 mod clip;
+mod color_track;
 mod composition;
 mod data;
 pub mod demos;
 mod easing;
 mod render;
 mod sample;
-mod timeline;
 pub mod verify;
 
 pub use clip::{Anchor, AnyTrack, Clip, Prop, ResolvedProps};
+pub use color_track::{ColorSpace, ColorTrack};
 pub use composition::Composition;
 pub use data::{
     AnchorDoc, ClipDoc, DataError, EaseDoc, KeyDoc, MotionDoc, PropDoc, SpaceDoc, ThemeDoc,
     TrackDoc, ValueDoc,
 };
-pub use easing::{
-    EASE_CRISP, EASE_EDITORIAL, EASE_POP, Ease, Spring, ease_in, ease_in_out, ease_out, hold,
-    linear, spring,
+pub use easing::{EASE_CRISP, EASE_EDITORIAL, EASE_POP};
+pub use fenestra_anim::{
+    Ease, FrameRange, Frames, Interpolate, Key, Spring, Track, ease_in, ease_in_out, ease_out,
+    hold, key, linear, spring,
 };
 pub use render::MotionError;
 pub use sample::{ResolvedClip, SampledScene};
-pub use timeline::{ColorSpace, FrameRange, Frames, Key, Track, TrackValue, key};

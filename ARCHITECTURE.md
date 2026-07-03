@@ -3225,3 +3225,125 @@ PR #15 and PR #16 (stacked: `feat/motion` → `harden/review-fixes` → `main`).
   `sctk-adwaita` release). This is deliberately narrower than an admin-override merge
   (which would leave the gate silently red forever with no record of why) and reversible
   the moment upstream ships a fix — `cargo tree -i` before removing any entry to confirm.
+
+## `fenestra-anim`: a standalone leaf crate for keyframe animation math (2026-07-03)
+
+A new workspace member, `fenestra-anim` (published independently at `0.1.0`, not
+lockstepped with the workspace's `0.39.0` series), extracts the frame-pure keyframe
+machinery so an external project (a headless audio engine, `cochlea`) can depend on it
+from crates.io without pulling in any GUI/GPU crate. Zero dependency on any fenestra
+crate, wgpu, vello, parley, taffy, or winit; `serde` is optional (behind a `serde`
+feature), needed by `fenestra-motion`'s RON form but not by `fenestra-core`'s interactive
+path.
+
+- **The extraction directive's premises were wrong on several concrete points** — caught
+  by verifying against the repo before moving anything, not trusted from the handoff:
+  the bezier solver and spring step response did not live in `fenestra-motion` at all;
+  they lived in `fenestra-core` (`tokens::CubicBezier`, `style::SpringSpec`), a
+  **published, semver-locked crate**, with `fenestra-motion` merely consuming them —
+  meaning this was never a low-risk "move code out of an unpublished crate" job, it was
+  surgery on a published crate's internals with the public API path held fixed via
+  re-export. `mul_div` did not exist anywhere under any name — new code, not a move. The
+  directive's `crates/fenestra-anim` path doesn't match this workspace's convention (no
+  crate here lives under a `crates/` subdirectory); used `fenestra-anim/` at root like
+  every other crate. The claimed "`fenestra` 0.2.0" published version was stale; it's
+  `0.39.0`. All corrected before writing any code, not silently worked around.
+
+- **The Keyframes-sharing recon question was already answered, just not the way the
+  directive assumed.** It asked whether core's interactive path uses the same
+  easing/interpolation machinery as motion's offline sampler "or carries its own" — the
+  honest answer is neither framing: core was the *sole owner*, motion was the consumer.
+  There was only one implementation to move, not two to unify. `fenestra-core`'s own
+  ambient-loop `Keyframes` type (wall-clock-phased, theme-closure stops) is unrelated and
+  stays put — wrong shape for a frame-pure sampler on every axis, and lifting it would
+  gut its kit consumers for zero shared surface. This mirrors the `fenestra-motion`
+  kickoff's own "share the math, not the type" decision from the prior entry above; this
+  extraction is that decision's logical continuation, one level deeper.
+
+- **`Interpolate` deliberately has no `Color` impl anywhere, despite the directive
+  asking for one.** The directive says "`fenestra`/`motion` implement it for `Color` so
+  Oklab stays out of the leaf crate" — but `Color` is owned by `fenestra-core`, not
+  `fenestra-motion`, and Rust's orphan rule means only the crate that owns `Color` (or
+  the crate that owns `Interpolate`) can implement the trait for it; `fenestra-motion`
+  owns neither, so `impl Interpolate for Color` in `fenestra-motion` would not compile.
+  Implementing it in `fenestra-core` instead was considered and rejected: it would need a
+  single fixed mixing space, but the actual feature (`Track<Color>`'s per-track Oklab
+  default / sRGB opt-in) needs the mixing space to vary per track, which `Interpolate`'s
+  3-argument contract (`a, b, t`) can't carry — and nothing would have called the impl,
+  since the real consumer bypasses it (below). Adding an unused trait impl to a published
+  crate to satisfy the letter of a spec nobody would call is exactly the "half-finished
+  implementation" this codebase's standing rules reject.
+
+  Instead: `fenestra-anim` exposes the segment-lookup and easing-evaluation machinery
+  `Track<T: Interpolate>` is built on as free functions — `sorted_keys` (validate + sort)
+  and `locate` (hold-before/hold-after/exact-hit/interior-with-eased-progress) — so a
+  consumer whose value type isn't `Interpolate` can reuse the bookkeeping without
+  re-deriving it. `fenestra-motion`'s `ColorTrack` is the worked example: its own type,
+  built directly on `sorted_keys`/`locate`, with its own Oklab-default/sRGB-opt-in mixing
+  in place of `Interpolate::interpolate`. Same easing math, same segment lookup, zero
+  duplication — "one implementation, N consumers" without forcing every consumer through
+  one trait shape that doesn't fit all of them.
+
+- **The dropped bisection fallback needed to come back — as more Newton iterations, not
+  bisection.** The harden-pass entry above records that `CubicBezier::eval`'s bisection
+  fallback was found unreachable (against `fenestra-core`'s small fixed set of shipped
+  Material/motion curves) and removed as dead code under `-D warnings`. This crate ships
+  to external callers who can pass *any* valid control points, not just fenestra's own
+  seven presets, so its own property test sweeps the full valid domain (`x1,x2 ∈ 0..=1`,
+  `y1,y2` allowed to overshoot) against a bisection reference — and found a real
+  counterexample: `(0.9526, -1.2833, 0.9998, -0.6020)` at `x=0.9954` left a residual of
+  `1.046e-5`, over the documented `1e-5` bound, using all 8 Newton iterations without
+  fully converging. Not a stalled derivative (the `d.abs() < 1e-6` branch never fired) —
+  just a skewed curve shape slow enough to need a few more steps. Raised to 16 iterations
+  (verified this specific case converges to `9.8e-7` and stays there through 50
+  iterations — genuine convergence, not a coincidence); the stalled-derivative case the
+  original bisection fallback targeted remains genuinely unreachable and still isn't
+  re-added. Property testing over the *actual* input domain a leaf crate faces (not just
+  the narrow set one call site happens to use) is what caught this; the earlier
+  dead-code-removal call was correct for `fenestra-core`'s narrower domain at the time.
+
+- **`mul_div`'s `Round` mode had a real `u128` overflow bug, caught by its own proptest
+  before it ever shipped.** The first implementation computed the halfway-tie case as
+  `(product * 2 + c) / (2 * c)` to avoid the bias an integer-truncated `c/2` would
+  introduce for odd divisors. That formula is unsound: `product` (`a * b` widened to
+  `u128`) can already sit within a factor of 2 of `u128::MAX` when `a` and `b` are both
+  near `u64::MAX`, so doubling it overflows — silently, since release builds don't check
+  integer overflow by default. `matches_u128_reference_at_full_u64_range` found it
+  immediately: `a=12715005348588650113, b=13381133455783775421, c=9223372036854775809`
+  returned `0` instead of `18446744073709551614`. Fixed by computing the quotient and
+  remainder separately (`remainder < c ≤ u64::MAX`, so `remainder * 2` can never overflow
+  `u128`) and comparing `remainder * 2 >= c` — the same shape as the property test's own
+  independent reference implementation, which is what caught the divergence. Kept as a
+  named regression test in addition to the property test, since the specific input is
+  worth pinning even though the property test would re-find it on any future regression.
+
+  A second, smaller issue surfaced in the *test* code, not `mul_div` itself: the first
+  version of the spring-settling property tests asserted settlement at a fixed `t=30s`
+  for any `(stiffness, damping)` in a broad proptest range, and a separate "stays settled"
+  test searched for a settled instant in a `while t <= 30.0` loop that silently passed
+  (asserted nothing) if the spring never settled inside that window. A weak,
+  lightly-damped spring (`stiffness≈1, damping≈0.1`) genuinely takes longer than 30
+  simulated seconds to cross the 0.1% settle envelope — correct physics, not a bug — so
+  the first test failed on a true negative, and the second would have passed vacuously
+  on the same input instead of failing. Both rewritten to derive the settle-time bound
+  analytically from the spring's own decay rate (`SpringSpec::step`'s
+  `zeta.min(1.0) * omega`) with a 50% margin, rather than assuming one wall-clock window
+  fits every parameter combination.
+
+- **What moved, and what's new.** Moved from `fenestra-core`: `CubicBezier` (re-exported
+  from its original `fenestra_core::tokens`/crate-root path — public API path unchanged),
+  `SpringSpec` (same, from `fenestra_core::style`). Moved from `fenestra-motion`: `Frames`
+  / `FrameRange`, the `Ease`/`Spring` easing enum and its `linear`/`hold`/`ease_in`/
+  `ease_out`/`ease_in_out`/`spring` constructors (the three named presets — `EASE_CRISP`,
+  `EASE_EDITORIAL`, `EASE_POP` — stayed in `fenestra-motion`, thin sugar built on the now-
+  shared `Ease`, not generic enough for a leaf crate), and `Key<T>`/`Track<T>` (renamed
+  from `TrackValue` to `Interpolate` per the directive's naming — internal rename, no
+  external consumers existed). New: `mul_div`/`Rounding`, the `Interpolate` trait itself,
+  `sorted_keys`/`locate`. All existing tests moved with their code (bezier/spring
+  accuracy tests, track segment-lookup tests); `fenestra-core`'s and `fenestra-motion`'s
+  own test suites keep only what's specific to them (paint-transform composition; color
+  interpolation semantics). Full workspace `fmt`/`clippy -D warnings`/`test --workspace`,
+  a scoped `--release` build+test of the three touched crates (including the
+  `perf_gate --release -- --ignored` test that caught the debug_assert/cfg regression in
+  the prior entry — clean this time), and a byte-identical rerun of every motion/gallery
+  golden confirm the relocation is behavior-preserving, not just compiling.

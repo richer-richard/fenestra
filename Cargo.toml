@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks", "fenestra-describe", "fenestra-render", "fenestra-mcp", "fenestra-motion"]
+members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenestra-charts", "fenestra-markdown", "fenestra-looks", "fenestra-describe", "fenestra-render", "fenestra-mcp", "fenestra-motion", "fenestra-anim"]
 exclude = ["fuzz"]
 
 [workspace.package]
@@ -17,6 +17,9 @@ categories = ["gui"]
 unsafe_code = "forbid"
 
 [workspace.dependencies]
+# Versioned independently of the 0.39.0 workspace line: a standalone leaf
+# crate meant for external consumers (e.g. cochlea) to depend on directly.
+fenestra-anim = { version = "0.1.0", path = "fenestra-anim" }
 fenestra-core = { version = "0.39.0", path = "fenestra-core" }
 fenestra-shell = { version = "0.39.0", path = "fenestra-shell" }
 fenestra-kit = { version = "0.39.0", path = "fenestra-kit" }

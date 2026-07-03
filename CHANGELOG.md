@@ -8,6 +8,20 @@ verification envelope documented. Additive; every prior golden is byte-identical
 
 ### Added
 
+- **`fenestra-anim`: a new standalone leaf crate for keyframe animation math**,
+  published independently at `0.1.0`. Extracted from `fenestra-core` (`CubicBezier`,
+  `SpringSpec` — both still re-exported at their original `fenestra-core` paths, public
+  API unchanged) and `fenestra-motion` (`Frames`/`FrameRange`, the `Ease`/`Spring`
+  easing set, `Track<T: Interpolate>`/`Key<T>`), plus a new `mul_div(a, b, c, Rounding)
+  -> u64` exact rational timebase primitive. Zero dependency on any fenestra crate,
+  wgpu, vello, parley, taffy, or winit — usable by any frame/tick-based sampler,
+  including outside this workspace. See ARCHITECTURE.md for the extraction rationale,
+  the `Interpolate`/`Color` design (Oklab mixing stays in `fenestra-motion`'s new
+  `ColorTrack`, not the leaf crate), and two bugs a property-test sweep over the full
+  input domain caught before either shipped: a `u128` overflow in `mul_div`'s `Round`
+  mode, and an under-converged `CubicBezier::eval` residual on skewed control points
+  outside fenestra's own shipped curve set (fixed by raising Newton iterations 8 → 16).
+
 - **`fenestra-motion`: frame-pure motion graphics.** A new workspace crate: a
   composition is a pure function of integer frame number — typed keyframe tracks
   (hold-at-ends, per-segment easing: CSS beziers shared with the interactive engine,
@@ -52,6 +66,17 @@ verification envelope documented. Additive; every prior golden is byte-identical
   ARCHITECTURE.md. Every fix landed with a test that failed first; all gates
   green, the full `fenestra-kit` golden corpus and motion's own sentinel
   goldens byte/tolerance-compared clean.
+- **`fenestra-motion`: `motion lint` now runs all three temporal lints, not just
+  one.** `verify::monotone` and `verify::settled` existed as tested library functions
+  but were unreachable from the CLI; only `verify::discontinuities` was wired to
+  `motion lint`. Added `--monotone <clip_id>:<prop>:<direction>` (with `--frames a..b`)
+  and `--settled-after <frame>` flags; problems from all three checks merge into one
+  report under the existing exit-code convention. CLI integration tests now also run
+  `probe`/`lint`/`sheet` against the actual shipped `lower_third.ron` example, not only
+  a synthetic fixture (`title_stagger`/`chart_race` are code-only demos with no RON
+  form to drive through the CLI — `chart_race` fundamentally can't, since
+  `Clip::dynamic` doesn't serialize; a regression test pins that this is a real
+  limitation, not an oversight).
 - **Agent-reachable DoS vectors clamped.** Each grid template axis is bounded so its
   realized track total — summed across every `repeat(...)` and single-track entry —
   stays ≤ 1024 where it realizes into taffy (a total near 32767 allocated ~1 GB;

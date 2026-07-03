@@ -7,6 +7,7 @@
 //! never raw hex. [`Clip::dynamic`](crate::Clip::dynamic) is code-only and
 //! deliberately absent here: closures don't serialize.
 
+use fenestra_anim::{Ease, Key, Spring, Track, ease_in, ease_in_out, ease_out, key};
 use fenestra_core::{Color, Theme};
 use fenestra_describe::color::resolve_color;
 use fenestra_describe::format::{ColorSpec, Description, Node, SCHEMA_V1};
@@ -14,11 +15,9 @@ use fenestra_describe::parse::{to_element, to_element_lenient};
 use serde::{Deserialize, Serialize};
 
 use crate::clip::{Anchor, AnyTrack, Clip, Prop, PropKind};
+use crate::color_track::ColorTrack;
 use crate::composition::Composition;
-use crate::easing::{
-    EASE_CRISP, EASE_EDITORIAL, EASE_POP, Ease, Spring, ease_in, ease_in_out, ease_out,
-};
-use crate::timeline::{Key, Track, key};
+use crate::easing::{EASE_CRISP, EASE_EDITORIAL, EASE_POP};
 
 /// The one schema version this build reads and writes.
 const DOC_VERSION: u32 = 1;
@@ -336,7 +335,7 @@ impl From<EaseDoc> for Ease {
             EaseDoc::Editorial => EASE_EDITORIAL,
             EaseDoc::Pop => EASE_POP,
             EaseDoc::Bezier(x1, y1, x2, y2) => {
-                Self::Bezier(fenestra_core::CubicBezier { x1, y1, x2, y2 })
+                Self::Bezier(fenestra_anim::CubicBezier { x1, y1, x2, y2 })
             }
             EaseDoc::Spring {
                 stiffness,
@@ -660,7 +659,7 @@ fn build_track(doc: &TrackDoc, prop: Prop, theme: &Theme) -> Result<AnyTrack, Ve
             if !problems.is_empty() {
                 return Err(problems);
             }
-            let track = Track::new(keys);
+            let track = ColorTrack::new(keys);
             match doc.space {
                 Some(SpaceDoc::Srgb) => AnyTrack::Color(track.srgb()),
                 _ => AnyTrack::Color(track),
