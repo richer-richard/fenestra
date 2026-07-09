@@ -1201,17 +1201,36 @@ fn validate_date(d: DateSpec, path: &str, errors: &mut Vec<DescribeError>) -> fe
             format!("month must be 1..=12; got {m}"),
         ));
     }
-    if !(1..=31).contains(&day) {
+    let month = m.clamp(1, 12);
+    // Validate the day against the *actual* length of that month: `[2026, 4, 31]`
+    // (April has 30) or `[2026, 2, 30]` pass a bare `1..=31` check but select no
+    // real calendar cell, so — matching the "clamp always records an error"
+    // contract every other node here follows — they must surface a path-pointed
+    // error rather than a silent no-op.
+    let max_day = days_in_month(y, month);
+    if !(1..=max_day).contains(&day) {
         errors.push(DescribeError::new(
             format!("{path}/2"),
-            format!("day must be 1..=31; got {day}"),
+            format!("day must be 1..={max_day} for month {month}; got {day}"),
         ));
     }
     #[expect(
         clippy::cast_sign_loss,
-        reason = "clamped to 1..=31 immediately above, so the value is always positive"
+        reason = "month/day are clamped to their positive ranges immediately above"
     )]
-    (y, m.clamp(1, 12) as u32, day.clamp(1, 31) as u32)
+    (y, month as u32, day.clamp(1, max_day) as u32)
+}
+
+/// Calendar days in a (year, month) pair, `month` already clamped to `1..=12`
+/// (Gregorian leap rule for February).
+fn days_in_month(year: i32, month: i32) -> i32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        _ => 31,
+    }
 }
 
 fn date_picker_node(
@@ -1718,7 +1737,12 @@ fn image_node(
     )]
     let needed_bytes = needed as usize;
     *budget -= needed_bytes;
-    let pixels = img.to_rgba8().into_raw();
+    // Consume the decoded image (`into_rgba8`, not `to_rgba8`) so the native
+    // buffer is freed as the RGBA8 buffer is produced instead of both being
+    // resident at once — zero-copy when the source is already RGBA8, and it
+    // keeps the transient peak near the committed `needed_bytes` rather than
+    // ~2x it.
+    let pixels = img.into_rgba8().into_raw();
     DECODE_COUNT.with(|n| n.set(n.get() + 1));
     let data = image_payload(w, h, pixels);
     image_cache_put(key, data.clone(), needed_bytes);

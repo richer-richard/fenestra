@@ -370,6 +370,31 @@ fn date_picker_invalid_selected_day_records_error() {
     assert!(errs.iter().any(|e| e.path.contains("selected")), "{errs:?}");
 }
 
+#[test]
+fn date_picker_day_out_of_range_for_its_month_records_error() {
+    // A day in 1..=31 but past the actual month length (April 31, Feb 30) must
+    // still error — otherwise it silently selects no cell with no explanation.
+    for (spec, month) in [("[2026,4,31]", "April"), ("[2026,2,30]", "February")] {
+        let json = format!(
+            r#"{{"schema":"fenestra/1","root":{{"date_picker":{{"year":2026,"month":6,"selected":{spec}}}}}}}"#
+        );
+        let desc: Description = serde_json::from_str(&json).unwrap();
+        let (_, errs) = to_element_lenient(&desc, &Theme::light());
+        assert!(
+            errs.iter().any(|e| e.path.contains("selected")),
+            "{month} spec {spec} should record a day error; got {errs:?}"
+        );
+    }
+    // A legitimate leap-day (2028 is a leap year) must NOT error.
+    let json = r#"{"schema":"fenestra/1","root":{"date_picker":{"year":2028,"month":2,"selected":[2028,2,29]}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    let (_, errs) = to_element_lenient(&desc, &Theme::light());
+    assert!(
+        !errs.iter().any(|e| e.path.contains("selected")),
+        "Feb 29 2028 is valid; got {errs:?}"
+    );
+}
+
 // ── tree ─────────────────────────────────────────────────────────────────────
 
 #[test]
