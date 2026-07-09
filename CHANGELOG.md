@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.40.0 — 2026-07-10
 
 A hardening + correctness pass from an adversarial self-review — agent-reachable DoS
 vectors closed, three retained-state/correctness bugs fixed, the headless
@@ -8,6 +8,9 @@ verification envelope documented — followed by a community-usefulness batch:
 the JSON authoring grammar now reaches the whole kit, `fenestra preview` gives
 authors a live-reload window, filmstrips let agents watch motion play, and the
 kit gains an OKLCH color picker. Additive; every prior golden is byte-identical.
+A subsequent recall-focused code review (`/code-review 17`) found and fixed a
+further P0, two P1s, and several lower-severity issues — see Fixed and Security
+below.
 
 ### Added
 
@@ -187,6 +190,11 @@ kit gains an OKLCH color picker. Additive; every prior golden is byte-identical.
   resolves like every other target. The `image_budget_security` suite only
   exercised the eager parse pass, so it was green with the P0 present — a
   render-path test (real `build_frame`) now covers it.
+- **Two newly published RUSTSEC advisories against locked transitive versions,
+  cleared with minimal patch bumps.** `RUSTSEC-2026-0204` (`crossbeam-epoch`,
+  reached through `rayon`) and `RUSTSEC-2026-0190` (`anyhow`) both had fixed
+  releases already out; bumping to `crossbeam-epoch 0.9.20` and `anyhow 1.0.103`
+  cleared both with no API surface change (`Cargo.lock` only).
 - **Three unfixable transitive RUSTSEC advisories are documented and ignored, not
   silenced.** `quick-xml 0.39.4` (RUSTSEC-2026-0194, RUSTSEC-2026-0195, both HIGH) reaches
   the workspace through winit's Wayland backend and `zbus_xml`'s AT-SPI stack; no

@@ -1060,7 +1060,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "fenestra-core",
  "fenestra-describe",
@@ -1085,7 +1085,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-charts"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "fenestra-core",
  "fenestra-shell",
@@ -1094,7 +1094,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-core"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "color",
  "fenestra-anim",
@@ -1112,7 +1112,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-describe"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "fenestra-core",
  "fenestra-kit",
@@ -1128,7 +1128,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-kit"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "fenestra-core",
  "fenestra-shell",
@@ -1140,7 +1140,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-looks"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "fenestra-core",
  "fenestra-shell",
@@ -1149,7 +1149,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-markdown"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "fenestra-core",
  "fenestra-shell",
@@ -1158,7 +1158,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-mcp"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "base64",
  "fenestra-core",
@@ -1174,7 +1174,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-motion"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "clap",
  "color",
@@ -1193,7 +1193,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-render"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "clap",
  "fenestra-core",
@@ -1207,7 +1207,7 @@ dependencies = [
 
 [[package]]
 name = "fenestra-shell"
-version = "0.39.0"
+version = "0.40.0"
 dependencies = [
  "accesskit",
  "accesskit_winit",

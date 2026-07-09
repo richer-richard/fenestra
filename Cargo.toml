@@ -4,7 +4,7 @@ members = ["fenestra", "fenestra-core", "fenestra-shell", "fenestra-kit", "fenes
 exclude = ["fuzz"]
 
 [workspace.package]
-version = "0.39.0"
+version = "0.40.0"
 edition = "2024"
 rust-version = "1.88"
 license = "MIT OR Apache-2.0"
@@ -20,12 +20,12 @@ unsafe_code = "forbid"
 # Versioned independently of the 0.39.0 workspace line: a standalone leaf
 # crate meant for external consumers (e.g. cochlea) to depend on directly.
 fenestra-anim = { version = "0.1.0", path = "fenestra-anim" }
-fenestra-core = { version = "0.39.0", path = "fenestra-core" }
-fenestra-shell = { version = "0.39.0", path = "fenestra-shell" }
-fenestra-kit = { version = "0.39.0", path = "fenestra-kit" }
-fenestra-describe = { version = "0.39.0", path = "fenestra-describe" }
-fenestra-render = { version = "0.39.0", path = "fenestra-render" }
-fenestra-charts = { version = "0.39.0", path = "fenestra-charts" }
+fenestra-core = { version = "0.40.0", path = "fenestra-core" }
+fenestra-shell = { version = "0.40.0", path = "fenestra-shell" }
+fenestra-kit = { version = "0.40.0", path = "fenestra-kit" }
+fenestra-describe = { version = "0.40.0", path = "fenestra-describe" }
+fenestra-render = { version = "0.40.0", path = "fenestra-render" }
+fenestra-charts = { version = "0.40.0", path = "fenestra-charts" }
 
 winit = "0.30.13"
 wgpu = "29.0.3"
