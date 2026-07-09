@@ -134,11 +134,12 @@ pub fn assert_png_snapshot(dir: impl AsRef<Path>, name: &str, actual: &RgbaImage
     }
 }
 
-/// Per-cell scale bounds for [`assert_filmstrip_snapshot_scaled`]: below the
-/// floor a frame is unreadably small; above 1.0 there is nothing to upscale
-/// — a filmstrip never carries more detail than the frames it tiles.
-const MIN_STRIP_SCALE: f32 = 0.05;
-const MAX_STRIP_SCALE: f32 = 1.0;
+/// Per-cell scale bounds ([`clamp_strip_scale`]): below the floor a frame is
+/// unreadably small; above 1.0 there is nothing to upscale — a filmstrip
+/// never carries more detail than the frames it tiles.
+pub const MIN_STRIP_SCALE: f32 = 0.05;
+/// See [`MIN_STRIP_SCALE`].
+pub const MAX_STRIP_SCALE: f32 = 1.0;
 
 /// Gap between cells and around the strip's edges, and the caption's height
 /// budget below each thumbnail (logical px, at strip scale — the caption
@@ -150,17 +151,149 @@ const STRIP_CAPTION_H: f32 = 18.0;
 /// apart.
 const THUMB_CAPTION_GAP: f32 = 2.0;
 
+/// What can go wrong composing a filmstrip via [`filmstrip_image`]: never a
+/// panic, always one of these.
+#[derive(Debug)]
+pub enum FilmstripError {
+    /// `frames` was empty — there is nothing to compose.
+    NoFrames,
+    /// The composed strip would exceed the headless renderer's maximum
+    /// texture dimension `max_dim`; `width`/`height` is the strip size that
+    /// would have been needed.
+    TooLarge {
+        /// The strip width that would have been needed.
+        width: u32,
+        /// The strip height that would have been needed.
+        height: u32,
+        /// The renderer's actual texture dimension ceiling.
+        max_dim: u32,
+    },
+}
+
+impl std::fmt::Display for FilmstripError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::NoFrames => write!(f, "no frames captured"),
+            Self::TooLarge {
+                width,
+                height,
+                max_dim,
+            } => write!(
+                f,
+                "strip would be {width}x{height}px, over the renderer's {max_dim}px limit; \
+                 lower `scale` or capture fewer frames"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for FilmstripError {}
+
+/// Clamps a filmstrip's per-cell `scale` into the composable range
+/// (`0.05..=1.0`, see [`MIN_STRIP_SCALE`]/[`MAX_STRIP_SCALE`]); non-finite
+/// input clamps to the default (no shrink), same as a `NaN` or infinite
+/// input would from any other caller-supplied dimension in this crate.
+#[must_use]
+pub fn clamp_strip_scale(scale: f32) -> f32 {
+    if scale.is_finite() {
+        scale.clamp(MIN_STRIP_SCALE, MAX_STRIP_SCALE)
+    } else {
+        MAX_STRIP_SCALE
+    }
+}
+
 /// Composes frames captured by [`crate::Harness::film`] into one horizontal
-/// filmstrip and compares it against the PNG golden `dir/name.png` exactly
-/// like [`assert_png_snapshot`] (same env vars, same
-/// `.actual`/`.diff`/`.side` failure artifacts): each frame side by side,
-/// left to right, captioned with its index and elapsed time (`index *
-/// interval_ms`, matching the `interval_ms` passed to `film`).
+/// filmstrip: each frame side by side, left to right, captioned with its
+/// index and elapsed time (`index * interval_ms`, matching the
+/// `interval_ms` passed to `film`). `scale` (per-cell, clamped via
+/// [`clamp_strip_scale`]) shrinks each thumbnail so a strip of many, or
+/// large, frames still composes to a reviewable size.
 ///
 /// The strip's own chrome — background, cell borders, caption text — always
 /// renders under [`Theme::light`], independent of whichever theme produced
 /// the frames: only the pixels *inside* each cell vary, so the strip is a
 /// stable presentation around them, not a second thing under test.
+///
+/// Never panics: [`assert_filmstrip_snapshot`]/[`assert_filmstrip_snapshot_scaled`]
+/// call this internally and panic on `Err` (a golden-test misuse); any other
+/// caller (e.g. an agent-facing render) gets a path-pointed error instead.
+///
+/// # Errors
+/// See [`FilmstripError`].
+pub fn filmstrip_image(
+    frames: &[RgbaImage],
+    interval_ms: u64,
+    scale: f32,
+) -> Result<RgbaImage, FilmstripError> {
+    if frames.is_empty() {
+        return Err(FilmstripError::NoFrames);
+    }
+    let scale = clamp_strip_scale(scale);
+
+    #[expect(
+        clippy::cast_precision_loss,
+        reason = "frame pixel dimensions are far below f32's exact-integer range"
+    )]
+    let cells: Vec<(u32, u32, f32, f32)> = frames
+        .iter()
+        .map(|f| {
+            let (w, h) = f.dimensions();
+            (w, h, w as f32 * scale, h as f32 * scale)
+        })
+        .collect();
+
+    let strip_w = STRIP_GAP
+        + cells
+            .iter()
+            .map(|&(_, _, tw, _)| tw + STRIP_GAP)
+            .sum::<f32>();
+    let strip_h = STRIP_GAP * 2.0
+        + cells.iter().map(|&(_, _, _, th)| th).fold(0.0f32, f32::max)
+        + THUMB_CAPTION_GAP
+        + STRIP_CAPTION_H;
+
+    let max_dim = with_headless(|h| h.max_dimension()).unwrap_or(8192);
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "strip_w/strip_h are sums of small positive cell sizes"
+    )]
+    let (strip_w, strip_h) = (strip_w.ceil() as u32, strip_h.ceil() as u32);
+    if strip_w > max_dim || strip_h > max_dim {
+        return Err(FilmstripError::TooLarge {
+            width: strip_w,
+            height: strip_h,
+            max_dim,
+        });
+    }
+
+    let mut strip = row::<()>().p(STRIP_GAP).gap(STRIP_GAP).items_start();
+    for (i, (frame, &(w, h, tw, th))) in frames.iter().zip(&cells).enumerate() {
+        let at_ms = (i as u64).saturating_mul(interval_ms);
+        let thumb = div::<()>()
+            .child(image_rgba8(w, h, frame.as_raw().clone()).w(tw).h(th))
+            .themed(|t, s| s.border(1.0, t.border_subtle));
+        let cell = col::<()>()
+            .gap(THUMB_CAPTION_GAP)
+            .items_center()
+            .child(thumb)
+            .child(
+                text(format!("f{i:03} +{at_ms}ms"))
+                    .size(TextSize::Xs)
+                    .mono()
+                    .themed(|t, s| s.color(t.text_muted)),
+            );
+        strip = strip.child(cell);
+    }
+
+    Ok(render_element(strip, &Theme::light(), (strip_w, strip_h)))
+}
+
+/// Composes frames captured by [`crate::Harness::film`] into one horizontal
+/// filmstrip and compares it against the PNG golden `dir/name.png` exactly
+/// like [`assert_png_snapshot`] (same env vars, same
+/// `.actual`/`.diff`/`.side` failure artifacts). See [`filmstrip_image`] for
+/// how the strip is composed.
 ///
 /// This only proves the pixels a filmstrip carries render into a stable
 /// strip; it says nothing about whether the frames it was given actually
@@ -195,72 +328,8 @@ pub fn assert_filmstrip_snapshot_scaled(
     interval_ms: u64,
     scale: f32,
 ) {
-    assert!(
-        !frames.is_empty(),
-        "assert_filmstrip_snapshot {name}: no frames captured"
-    );
-    let scale = if scale.is_finite() {
-        scale.clamp(MIN_STRIP_SCALE, MAX_STRIP_SCALE)
-    } else {
-        MAX_STRIP_SCALE
-    };
-
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "frame pixel dimensions are far below f32's exact-integer range"
-    )]
-    let cells: Vec<(u32, u32, f32, f32)> = frames
-        .iter()
-        .map(|f| {
-            let (w, h) = f.dimensions();
-            (w, h, w as f32 * scale, h as f32 * scale)
-        })
-        .collect();
-
-    let strip_w = STRIP_GAP
-        + cells
-            .iter()
-            .map(|&(_, _, tw, _)| tw + STRIP_GAP)
-            .sum::<f32>();
-    let strip_h = STRIP_GAP * 2.0
-        + cells.iter().map(|&(_, _, _, th)| th).fold(0.0f32, f32::max)
-        + THUMB_CAPTION_GAP
-        + STRIP_CAPTION_H;
-
-    let max_dim = with_headless(|h| h.max_dimension()).unwrap_or(8192);
-    #[expect(
-        clippy::cast_possible_truncation,
-        clippy::cast_sign_loss,
-        reason = "strip_w/strip_h are sums of small positive cell sizes"
-    )]
-    let (strip_w, strip_h) = (strip_w.ceil() as u32, strip_h.ceil() as u32);
-    assert!(
-        strip_w <= max_dim && strip_h <= max_dim,
-        "assert_filmstrip_snapshot {name}: strip would be {strip_w}x{strip_h}px, over the \
-         renderer's {max_dim}px limit; lower `scale` (assert_filmstrip_snapshot_scaled) or \
-         capture fewer frames"
-    );
-
-    let mut strip = row::<()>().p(STRIP_GAP).gap(STRIP_GAP).items_start();
-    for (i, (frame, &(w, h, tw, th))) in frames.iter().zip(&cells).enumerate() {
-        let at_ms = (i as u64).saturating_mul(interval_ms);
-        let thumb = div::<()>()
-            .child(image_rgba8(w, h, frame.as_raw().clone()).w(tw).h(th))
-            .themed(|t, s| s.border(1.0, t.border_subtle));
-        let cell = col::<()>()
-            .gap(THUMB_CAPTION_GAP)
-            .items_center()
-            .child(thumb)
-            .child(
-                text(format!("f{i:03} +{at_ms}ms"))
-                    .size(TextSize::Xs)
-                    .mono()
-                    .themed(|t, s| s.color(t.text_muted)),
-            );
-        strip = strip.child(cell);
-    }
-
-    let composed = render_element(strip, &Theme::light(), (strip_w, strip_h));
+    let composed = filmstrip_image(frames, interval_ms, scale)
+        .unwrap_or_else(|e| panic!("assert_filmstrip_snapshot {name}: {e}"));
     assert_png_snapshot(dir, name, &composed);
 }
 

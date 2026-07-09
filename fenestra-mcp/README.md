@@ -41,6 +41,10 @@ binary.
 - `run_scenario` — drive a description + optional steps through a whole
   bundle of expectations (emitted intents, a11y, aria, screenshot, queries) in
   one pass, asserted against the post-interaction frame.
+- `film_ui` — drive optional steps (applied first, so a click can trigger the
+  transition to watch), then capture frames with real motion on and compose
+  them into one captioned filmstrip. The one tool that turns reduced motion
+  off — every other tool stays reduced-motion for deterministic pixels.
 
 Each tool leads with a typed structured result — `query_ui`, `check_a11y`,
 `focus_order`, `check_layout`, `match_aria_snapshot`, and `describe_vocabulary`

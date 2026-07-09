@@ -2,9 +2,11 @@
 //! JSON. Each subcommand reads a description from a path (or stdin with `-`),
 //! writes its result as JSON to stdout, any image to `--out`, and signals the
 //! outcome through the exit code: `0` ok, `1` a verification failed, `3` a parse
-//! or IO error (clap uses `2` for usage errors). The exception is `preview`,
-//! which opens a live-reload window against a real file path — there's
-//! nothing to reload from stdin, so it doesn't follow that convention.
+//! or IO error (clap uses `2` for usage errors). Two exceptions: `preview`
+//! opens a live-reload window against a real file path — there's nothing to
+//! reload from stdin, so it doesn't follow the path-or-stdin convention —
+//! and `film` never exits `1`, since it composes a filmstrip rather than
+//! checking a pass/fail condition.
 
 use std::fs;
 use std::io::{self, Read};
@@ -20,7 +22,7 @@ use fenestra_describe::inspect::{
 };
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
-use fenestra_render::engine::{Step, interact, match_screenshot, render, validate_masks};
+use fenestra_render::engine::{Step, film, interact, match_screenshot, render, validate_masks};
 use fenestra_render::scenario::{Scenario, bless, verify};
 use fenestra_render::{PreviewApp, resolve_theme};
 use fenestra_shell::{WindowOptions, run_app};
@@ -177,6 +179,37 @@ enum Command {
         #[arg(long)]
         theme: Option<PathBuf>,
     },
+    /// Render a filmstrip: drive optional steps (applied first — so a click
+    /// can trigger the transition about to be watched), then capture frames
+    /// with real motion on and compose them into one strip PNG. Unlike every
+    /// other subcommand, this turns reduced motion off — the point is
+    /// watching it play.
+    Film {
+        desc: Option<PathBuf>,
+        /// Steps JSON path: an array of interaction steps, applied before
+        /// capture starts.
+        #[arg(long)]
+        steps: Option<PathBuf>,
+        /// Frames to capture (clamped to a documented ceiling; hostile
+        /// values never panic).
+        #[arg(long, default_value_t = 8)]
+        frames: usize,
+        /// Milliseconds between captured frames (clamped to a documented
+        /// ceiling).
+        #[arg(long, default_value_t = 100)]
+        interval_ms: u64,
+        /// Per-cell strip scale (clamped to `0.05..=1.0`; non-finite clamps
+        /// to 1.0).
+        #[arg(long, default_value_t = 1.0)]
+        scale: f32,
+        #[arg(long, default_value = "800x600")]
+        size: String,
+        #[arg(long)]
+        theme: Option<PathBuf>,
+        /// Write the composed filmstrip PNG here.
+        #[arg(long)]
+        out: PathBuf,
+    },
 }
 
 const EXIT_VERIFY_FAILED: u8 = 1;
@@ -244,6 +277,23 @@ fn main() -> ExitCode {
             bless,
         } => cmd_verify(scenario, out.as_deref(), bless),
         Command::Preview { desc, size, theme } => cmd_preview(desc, &size, theme),
+        Command::Film {
+            desc,
+            steps,
+            frames,
+            interval_ms,
+            scale,
+            size,
+            theme,
+            out,
+        } => cmd_film(
+            desc,
+            steps.as_deref(),
+            (frames, interval_ms, scale),
+            &size,
+            theme,
+            out,
+        ),
     }
 }
 
@@ -528,6 +578,44 @@ fn cmd_preview(desc: PathBuf, size: &str, theme: Option<PathBuf>) -> ExitCode {
     }
 }
 
+/// Renders a filmstrip: drives optional steps, then captures frames with
+/// real motion on, composing them into one strip PNG at `out`. No `1`
+/// (verification-failed) exit here — unlike `match-png`/`verify`, `film` is
+/// descriptive, not a pass/fail check.
+fn cmd_film(
+    desc: Option<PathBuf>,
+    steps: Option<&Path>,
+    // (frames, interval_ms, scale) — bundled to stay under clippy's
+    // too-many-arguments limit.
+    opts: (usize, u64, f32),
+    size: &str,
+    theme: Option<PathBuf>,
+    out: PathBuf,
+) -> ExitCode {
+    let (frames, interval_ms, scale) = opts;
+    let (desc, theme, size) = match common(desc, size, theme) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    let steps = match load_steps(steps) {
+        Ok(s) => s,
+        Err(c) => return c,
+    };
+    match film(&desc, &theme, size, &steps, frames, interval_ms, scale) {
+        Ok(out_data) => {
+            print_json(&json!({
+                "frames": out_data.frame_count,
+                "interval_ms": out_data.interval_ms,
+                "scale": out_data.scale,
+                "strip": { "width": out_data.strip.width(), "height": out_data.strip.height() },
+                "out": out.display().to_string(),
+            }));
+            save_png(&out_data.strip, &out)
+        }
+        Err(e) => fail(&e),
+    }
+}
+
 // ---------------------------------------------------------------- helpers
 
 /// Loads the description, theme, and size shared by most subcommands.
@@ -569,6 +657,16 @@ fn load_theme(path: Option<&Path>) -> Result<Theme, ExitCode> {
     let value: serde_json::Value =
         serde_json::from_str(&json).map_err(|e| err(&format!("invalid theme json: {e}")))?;
     resolve_theme(Some(&value)).map_err(|m| err(&format!("invalid theme: {m}")))
+}
+
+/// Loads an optional steps file: absent means no steps (`film`'s steps are
+/// optional, unlike `interact`'s, which always requires one).
+fn load_steps(path: Option<&Path>) -> Result<Vec<Step>, ExitCode> {
+    let Some(path) = path else {
+        return Ok(Vec::new());
+    };
+    let json = fs::read_to_string(path).map_err(|e| err(&format!("error reading steps: {e}")))?;
+    serde_json::from_str(&json).map_err(|e| err(&format!("invalid steps json: {e}")))
 }
 
 /// Reads from a path, or stdin when the path is `-` or absent.

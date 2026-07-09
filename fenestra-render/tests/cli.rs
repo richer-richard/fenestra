@@ -217,3 +217,248 @@ fn verify_missing_baseline_exits_three() {
     assert_eq!(code, 3, "a setup error is exit 3; stderr: {stderr}");
     assert!(stderr.contains("cannot read baseline"), "{stderr}");
 }
+
+/// A bound checkbox: the stock kit widget's own background/border
+/// `Transition::colors()` fires when a click flips `checked` — a real
+/// transition using only the ordinary `fenestra/1` vocabulary.
+const TOGGLE: &str = r#"{"schema":"fenestra/1","state":{"agreed":false},"root":{
+    "checkbox":{"bind":"agreed","label":"Agree","id":"cb"}
+}}"#;
+
+/// Writes `content` to a fresh temp file and returns its path.
+fn write_temp(name: &str, content: &str) -> std::path::PathBuf {
+    let path = std::env::temp_dir().join(name);
+    std::fs::write(&path, content).unwrap();
+    path
+}
+
+#[test]
+fn film_composes_a_strip_and_prints_matching_metadata() {
+    let steps = write_temp("fenestra_cli_film_steps.json", r#"[{"click":{"id":"cb"}}]"#);
+    let strip = std::env::temp_dir().join("fenestra_cli_film_strip.png");
+    let _ = std::fs::remove_file(&strip);
+
+    let (code, out, stderr) = run(
+        &[
+            "film",
+            "--steps",
+            steps.to_str().unwrap(),
+            "--frames",
+            "4",
+            "--interval-ms",
+            "50",
+            "--size",
+            "240x80",
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        TOGGLE,
+    );
+    assert_eq!(code, 0, "stdout: {out}\nstderr: {stderr}");
+
+    let json: serde_json::Value = serde_json::from_str(&out).expect("valid JSON metadata");
+    assert_eq!(json["frames"], 4);
+    assert_eq!(json["interval_ms"], 50);
+    assert!(strip.exists(), "the strip PNG should be written");
+
+    // The reported dimensions must match the file actually written.
+    let saved = image::open(&strip).unwrap();
+    assert_eq!(
+        json["strip"]["width"].as_u64().unwrap(),
+        u64::from(saved.width())
+    );
+    assert_eq!(
+        json["strip"]["height"].as_u64().unwrap(),
+        u64::from(saved.height())
+    );
+
+    let _ = std::fs::remove_file(&steps);
+    let _ = std::fs::remove_file(&strip);
+}
+
+#[test]
+fn film_without_steps_still_succeeds() {
+    let strip = std::env::temp_dir().join("fenestra_cli_film_no_steps.png");
+    let _ = std::fs::remove_file(&strip);
+    let (code, out, stderr) = run(
+        &[
+            "film",
+            "--frames",
+            "3",
+            "--interval-ms",
+            "20",
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        GOOD,
+    );
+    assert_eq!(code, 0, "stdout: {out}\nstderr: {stderr}");
+    assert!(strip.exists());
+    let _ = std::fs::remove_file(&strip);
+}
+
+/// Enormous `--frames`/`--interval-ms` clamp instead of hanging or crashing;
+/// a small `--scale` keeps the (clamped) 64-cell strip under the renderer's
+/// texture limit, isolating this from the overflow case below.
+#[test]
+fn film_hostile_frames_and_interval_clamp_and_report_actual_values() {
+    let strip = std::env::temp_dir().join("fenestra_cli_film_hostile.png");
+    let _ = std::fs::remove_file(&strip);
+    let (code, out, stderr) = run(
+        &[
+            "film",
+            "--frames",
+            "999999999",
+            "--interval-ms",
+            "999999999999",
+            "--scale",
+            "0.05",
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        GOOD,
+    );
+    assert_eq!(code, 0, "stdout: {out}\nstderr: {stderr}");
+    let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        json["frames"], 64,
+        "clamps to MAX_FILM_FRAMES, not the hostile request: {json}"
+    );
+    assert_eq!(
+        json["interval_ms"], 60_000,
+        "clamps to MAX_FILM_INTERVAL_MS: {json}"
+    );
+    let _ = std::fs::remove_file(&strip);
+}
+
+/// A non-finite `--scale` clamps rather than propagating NaN into layout.
+#[test]
+fn film_non_finite_scale_clamps_without_panicking() {
+    let strip = std::env::temp_dir().join("fenestra_cli_film_nan_scale.png");
+    let _ = std::fs::remove_file(&strip);
+    let (code, out, stderr) = run(
+        &[
+            "film",
+            "--frames",
+            "2",
+            "--scale",
+            "nan",
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        GOOD,
+    );
+    assert_eq!(code, 0, "stdout: {out}\nstderr: {stderr}");
+    let json: serde_json::Value = serde_json::from_str(&out).unwrap();
+    assert_eq!(
+        json["scale"], 1.0,
+        "a NaN scale clamps to the default: {json}"
+    );
+    let _ = std::fs::remove_file(&strip);
+}
+
+/// Combining max-clamped frames with a full (clamped) scale can legitimately
+/// overflow the renderer's texture limit. That's a clean exit-3 error, not a
+/// crash — the process still exits with a defined code and a self-explaining
+/// message.
+#[test]
+fn film_overflowing_strip_size_exits_three_not_a_panic() {
+    let strip = std::env::temp_dir().join("fenestra_cli_film_overflow.png");
+    let _ = std::fs::remove_file(&strip);
+    let (code, _out, stderr) = run(
+        &[
+            "film",
+            "--frames",
+            "999999999",
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        GOOD,
+    );
+    assert_eq!(code, 3, "an overflowing strip is exit 3: {stderr}");
+    assert!(stderr.contains("renderer's"), "{stderr}");
+    assert!(!strip.exists(), "no strip should be written on error");
+}
+
+#[test]
+fn film_missing_steps_file_exits_three() {
+    let strip = std::env::temp_dir().join("fenestra_cli_film_missing_steps.png");
+    let (code, _out, stderr) = run(
+        &[
+            "film",
+            "--steps",
+            "/nonexistent/fenestra_cli_no_such_steps.json",
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        GOOD,
+    );
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(stderr.contains("error reading steps"), "{stderr}");
+}
+
+#[test]
+fn film_invalid_steps_json_exits_three() {
+    let steps = write_temp("fenestra_cli_film_bad_steps.json", "not json");
+    let strip = std::env::temp_dir().join("fenestra_cli_film_bad_steps_out.png");
+    let (code, _out, stderr) = run(
+        &[
+            "film",
+            "--steps",
+            steps.to_str().unwrap(),
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        GOOD,
+    );
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(stderr.contains("invalid steps json"), "{stderr}");
+    let _ = std::fs::remove_file(&steps);
+}
+
+#[test]
+fn film_step_miss_is_self_explaining() {
+    let steps = write_temp(
+        "fenestra_cli_film_miss_steps.json",
+        r#"[{"click":{"id":"nope"}}]"#,
+    );
+    let strip = std::env::temp_dir().join("fenestra_cli_film_miss_out.png");
+    let (code, _out, stderr) = run(
+        &[
+            "film",
+            "--steps",
+            steps.to_str().unwrap(),
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        TOGGLE,
+    );
+    assert_eq!(code, 3, "stderr: {stderr}");
+    assert!(stderr.contains("step 0"), "{stderr}");
+    let _ = std::fs::remove_file(&steps);
+}
+
+/// `--frames`/`--interval-ms` are unsigned (`usize`/`u64`), so a negative
+/// value can never reach the engine's clamps at all — clap rejects it at
+/// parse time as a usage error (exit 2), never a crash.
+#[test]
+fn film_negative_frames_or_interval_is_a_usage_error_not_a_crash() {
+    let strip = std::env::temp_dir().join("fenestra_cli_film_negative.png");
+    let (code, _out, stderr) = run(
+        &["film", "--frames", "-5", "--out", strip.to_str().unwrap()],
+        GOOD,
+    );
+    assert_eq!(code, 2, "clap usage error, not a crash: {stderr}");
+
+    let (code, _out, stderr) = run(
+        &[
+            "film",
+            "--interval-ms",
+            "-5",
+            "--out",
+            strip.to_str().unwrap(),
+        ],
+        GOOD,
+    );
+    assert_eq!(code, 2, "clap usage error, not a crash: {stderr}");
+}

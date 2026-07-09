@@ -1,6 +1,7 @@
-//! The fenestra MCP server: twelve tools that render and verify a UI described as
-//! `fenestra/1` JSON. Each tool leads with a typed structured result (the access
-//! tree, a report, a diff); visual tools also attach a downscaled preview image.
+//! The fenestra MCP server: thirteen tools that render and verify a UI described
+//! as `fenestra/1` JSON. Each tool leads with a typed structured result (the
+//! access tree, a report, a diff); visual tools also attach a downscaled
+//! preview image.
 //!
 //! Error channel: a malformed description or selector is a protocol error
 //! (`ErrorData::invalid_params`); a render/GPU failure surfaces as an internal
@@ -313,6 +314,43 @@ impl FenestraServer {
         let image = diff_png.as_ref().or(Some(&png));
         Ok(content::ok(text, structured, image))
     }
+
+    #[tool(
+        name = "film_ui",
+        description = "Render a filmstrip: drive optional interaction steps (applied first, so a click can trigger the transition to watch), then capture frames with real motion turned on — every other tool stays reduced-motion for deterministic pixels; this is the one place the point is watching motion play — and compose them into one captioned strip image. Returns the actual frame count/interval/scale used (each is clamped to a documented ceiling, so a hostile request degrades instead of hanging) plus the strip's pixel dimensions, a downscaled inline preview, and a resource_link to the full-resolution strip."
+    )]
+    async fn film_ui(
+        &self,
+        Parameters(p): Parameters<FilmParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let desc = parse_desc(&p.description)?;
+        let theme = theme_of(p.theme.as_ref())?;
+        let size = parse_size(p.size.as_deref())?;
+        let steps: Vec<Step> = match p.steps {
+            Some(v) => serde_json::from_value(v)
+                .map_err(|e| ErrorData::invalid_params(format!("invalid steps: {e}"), None))?,
+            None => Vec::new(),
+        };
+        let (frames, interval_ms, scale) = (p.frames, p.interval_ms, p.scale);
+        let out =
+            blocking(move || engine::film(&desc, &theme, size, &steps, frames, interval_ms, scale))
+                .await?
+                .map_err(engine_err)?;
+        let structured = json!({
+            "frames": out.frame_count,
+            "interval_ms": out.interval_ms,
+            "scale": out.scale,
+            "strip": { "width": out.strip.width(), "height": out.strip.height() },
+        });
+        let text = format!(
+            "filmstrip: {} frame(s), {}ms apart, {}x{} strip",
+            out.frame_count,
+            out.interval_ms,
+            out.strip.width(),
+            out.strip.height(),
+        );
+        Ok(content::ok(text, structured, Some(&out.strip)))
+    }
 }
 
 #[tool_handler]
@@ -442,8 +480,43 @@ struct RunScenarioParams {
     scenario: Value,
 }
 
+#[derive(Debug, Deserialize, JsonSchema, Default)]
+struct FilmParams {
+    /// The UI description: a `fenestra/1` JSON object.
+    description: Value,
+    /// An array of interaction steps, applied before capture starts (optional
+    /// — e.g. `[{"click":{"role":"button","name":"Add"}}]`).
+    #[serde(default)]
+    steps: Option<Value>,
+    /// Frames to capture (clamped to a documented ceiling).
+    #[serde(default = "default_frames")]
+    frames: usize,
+    /// Milliseconds between captured frames (clamped to a documented ceiling).
+    #[serde(default = "default_interval_ms")]
+    interval_ms: u64,
+    /// Per-cell strip scale, `0.05..=1.0` (clamped; non-finite clamps to 1.0).
+    #[serde(default = "default_scale")]
+    scale: f32,
+    #[serde(default)]
+    size: Option<String>,
+    #[serde(default)]
+    theme: Option<Value>,
+}
+
 fn default_mode() -> String {
     "partial".to_string()
+}
+
+fn default_frames() -> usize {
+    8
+}
+
+fn default_interval_ms() -> u64 {
+    100
+}
+
+fn default_scale() -> f32 {
+    1.0
 }
 
 // --------------------------------------------------------------- helpers
@@ -540,11 +613,14 @@ mod tests {
         json!({ "schema": "fenestra/1", "root": { "button": { "label": "Go", "on_click": "go" } } })
     }
 
+    /// The authoritative tool count: `lib.rs`'s module doc points here rather
+    /// than naming a number, so adding a fourteenth tool only means adding a
+    /// name to this list, not chasing a count through prose elsewhere.
     #[test]
-    fn tool_list_has_all_twelve_with_schemas() {
+    fn tool_list_has_all_tools_with_schemas() {
         let tools = FenestraServer::tool_router().list_all();
         let names: Vec<String> = tools.iter().map(|t| t.name.to_string()).collect();
-        for expected in [
+        let expected_names = [
             "render_ui",
             "query_ui",
             "interact",
@@ -557,13 +633,19 @@ mod tests {
             "describe_schema",
             "validate",
             "run_scenario",
-        ] {
+            "film_ui",
+        ];
+        for expected in expected_names {
             assert!(
                 names.iter().any(|n| n == expected),
                 "missing {expected}; have {names:?}"
             );
         }
-        assert_eq!(names.len(), 12, "exactly twelve tools");
+        assert_eq!(
+            names.len(),
+            expected_names.len(),
+            "the tool list should have exactly the expected tools, no more, no fewer"
+        );
         // Every tool advertises an input schema object.
         for t in &tools {
             assert!(!t.input_schema.is_empty(), "{} has no input schema", t.name);
@@ -855,5 +937,138 @@ mod tests {
             Some(false),
             "{structured}"
         );
+    }
+
+    /// A bound checkbox: the stock kit widget's own background/border
+    /// `Transition::colors()` fires when the click flips `checked` — a real
+    /// transition using only the ordinary `fenestra/1` vocabulary.
+    fn toggle() -> Value {
+        json!({
+            "schema": "fenestra/1",
+            "state": { "agreed": false },
+            "root": { "checkbox": { "bind": "agreed", "label": "Agree", "id": "cb" } }
+        })
+    }
+
+    #[tokio::test]
+    async fn film_ui_drives_steps_first_and_reports_matching_metadata() {
+        let s = FenestraServer::new();
+        let r = s
+            .film_ui(Parameters(FilmParams {
+                description: toggle(),
+                steps: Some(json!([{ "click": { "id": "cb" } }])),
+                frames: 4,
+                interval_ms: 50,
+                scale: 1.0,
+                size: Some("240x80".to_string()),
+                theme: None,
+            }))
+            .await
+            .unwrap();
+        assert_ne!(r.is_error, Some(true));
+        let structured = r.structured_content.as_ref().expect("structured content");
+        assert_eq!(structured.get("frames").and_then(Value::as_u64), Some(4));
+        assert_eq!(
+            structured.get("interval_ms").and_then(Value::as_u64),
+            Some(50)
+        );
+        let width = structured["strip"]["width"].as_u64().expect("width");
+        let height = structured["strip"]["height"].as_u64().expect("height");
+        assert!(width > 0 && height > 0, "{structured}");
+        // Preview image + resource_link, same as the other visual tools.
+        assert!(
+            r.content.len() >= 3,
+            "a text block, an inline preview, and a full-res resource_link"
+        );
+        let link = r
+            .content
+            .iter()
+            .find_map(|c| c.as_resource_link())
+            .expect("a resource_link to the full-resolution strip");
+        assert!(link.uri.starts_with("file://"), "uri: {}", link.uri);
+    }
+
+    #[tokio::test]
+    async fn film_ui_without_steps_still_succeeds() {
+        let s = FenestraServer::new();
+        let r = s
+            .film_ui(Parameters(FilmParams {
+                description: good(),
+                steps: None,
+                frames: 3,
+                interval_ms: 20,
+                scale: 1.0,
+                size: None,
+                theme: None,
+            }))
+            .await
+            .unwrap();
+        assert_ne!(r.is_error, Some(true));
+    }
+
+    #[tokio::test]
+    async fn film_ui_clamps_hostile_frames_interval_and_scale() {
+        let s = FenestraServer::new();
+        // A tiny scale keeps the (clamped) 64-cell strip under the
+        // renderer's texture limit, isolating this clamp from the
+        // strip-size overflow proven separately at the engine layer.
+        let r = s
+            .film_ui(Parameters(FilmParams {
+                description: good(),
+                steps: None,
+                frames: usize::MAX,
+                interval_ms: u64::MAX,
+                scale: 0.05,
+                size: None,
+                theme: None,
+            }))
+            .await
+            .unwrap();
+        let structured = r.structured_content.as_ref().expect("structured content");
+        assert_eq!(
+            structured.get("frames").and_then(Value::as_u64),
+            Some(64),
+            "an enormous frame request clamps to the documented ceiling: {structured}"
+        );
+        assert_eq!(
+            structured.get("interval_ms").and_then(Value::as_u64),
+            Some(60_000),
+            "an enormous interval clamps to the documented ceiling: {structured}"
+        );
+    }
+
+    #[tokio::test]
+    async fn film_ui_invalid_steps_is_a_protocol_error() {
+        let s = FenestraServer::new();
+        let r = s
+            .film_ui(Parameters(FilmParams {
+                description: good(),
+                steps: Some(json!("not a steps array")),
+                frames: 2,
+                interval_ms: 20,
+                scale: 1.0,
+                size: None,
+                theme: None,
+            }))
+            .await;
+        assert!(r.is_err(), "a malformed steps value is a protocol error");
+    }
+
+    #[tokio::test]
+    async fn film_ui_step_miss_is_a_protocol_error_naming_the_index() {
+        let s = FenestraServer::new();
+        let r = s
+            .film_ui(Parameters(FilmParams {
+                description: toggle(),
+                steps: Some(json!([{ "click": { "id": "nope" } }])),
+                frames: 3,
+                interval_ms: 20,
+                scale: 1.0,
+                size: None,
+                theme: None,
+            }))
+            .await;
+        let err = r.expect_err("a step target miss is a protocol error, not a normal result");
+        assert!(format!("{err:?}").contains("step 0"), "{err:?}");
     }
 }

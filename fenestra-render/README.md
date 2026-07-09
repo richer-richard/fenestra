@@ -28,11 +28,14 @@ cargo install fenestra-render   # installs the `fenestra` binary
 | `validate` | validate a description without rendering |
 | `verify` | run a scenario: drive steps, assert every expectation, one verdict |
 | `preview` | open a live-reload window for a description file |
+| `film` | render a filmstrip: drive optional steps, capture frames with real motion on, compose one strip PNG |
 
 A description is read from a path or stdin (`-`); results are JSON on stdout, and
 any image goes to `--out`. Exit codes: `0` ok, `1` a verification failed, `3` a
-parse or IO error. `preview` is the exception: it takes a real file path (there's
-nothing to reload from a pipe) and blocks until the window closes.
+parse or IO error. Two exceptions: `preview` takes a real file path (there's
+nothing to reload from a pipe) and blocks until the window closes; `film` never
+exits `1` since it composes a filmstrip rather than checking a pass/fail
+condition.
 
 `match-png` ignores a rectangle when comparing with a repeatable
 `--mask x,y,w,h` flag (logical pixels), e.g. `--mask 10,10,80,20 --mask
@@ -45,6 +48,17 @@ authoring instead of a render/inspect round trip. A parse error never crashes
 or blanks the window: the last description that loaded cleanly keeps
 rendering, with a themed error panel over it naming the problem; fix the file
 and save again to clear it.
+
+`film <desc.json> --frames N --interval-ms M --out strip.png` drives optional
+`--steps` (applied first, so a click can trigger the transition to watch),
+then captures `N` renders `M` milliseconds apart with real motion turned on —
+every other subcommand stays reduced-motion for deterministic pixels; `film`
+is the one place the point is watching motion play. The frames compose into
+one captioned strip (`--scale` shrinks each cell, `0.05..=1.0`); JSON metadata
+(the actual frame count/interval/scale used, after clamping, plus the strip's
+pixel dimensions) goes to stdout. Hostile `--frames`/`--interval-ms`/`--scale`
+values clamp rather than hang or crash; a legitimately oversized combination
+(many frames at full scale) is a clean exit-3 error, never a panic.
 
 ## Example
 

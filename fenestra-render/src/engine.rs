@@ -10,7 +10,8 @@ use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{self, Selector};
 use fenestra_describe::parse::to_element;
 use fenestra_describe::state::{Action, StateMap};
-use fenestra_shell::{Harness, render_element};
+use fenestra_shell::testing::{clamp_strip_scale, filmstrip_image};
+use fenestra_shell::{Harness, MAX_FILM_INTERVAL_MS, render_element};
 use image::{Rgba, RgbaImage};
 use serde::Deserialize;
 
@@ -178,6 +179,71 @@ pub fn interact(
         tree,
         png,
         state,
+    })
+}
+
+/// What [`film`] produced.
+pub struct FilmOut {
+    /// The individual captured frames, before composition.
+    pub frames: Vec<RgbaImage>,
+    /// The frames composed into one captioned, bordered filmstrip.
+    pub strip: RgbaImage,
+    /// The frame count actually captured (`Harness::film` floors at 1 and
+    /// ceilings at `fenestra_shell::MAX_FILM_FRAMES`) — may differ from the
+    /// request.
+    pub frame_count: usize,
+    /// The interval actually used between frames, in ms (ceilinged at
+    /// [`MAX_FILM_INTERVAL_MS`]) — may differ from the request.
+    pub interval_ms: u64,
+    /// The per-cell strip scale actually used (clamped, see
+    /// [`clamp_strip_scale`]) — may differ from the request.
+    pub scale: f32,
+}
+
+/// Drives `steps` (applied first — so a click can trigger the transition
+/// about to be watched), then captures `frames` renders spaced `interval_ms`
+/// apart and composes them into one filmstrip.
+///
+/// Unlike every other verb in this module (which stays reduced-motion for
+/// deterministic pixels), `film` turns real animation on *before* driving
+/// anything: the whole point is watching motion play, and a transition a
+/// step triggers under reduced motion would already be snapped to its end
+/// state by the time capture starts, making the filmstrip static regardless
+/// of `frames`/`interval_ms`.
+///
+/// # Errors
+/// [`EngineError::Parse`] on a parse error, [`EngineError::Step`] when a
+/// step's target does not resolve, or [`EngineError::Scenario`] when the
+/// captured frames can't compose into a strip (an oversized `scale` on a
+/// long `frames` request — `Harness::film` always captures at least one
+/// frame, so the empty-input case never reaches this path).
+pub fn film(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+    steps: &[Step],
+    frames: usize,
+    interval_ms: u64,
+    scale: f32,
+) -> Result<FilmOut, EngineError> {
+    to_element(desc, theme).map_err(EngineError::Parse)?;
+    let app = DescribedApp::new(desc.clone(), theme.clone());
+    let mut h = Harness::new(app, theme.clone(), size);
+    h.set_reduced_motion(false);
+    for (index, step) in steps.iter().enumerate() {
+        apply_step(&mut h, step, index)?;
+    }
+    let captured = h.film(frames, interval_ms);
+    let interval_ms = interval_ms.min(MAX_FILM_INTERVAL_MS);
+    let scale = clamp_strip_scale(scale);
+    let strip = filmstrip_image(&captured, interval_ms, scale)
+        .map_err(|e| EngineError::Scenario(format!("cannot compose filmstrip: {e}")))?;
+    Ok(FilmOut {
+        frame_count: captured.len(),
+        frames: captured,
+        strip,
+        interval_ms,
+        scale,
     })
 }
 
