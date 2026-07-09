@@ -155,7 +155,7 @@ Kit: `button checkbox switch radio slider text_input text_area select
 tooltip modal toast_stack tabs card stat_card badge avatar progress
 spinner table data_table callout virtual_list menu dropdown_menu
 context_menu popover combobox command_palette split_pane tree_view
-date_picker badge_dot progress_indeterminate icons::* icons::lucide::*`;
+date_picker color_picker badge_dot progress_indeterminate icons::* icons::lucide::*`;
 sibling crates: fenestra-charts, fenestra-markdown, fenestra-looks,
 fenestra-motion (frame-pure motion graphics; see Motion graphics below)
 

@@ -1,5 +1,6 @@
-//! The fenestra MCP server: thirteen tools that render and verify a UI described
-//! as `fenestra/1` JSON. Each tool leads with a typed structured result (the
+//! The fenestra MCP server: the tools that render and verify a UI described
+//! as `fenestra/1` JSON (the `tool_list_has_all_tools_with_schemas` test is the
+//! authoritative roster). Each tool leads with a typed structured result (the
 //! access tree, a report, a diff); visual tools also attach a downscaled
 //! preview image.
 //!
@@ -369,7 +370,9 @@ impl ServerHandler for FenestraServer {
              JSON Schema); render_ui to see a UI and its \
              accessibility warnings; query_ui, check_a11y, focus_order, check_layout, \
              match_aria_snapshot, and \
-             match_screenshot to assert; interact to drive it; run_scenario to drive steps \
+             match_screenshot to assert; interact to drive it; film_ui to capture a strip of \
+             frames across a transition (it drives any steps first, then watches the motion \
+             play); run_scenario to drive steps \
              and assert a whole bundle of expectations in one pass (the screenshot check \
              compares the post-interaction pixels); validate to check a description without \
              rendering."

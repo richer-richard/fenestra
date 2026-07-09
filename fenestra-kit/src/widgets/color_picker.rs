@@ -799,6 +799,11 @@ impl<Msg> ColorPicker<Msg> {
     /// parsed color when the text is currently valid (`None` while it
     /// isn't — leave `value` unchanged in that case, so an in-progress edit
     /// never destroys the last good color).
+    ///
+    /// This deliberately departs from the kit's usual `on_input(Fn(String))`
+    /// text-entry verb: the second `Option<Color>` argument is the parse
+    /// result the caller needs to decide whether to commit, so a plain
+    /// `on_input` shape could not carry it.
     pub fn on_text_change(mut self, f: impl Fn(String, Option<Color>) -> Msg + 'static) -> Self {
         self.on_text_change = Some(Rc::new(f));
         self
