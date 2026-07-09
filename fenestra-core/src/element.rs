@@ -1924,14 +1924,15 @@ pub fn raw_text_area<Msg>(
     .cursor(Cursor::Text)
 }
 
-/// An image leaf showing straight-alpha RGBA8 pixels (row-major, 4 bytes
-/// per pixel). Sized to the image by default, stretched when styled
-/// otherwise, and painted clipped to the corner radius — so
-/// `.rounded_full()` crops a square source into a round avatar. If `pixels`
-/// holds fewer than `width * height` complete rows, the element shrinks to
-/// the rows actually provided instead of panicking.
-#[track_caller]
-pub fn image_rgba8<Msg>(width: u32, height: u32, mut pixels: Vec<u8>) -> Element<Msg> {
+/// Package already-decoded straight-alpha RGBA8 pixels (row-major, 4 bytes per
+/// pixel) into a shareable [`ImageData`]: the buffer becomes an atomically
+/// reference-counted blob, so cloning the result and handing it to
+/// [`image_from_data`] shares the one allocation instead of re-decoding or
+/// copying — the reuse path a decoded-image cache wants. If `pixels` holds
+/// fewer than `width * height` complete rows, the payload shrinks to the rows
+/// provided (its `height` reflects that), matching [`image_rgba8`].
+#[must_use]
+pub fn image_payload(width: u32, height: u32, mut pixels: Vec<u8>) -> ImageData {
     let row = width as usize * 4;
     let rows = pixels
         .len()
@@ -1941,18 +1942,41 @@ pub fn image_rgba8<Msg>(width: u32, height: u32, mut pixels: Vec<u8>) -> Element
     pixels.truncate(row * rows);
     #[expect(clippy::cast_possible_truncation, reason = "rows <= height: u32")]
     let height = rows as u32;
-    let image = peniko::ImageData {
-        data: pixels.into(),
-        format: peniko::ImageFormat::Rgba8,
-        alpha_type: peniko::ImageAlphaType::Alpha,
-        width,
-        height,
-    };
+    ImageData {
+        image: peniko::ImageData {
+            data: pixels.into(),
+            format: peniko::ImageFormat::Rgba8,
+            alpha_type: peniko::ImageAlphaType::Alpha,
+            width,
+            height,
+        },
+    }
+}
+
+/// An image leaf rendering an already-decoded [`ImageData`] payload (from
+/// [`image_payload`]), sized to it. Building many elements or frames from
+/// clones of one payload shares a single reference-counted pixel blob, so a
+/// decoded-image cache never re-decodes or re-copies. See [`image_rgba8`] for
+/// the owned-`Vec` convenience wrapper.
+#[must_use]
+pub fn image_from_data<Msg>(data: ImageData) -> Element<Msg> {
+    let (width, height) = (data.image.width, data.image.height);
     #[expect(clippy::cast_precision_loss, reason = "image sizes fit in f32")]
-    Element::new(Kind::Image(ImageData { image }))
+    Element::new(Kind::Image(data))
         .w(width as f32)
         .h(height as f32)
         .shrink0()
+}
+
+/// An image leaf showing straight-alpha RGBA8 pixels (row-major, 4 bytes
+/// per pixel). Sized to the image by default, stretched when styled
+/// otherwise, and painted clipped to the corner radius — so
+/// `.rounded_full()` crops a square source into a round avatar. If `pixels`
+/// holds fewer than `width * height` complete rows, the element shrinks to
+/// the rows actually provided instead of panicking.
+#[track_caller]
+pub fn image_rgba8<Msg>(width: u32, height: u32, pixels: Vec<u8>) -> Element<Msg> {
+    image_from_data(image_payload(width, height, pixels))
 }
 
 /// A vector path drawn in `viewbox` coordinates and scaled to the element

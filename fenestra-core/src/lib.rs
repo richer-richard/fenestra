@@ -44,8 +44,8 @@ pub use clipboard::{Clipboard, MemoryClipboard};
 pub use element::{
     Cursor, DrawerSide, Element, ExitAnim, ImageData, InputData, Kind, OpticalCorrection, Overlay,
     OverlayMode, OverlayPlacement, PathData, Semantics, Span, SwipeDir, VirtualData, col, div,
-    divider, image_rgba8, path, raw_input, raw_text_area, responsive, responsive_hinted, rich_text,
-    row, spacer, span, stack, text,
+    divider, image_from_data, image_payload, image_rgba8, path, raw_input, raw_text_area,
+    responsive, responsive_hinted, rich_text, row, spacer, span, stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, refresh_hover};
 pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene, frame_epoch};

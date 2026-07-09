@@ -22,7 +22,9 @@
 
 use fenestra_core::{Fonts, FrameState, Theme, build_frame};
 use fenestra_describe::format::Description;
-use fenestra_describe::parse::{MAX_TOTAL_IMAGE_BYTES, to_element, to_element_lenient, validate};
+use fenestra_describe::parse::{
+    MAX_TOTAL_IMAGE_BYTES, clear_image_cache, to_element, to_element_lenient, validate,
+};
 use image::ImageEncoder;
 
 /// A syntactically valid, fully-decodable `side`×`side` RGBA8 PNG, solid
@@ -99,16 +101,21 @@ fn single_full_size_image_still_decodes_fine() {
 
 #[test]
 fn aggregate_images_beyond_the_budget_are_rejected_not_allocated() {
-    // (a) Two full-size (~256 MiB decoded each) images as children of one
-    // `col` sum to ~512 MiB, over `MAX_TOTAL_IMAGE_BYTES` (384 MiB). The
-    // first must still succeed (it alone fits); the second must degrade to
-    // a spacer with a path-pointed budget error — proving the aggregate is
-    // actually bounded, not just each image individually.
-    let payload = full_size_image_b64();
+    // (a) Two *distinct* full-size (~256 MiB decoded each) images as children
+    // of one `col` sum to ~512 MiB, over `MAX_TOTAL_IMAGE_BYTES` (384 MiB). The
+    // first must still succeed (it alone fits); the second must degrade to a
+    // spacer with a path-pointed budget error — proving the aggregate is
+    // actually bounded, not just each image individually. Distinct payloads so
+    // the decode cache can't dedup them into one shared allocation (identical
+    // images legitimately share and would both fit); the aggregate budget is
+    // what has to bound genuinely different images.
+    clear_image_cache();
+    let first = full_size_image_b64();
+    let second = base64_encode(&solid_png_filled(8192, 1));
     let json = format!(
         r#"{{"schema":"fenestra/1","root":{{"col":{{"children":[
-            {{"image":{{"png":"{payload}","label":"First"}}}},
-            {{"image":{{"png":"{payload}","label":"Second"}}}}
+            {{"image":{{"png":"{first}","label":"First"}}}},
+            {{"image":{{"png":"{second}","label":"Second"}}}}
         ]}}}}}}"#
     );
     let desc: Description = serde_json::from_str(&json).unwrap();
@@ -139,17 +146,21 @@ fn aggregate_images_beyond_the_budget_are_rejected_not_allocated() {
 fn virtual_list_of_large_images_is_bounded() {
     // (b) `virtual_list`'s eager per-row validation pass (run once, at parse
     // time, to surface errors — see its doc comment) must respect the same
-    // shared budget: three full-size images (~768 MiB) sum well past the
-    // 384 MiB cap (which fits exactly one, with ~128 MiB left over — not
+    // shared budget: three *distinct* full-size images (~768 MiB) sum well past
+    // the 384 MiB cap (which fits exactly one, with ~128 MiB left over — not
     // enough for a second ~256 MiB image), so the eager pass must stop
-    // *decoding* once the budget is spent, rather than unconditionally
-    // decoding all of them regardless of size.
-    let payload = full_size_image_b64();
+    // *decoding* once the budget is spent, rather than unconditionally decoding
+    // all of them regardless of size. Distinct payloads so the decode cache
+    // can't dedup them (see the aggregate-children test).
+    clear_image_cache();
+    let r0 = full_size_image_b64();
+    let r1 = base64_encode(&solid_png_filled(8192, 1));
+    let r2 = base64_encode(&solid_png_filled(8192, 2));
     let json = format!(
         r#"{{"schema":"fenestra/1","root":{{"virtual_list":{{"row_height":32,"items":[
-            {{"image":{{"png":"{payload}","label":"Row 0"}}}},
-            {{"image":{{"png":"{payload}","label":"Row 1"}}}},
-            {{"image":{{"png":"{payload}","label":"Row 2"}}}}
+            {{"image":{{"png":"{r0}","label":"Row 0"}}}},
+            {{"image":{{"png":"{r1}","label":"Row 1"}}}},
+            {{"image":{{"png":"{r2}","label":"Row 2"}}}}
         ]}}}}}}"#
     );
     let desc: Description = serde_json::from_str(&json).unwrap();
@@ -176,26 +187,32 @@ fn virtual_list_render_path_bounds_aggregate_decode() {
     // `row_height` collapses the virtual window onto *every* row at once, so
     // without one image-decode budget shared across a frame's rows (each row
     // otherwise reset to the full document cap), the aggregate DoS reopens on
-    // the paint path. Render it and assert only budget-worth of full-size
-    // images materialize; the rest degrade to spacers (their labels disappear).
-    // Three *distinct* full-size images (~256 MiB decoded each): distinctness
-    // matters, so a content cache can't collapse them into one shared decode —
-    // the per-frame budget itself is what has to stop the aggregate.
-    let p0 = base64_encode(&solid_png_filled(8192, 0));
-    let p1 = base64_encode(&solid_png_filled(8192, 1));
-    let p2 = base64_encode(&solid_png_filled(8192, 2));
+    // the paint path. The key property: the number of full-size images that
+    // actually materialize is a small constant, *independent of the row count*
+    // — bounded by (one image the eager pass already cached) + (budget-worth of
+    // fresh decodes this frame), not the whole list. Use several *distinct*
+    // full-size images (~256 MiB each) so the content cache can't collapse them
+    // into one shared decode; with the bug, every row would decode and all five
+    // would materialize.
+    clear_image_cache();
+    let mut items = String::new();
+    for n in 0..5u8 {
+        let payload = base64_encode(&solid_png_filled(8192, n));
+        if n > 0 {
+            items.push(',');
+        }
+        items.push_str(&format!(
+            r#"{{"image":{{"png":"{payload}","label":"IMGROW{n}"}}}}"#
+        ));
+    }
     let json = format!(
-        r#"{{"schema":"fenestra/1","root":{{"virtual_list":{{"row_height":1,"items":[
-            {{"image":{{"png":"{p0}","label":"IMGZERO"}}}},
-            {{"image":{{"png":"{p1}","label":"IMGONE"}}}},
-            {{"image":{{"png":"{p2}","label":"IMGTWO"}}}}
-        ]}}}}}}"#
+        r#"{{"schema":"fenestra/1","root":{{"virtual_list":{{"row_height":1,"items":[{items}]}}}}}}"#
     );
     let desc: Description = serde_json::from_str(&json).unwrap();
     let (el, _) = to_element_lenient(&desc, &Theme::light());
     let mut fonts = Fonts::embedded();
     let mut state = FrameState::new();
-    // A 480px-tall viewport over 1px rows virtualizes all three rows into view.
+    // A 480px-tall viewport over 1px rows virtualizes all five rows into view.
     let frame = build_frame(
         &el,
         &Theme::light(),
@@ -205,16 +222,16 @@ fn virtual_list_render_path_bounds_aggregate_decode() {
         1.0,
     );
     let yaml = frame.access_yaml();
-    let materialized = ["IMGZERO", "IMGONE", "IMGTWO"]
-        .iter()
-        .filter(|label| yaml.contains(**label))
+    let materialized = (0..5u8)
+        .filter(|n| yaml.contains(&format!("IMGROW{n}")))
         .count();
-    // 384 MiB budget / ~256 MiB per full-size image → exactly one fits per
-    // frame; if two or three materialize, the per-row budget reset bug is back.
+    // 384 MiB budget / ~256 MiB per full-size image → at most a couple
+    // materialize per frame regardless of list length; if all five do, the
+    // per-row budget reset bug is back.
     assert!(
-        materialized <= 1,
-        "virtual_list render path must bound aggregate image decode to the \
-         per-frame budget; {materialized} of 3 full-size images materialized"
+        materialized <= 2,
+        "virtual_list render path must bound aggregate image decode per frame; \
+         {materialized} of 5 full-size images materialized"
     );
 }
 
@@ -223,13 +240,17 @@ fn budget_is_fresh_per_call_not_shared_across_calls() {
     // (d) A single full-size image is within budget. Calling `to_element`
     // repeatedly on the same description must succeed every time — a
     // process-global or otherwise cross-call budget would starve on a later
-    // call even though each call, alone, is well within bounds.
+    // call even though each call, alone, is well within bounds. Clear the
+    // decode cache before each call so every call really re-decodes (a cache
+    // hit would pass regardless of the budget, hiding a cross-call leak); this
+    // isolates the *budget's* per-call freshness, which is what's under test.
     let payload = full_size_image_b64();
     let json = format!(
         r#"{{"schema":"fenestra/1","root":{{"image":{{"png":"{payload}","label":"Reused"}}}}}}"#
     );
     let desc: Description = serde_json::from_str(&json).unwrap();
     for call in 0..3 {
+        clear_image_cache();
         assert!(
             to_element(&desc, &fenestra_core::Theme::light()).is_ok(),
             "call {call} should get a fresh per-call budget and succeed"

@@ -11,13 +11,15 @@
 //! resolve, or an alignment word it does not know, degrades to a default and
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 
 use fenestra_core::{
     AdaptiveTint, Color, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat,
     ShadowToken, Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight,
-    col, div, divider, frame_epoch, image_rgba8, linear_gradient, row, spacer, stack, text,
+    col, div, divider, frame_epoch, image_from_data, image_payload, linear_gradient, row, spacer,
+    stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, TreeNode as KitTreeNode, accordion, accordion_item, avatar,
@@ -1508,6 +1510,128 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
+// ── decoded-image cache ───────────────────────────────────────────────────────
+//
+// `image_node` decodes its base64 PNG on every build, and `view()` rebuilds the
+// whole element tree on every frame (each click, every `pump`, every ~200ms
+// preview poll). Without a cache, an image in a driven or animated view re-runs
+// the full base64 → PNG → RGBA8 pipeline every frame — turning e.g. an
+// `interact` `{"tab": 4096}` step (up to `MAX_TAB_REPEAT` rebuilds) into
+// thousands of ~256 MiB decodes. This thread-local cache decodes each distinct
+// payload once and hands every later build a clone of the *same* atomically
+// reference-counted pixel blob (a cheap `ImageData` clone — no re-decode, no
+// copy). It holds at most `MAX_TOTAL_IMAGE_BYTES` of decoded bytes, evicting
+// least-recently-used, so it can never itself grow into a memory leak.
+
+thread_local! {
+    static DECODE_CACHE: RefCell<DecodeCache> = RefCell::new(DecodeCache::default());
+    /// Count of real PNG decodes (cache misses) — lets tests assert reuse.
+    static DECODE_COUNT: Cell<u64> = const { Cell::new(0) };
+}
+
+#[derive(Default)]
+struct DecodeCache {
+    entries: HashMap<u64, CachedImage>,
+    total_bytes: usize,
+    tick: u64,
+}
+
+struct CachedImage {
+    data: fenestra_core::ImageData,
+    bytes: usize,
+    last_used: u64,
+}
+
+/// A 64-bit content hash of a base64 payload — the cache key. A collision would
+/// serve one image's pixels for another's bytes; at 64 bits that is
+/// astronomically unlikely for the handful of images a document carries.
+fn image_cache_key(png_b64: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    png_b64.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The cached decoded image for `key`, if resident, marked most-recently-used.
+fn image_cache_get(key: u64) -> Option<fenestra_core::ImageData> {
+    DECODE_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.tick += 1;
+        let tick = c.tick;
+        let entry = c.entries.get_mut(&key)?;
+        entry.last_used = tick;
+        Some(entry.data.clone())
+    })
+}
+
+/// Inserts a freshly decoded image, first evicting least-recently-used entries
+/// so total resident decoded bytes stay within [`MAX_TOTAL_IMAGE_BYTES`]. An
+/// image as large as the whole budget is not cached (it would evict everything
+/// and still dominate) — it is simply rebuilt on demand.
+fn image_cache_put(key: u64, data: fenestra_core::ImageData, bytes: usize) {
+    if bytes > MAX_TOTAL_IMAGE_BYTES {
+        return;
+    }
+    DECODE_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.tick += 1;
+        let last_used = c.tick;
+        while c.total_bytes + bytes > MAX_TOTAL_IMAGE_BYTES {
+            let Some(lru) = c
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.last_used)
+                .map(|(&k, _)| k)
+            else {
+                break;
+            };
+            if let Some(removed) = c.entries.remove(&lru) {
+                c.total_bytes -= removed.bytes;
+            }
+        }
+        if let Some(prev) = c.entries.insert(
+            key,
+            CachedImage {
+                data,
+                bytes,
+                last_used,
+            },
+        ) {
+            c.total_bytes -= prev.bytes;
+        }
+        c.total_bytes += bytes;
+    });
+}
+
+/// Frees every decoded image this thread's `fenestra/1` image cache holds,
+/// reclaiming their memory. Rendering re-decodes (and re-caches) on demand, so
+/// this only trades memory for a one-time re-decode — useful between rendering
+/// unrelated documents in a long-lived process.
+pub fn clear_image_cache() {
+    DECODE_CACHE.with(|c| *c.borrow_mut() = DecodeCache::default());
+}
+
+/// Builds the image element from decoded pixel `data` and applies the node's
+/// style, click intent, and id — shared by the cache-hit and freshly-decoded
+/// paths so both render identically.
+fn image_element(
+    data: fenestra_core::ImageData,
+    i: &ImageNode,
+    theme: &Theme,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let mut el = image_from_data(data).label(i.label.clone());
+    el = apply_style(el, &i.style, theme, path, errors);
+    if let Some(intent) = &i.on_click {
+        el = el.on_click(Action::Intent(intent.clone()));
+    }
+    if let Some(id) = &i.id {
+        el = el.id(id);
+    }
+    el
+}
+
 fn image_node(
     i: &ImageNode,
     theme: &Theme,
@@ -1520,6 +1644,13 @@ fn image_node(
             format!("{path}/label"),
             "image requires a non-empty accessible label (alt text)".to_string(),
         ));
+    }
+    // Reuse a previously decoded copy of this exact payload if one is resident:
+    // no re-decode, no re-copy, and no budget charge (it shares the allocation
+    // already committed rather than adding a new one).
+    let key = image_cache_key(&i.png);
+    if let Some(data) = image_cache_get(key) {
+        return image_element(data, i, theme, path, errors);
     }
     if i.png.len() > MAX_IMAGE_B64_LEN {
         errors.push(DescribeError::new(
@@ -1585,19 +1716,13 @@ fn image_node(
         clippy::cast_possible_truncation,
         reason = "needed <= *budget (checked above), and budget is itself a usize"
     )]
-    {
-        *budget -= needed as usize;
-    }
+    let needed_bytes = needed as usize;
+    *budget -= needed_bytes;
     let pixels = img.to_rgba8().into_raw();
-    let mut el = image_rgba8(w, h, pixels).label(i.label.clone());
-    el = apply_style(el, &i.style, theme, path, errors);
-    if let Some(intent) = &i.on_click {
-        el = el.on_click(Action::Intent(intent.clone()));
-    }
-    if let Some(id) = &i.id {
-        el = el.id(id);
-    }
-    el
+    DECODE_COUNT.with(|n| n.set(n.get() + 1));
+    let data = image_payload(w, h, pixels);
+    image_cache_put(key, data.clone(), needed_bytes);
+    image_element(data, i, theme, path, errors)
 }
 
 // ── Toast helpers ─────────────────────────────────────────────────────────────
@@ -2665,5 +2790,39 @@ pub fn validate(json: &str) -> Result<(), Vec<DescribeError>> {
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    /// A 1×1 transparent PNG, base64-encoded — decodes to a 4-byte RGBA8 buffer.
+    const TINY_PNG_B64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+    fn decode_count() -> u64 {
+        DECODE_COUNT.with(Cell::get)
+    }
+
+    #[test]
+    fn same_image_decodes_once_then_reuses_the_cache() {
+        // Rebuilding the tree (as every frame / interaction step does) must not
+        // re-run the decode: the second and later builds reuse the cached blob.
+        clear_image_cache();
+        let before = decode_count();
+        let json = format!(
+            r#"{{"schema":"fenestra/1","root":{{"image":{{"png":"{TINY_PNG_B64}","label":"pixel"}}}}}}"#
+        );
+        let desc: Description = serde_json::from_str(&json).unwrap();
+        let theme = Theme::light();
+        for _ in 0..5 {
+            let (_, errs) = to_element_lenient(&desc, &theme);
+            assert!(errs.is_empty(), "{errs:?}");
+        }
+        assert_eq!(
+            decode_count() - before,
+            1,
+            "the same image must decode once, then reuse the cache on later builds"
+        );
     }
 }
