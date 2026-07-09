@@ -13,7 +13,7 @@ fn main() {
 
     for (mode, suffix) in [(Mode::Light, "light"), (Mode::Dark, "dark")] {
         let theme = Theme::from_accent(262.0, mode);
-        let controls = render_element(fenestra::kit::gallery_controls(&theme), &theme, (688, 900));
+        let controls = render_element(fenestra::kit::gallery_controls(&theme), &theme, (688, 1060));
         controls
             .save(out.join(format!("controls_{suffix}.png")))
             .expect("write controls");

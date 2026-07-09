@@ -2,13 +2,15 @@
 //! visual regression corpus, the headless `gallery` example, and README art.
 
 use fenestra_core::{
-    Element, FamilyRole, SP2, SP3, SP4, SP6, TextSize, Theme, Weight, col, div, divider, row, text,
+    Element, FamilyRole, SP2, SP3, SP4, SP6, TextSize, Theme, Weight, col, div, divider, oklch,
+    row, text,
 };
 
 use crate::{
-    ButtonVariant, ControlSize, Status, avatar, badge, button, callout, card, checkbox, icons, kbd,
-    kbd_raised, progress, radio, segmented, select, skeleton, skeleton_circle, skeleton_text,
-    slider, spinner, stat_card, status, switch, table, tabs, text_area, text_input, wavy_progress,
+    ButtonVariant, ControlSize, Status, avatar, badge, button, callout, card, checkbox,
+    color_picker, icons, kbd, kbd_raised, progress, radio, segmented, select, skeleton,
+    skeleton_circle, skeleton_text, slider, spinner, stat_card, status, switch, table, tabs,
+    text_area, text_input, wavy_progress,
 };
 
 fn section<Msg>(title: &str, content: Element<Msg>) -> Element<Msg> {
@@ -92,6 +94,17 @@ pub fn gallery_controls(theme: &Theme) -> Element<()> {
                     .width(280.0)
                     .min_height(64.0)
                     .id("ta-a"),
+            )]),
+        ),
+        section(
+            "COLOR PICKER",
+            col().items_start().children([Element::from(
+                color_picker(oklch(0.65, 0.15, 250.0))
+                    .label("Accent color")
+                    .pad_size(120.0)
+                    .on_change(|_| ())
+                    .on_text_change(|_, _| ())
+                    .id("cp-a"),
             )]),
         ),
     ])

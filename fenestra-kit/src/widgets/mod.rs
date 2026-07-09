@@ -4,6 +4,7 @@
 
 mod button;
 mod checkbox;
+mod color_picker;
 mod combobox;
 mod data_table;
 mod date_picker;
@@ -36,6 +37,9 @@ mod virtual_list;
 
 pub use button::{Button, ButtonVariant, IconButton, button, icon_button};
 pub use checkbox::{Checkbox, checkbox};
+pub use color_picker::{
+    ColorPicker, MAX_CHROMA, color_picker, format_color_text, parse_color_text,
+};
 pub use combobox::{Combobox, combobox};
 pub use data_table::{DataTable, data_table};
 pub use date_picker::{Date, DatePicker, date_picker, date_range_picker};
