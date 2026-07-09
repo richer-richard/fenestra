@@ -73,7 +73,7 @@ const HUE_STRIP_L: f32 = 0.72;
 const HUE_STRIP_C: f32 = 0.2;
 
 /// A nudge in chroma used to test whether an `(l, c, h)` point already sits
-/// at (or past) its own local sRGB gamut boundary: see [`is_gamut_mapped`].
+/// at (or past) its own local sRGB gamut boundary: see [`at_srgb_gamut_edge`].
 const GAMUT_PROBE: f32 = 0.02;
 
 // ─── hostile-input clamps (clamp-over-panic at the widget's API boundary) ──
@@ -121,12 +121,13 @@ fn sanitize_alpha(a: f32) -> f32 {
     }
 }
 
-/// True when `(l, c, h)` is sitting at (or past) its own local sRGB gamut
-/// boundary: nudging chroma up by [`GAMUT_PROBE`] and re-mapping through
-/// [`oklch`] fails to recover most of that nudge, meaning there is no
-/// headroom left at this lightness/hue. Used to flag the swatch honestly
-/// instead of silently showing a flattened color with no indication.
-fn is_gamut_mapped(l: f32, c: f32, h: f32) -> bool {
+/// True when `(l, c, h)` sits at its own local sRGB gamut boundary — the most
+/// saturated this hue and lightness can display: nudging chroma up by
+/// [`GAMUT_PROBE`] and re-mapping through [`oklch`] fails to recover most of
+/// that nudge, so there is no headroom left. The picker only ever holds a
+/// displayable `Color`, so this never means "the swatch is a substitute" — it
+/// means "you can't get more saturated here," which the badge says plainly.
+fn at_srgb_gamut_edge(l: f32, c: f32, h: f32) -> bool {
     if c <= 0.0 {
         return false;
     }
@@ -657,7 +658,7 @@ fn gamut_badge<Msg: 'static>() -> Element<Msg> {
         .h(14.0)
         .themed(|t: &Theme, s| s.color(t.warning.solid))
         .semantics(Semantics::Label)
-        .label("Out of gamut — showing the nearest displayable color")
+        .label("At the sRGB gamut edge — the most saturated this hue and lightness can display")
 }
 
 fn swatch_el<Msg: 'static>(size: f32, color: Color, disabled: bool) -> Element<Msg> {
@@ -823,7 +824,7 @@ impl<Msg: Clone + 'static> From<ColorPicker<Msg>> for Element<Msg> {
         let c = sanitize_chroma(raw_c);
         let h = sanitize_hue(raw_h);
         let a = sanitize_alpha(p.value.components[3]);
-        let gamut_mapped = is_gamut_mapped(l, c, h);
+        let at_gamut_edge = at_srgb_gamut_edge(l, c, h);
 
         let resolved = Resolved {
             l,
@@ -838,7 +839,7 @@ impl<Msg: Clone + 'static> From<ColorPicker<Msg>> for Element<Msg> {
         let m = p.size.metrics_at(p.density);
 
         let mut header_children = vec![swatch_el(m.height, resolved_color, p.disabled)];
-        if gamut_mapped {
+        if at_gamut_edge {
             let mut badge = gamut_badge();
             if p.disabled {
                 badge = badge.opacity(0.5);
@@ -913,13 +914,18 @@ mod tests {
     }
 
     #[test]
-    fn gamut_mapped_flags_extreme_points_only() {
-        // Near-white with strong chroma has essentially no headroom.
-        assert!(is_gamut_mapped(0.97, 0.3, 30.0));
+    fn gamut_edge_flags_boundary_colors_not_interior_ones() {
+        // A vivid sRGB primary sits *on* the gamut boundary: the badge fires,
+        // and (unlike the old wording) never claims the swatch was substituted
+        // — the picker only ever holds a displayable color.
+        let [l, c, h] = oklch_of(Color::from_rgba8(255, 0, 0, 255));
+        assert!(at_srgb_gamut_edge(l, c, h), "pure red is at the gamut edge");
+        // Near-white with strong chroma has essentially no headroom either.
+        assert!(at_srgb_gamut_edge(0.97, 0.3, 30.0));
         // A modest, well-inside-gamut color has plenty of headroom.
-        assert!(!is_gamut_mapped(0.5, 0.05, 200.0));
-        // Achromatic is trivially never gamut-mapped.
-        assert!(!is_gamut_mapped(0.5, 0.0, 0.0));
+        assert!(!at_srgb_gamut_edge(0.5, 0.05, 200.0));
+        // Achromatic is trivially never at the chroma edge.
+        assert!(!at_srgb_gamut_edge(0.5, 0.0, 0.0));
     }
 
     #[test]

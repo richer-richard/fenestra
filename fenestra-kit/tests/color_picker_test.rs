@@ -129,8 +129,8 @@ fn disabled_picker_has_no_focusable_channels() {
 }
 
 #[test]
-fn gamut_mapped_point_shows_the_warning_label() {
-    // Near-white with high chroma: well past the sRGB gamut edge at any hue.
+fn gamut_edge_point_shows_the_indicator_label() {
+    // Near-white with high chroma: sits on the sRGB gamut edge at any hue.
     let extreme = oklch(0.97, 0.35, 150.0);
     let view: Element<Msg> = col().children([color_picker(extreme).on_change(Msg::Changed)]);
     let theme = Theme::light();
@@ -143,9 +143,9 @@ fn gamut_mapped_point_shows_the_warning_label() {
         find(&tree, &|n| n
             .label
             .as_deref()
-            .is_some_and(|l| l.contains("Out of gamut")))
+            .is_some_and(|l| l.contains("gamut edge")))
         .is_some(),
-        "an extreme, gamut-limited point surfaces the out-of-gamut label"
+        "a point on the gamut edge surfaces the gamut-edge indicator label"
     );
 }
 
