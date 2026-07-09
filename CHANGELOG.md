@@ -95,6 +95,19 @@ kit gains an OKLCH color picker. Additive; every prior golden is byte-identical.
 
 ### Fixed
 
+- **Second-pass polish from the same code review (P2s + a convention).** The
+  color picker's amber badge no longer claims "Out of gamut — showing the
+  nearest displayable color" (the picker only ever holds a displayable color, so
+  nothing is substituted) — it now reads "At the sRGB gamut edge …", the honest
+  meaning. `date_picker` now rejects a day past its month's length (April 31,
+  Feb 30) with a path-pointed error instead of silently selecting nothing.
+  `image_node` decodes with `into_rgba8` (consuming) so the native and RGBA8
+  buffers aren't both resident — the transient peak stays near the committed
+  budget. `fenestra preview` detects changes by content hash (a same-length
+  rewrite within a coarse mtime tick is no longer missed) and its poll thread
+  now stops when the `PreviewApp` is dropped (no leak when embedded). The
+  color-picker gallery example seeds from `theme.accent` rather than a raw
+  `oklch()` literal (the kit's "colors only through theme tokens" rule).
 - **`fenestra-motion`: a 10-angle multi-agent review found and fixed 15 issues**
   before the crate's PR merged — none shipped. Two reproduced live before the
   fix: a hostile document (`start: u64::MAX`-class span) panicked with an
