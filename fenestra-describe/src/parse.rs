@@ -75,6 +75,27 @@ const MAX_IMAGE_B64_LEN: usize = 8 * 1024 * 1024;
 /// declares an enormous canvas) is rejected pre-decode, not after.
 const MAX_IMAGE_DIM: u32 = 8192;
 
+/// The largest *aggregate* decoded-RGBA byte count a single [`to_element`] /
+/// [`to_element_lenient`] call may spend across every `image` node in the
+/// document (not just one). The per-image dimension cap bounds each image
+/// individually (8192×8192×4 ≈ 256 MiB), but a document can nest arbitrarily
+/// many images —
+/// as children of one container, as `virtual_list` items, nested in
+/// `field`/`split_pane`/`tooltip`/`popover`/`dropdown_menu` content, and so
+/// on — and a solid-color PNG compresses to a few hundred KiB regardless of
+/// its declared canvas, so the *per-image* base64/dimension clamps alone do
+/// nothing to bound the sum. 384 MiB comfortably fits one full-size image
+/// (~256 MiB) plus headroom for a handful of smaller ones, while still
+/// refusing a document that strings together enough images to exhaust host
+/// memory. A `budget: &mut usize` threaded through every function that can
+/// reach an `image` node (see `node_to_element` and its recursive callers)
+/// starts at this value and is spent — via the `image` crate's own
+/// `Limits::max_alloc`, so a too-large decode is refused *before* allocating,
+/// not after — as each image commits; once exhausted, further images degrade
+/// to a spacer with a path-pointed error, exactly like any other per-image
+/// failure.
+pub const MAX_TOTAL_IMAGE_BYTES: usize = 384 * 1024 * 1024;
+
 /// Parses `desc` into an element, or the accumulated problems, against the
 /// description's own initial `state`. Strict: any problem makes this return `Err`.
 ///
@@ -130,27 +151,32 @@ pub fn to_element_lenient_with(
             ),
         ));
     }
-    let el = node_to_element(&desc.root, theme, state, "root", &mut errors);
+    let mut budget = MAX_TOTAL_IMAGE_BYTES;
+    let el = node_to_element(&desc.root, theme, state, "root", &mut budget, &mut errors);
     (el, errors)
 }
 
 /// Maps one node to an element, recursing into children. Always produces an
-/// element; soft problems append to `errors`.
+/// element; soft problems append to `errors`. `budget` is the remaining
+/// aggregate decoded-image byte allowance for this call (see
+/// [`MAX_TOTAL_IMAGE_BYTES`]) — threaded through every recursive path that
+/// can reach an `image` node, spent by `image_node`.
 fn node_to_element(
     node: &Node,
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     match node {
         // ── Layout containers ─────────────────────────────────────────────────
-        Node::Row(c) => container(row(), c, theme, state, path, errors),
-        Node::Col(c) => container(col(), c, theme, state, path, errors),
-        Node::Div(c) => container(div(), c, theme, state, path, errors),
-        Node::Stack(c) => container(stack(), c, theme, state, path, errors),
-        Node::Card(c) => container(card(), c, theme, state, path, errors),
-        Node::SplitPane(s) => split_pane_node(s, theme, state, path, errors),
+        Node::Row(c) => container(row(), c, theme, state, path, budget, errors),
+        Node::Col(c) => container(col(), c, theme, state, path, budget, errors),
+        Node::Div(c) => container(div(), c, theme, state, path, budget, errors),
+        Node::Stack(c) => container(stack(), c, theme, state, path, budget, errors),
+        Node::Card(c) => container(card(), c, theme, state, path, budget, errors),
+        Node::SplitPane(s) => split_pane_node(s, theme, state, path, budget, errors),
         // ── Text ──────────────────────────────────────────────────────────────
         Node::Text(t) => text_node(t, theme, path, errors),
         // ── Form controls ──────────────────────────────────────────────────────
@@ -302,7 +328,7 @@ fn node_to_element(
         }
         Node::Select(s) => select_node(s, state, path, errors),
         Node::SpinButton(s) => spin_button_node(s),
-        Node::Field(f) => field_node(f, theme, state, path, errors),
+        Node::Field(f) => field_node(f, theme, state, path, budget, errors),
         Node::Combobox(c) => combobox_node(c, state, path, errors),
         Node::MultiSelect(m) => multi_select_node(m, path, errors),
         Node::TagInput(t) => tag_input_node(t, path, errors),
@@ -314,7 +340,7 @@ fn node_to_element(
         Node::Breadcrumbs(b) => breadcrumbs_node(b),
         Node::Pagination(p) => pagination_node(p, state),
         Node::Stepper(s) => stepper_node(s, state),
-        Node::Toolbar(t) => toolbar_node(t, theme, state, path, errors),
+        Node::Toolbar(t) => toolbar_node(t, theme, state, path, budget, errors),
         Node::Menubar(m) => menubar_node(m),
         Node::Tree(t) => tree_view_node(t, path, errors),
         // ── Display / feedback ─────────────────────────────────────────────────
@@ -326,21 +352,21 @@ fn node_to_element(
         Node::Kbd(k) => kbd_node(k),
         Node::Progress(p) => progress_node(p),
         Node::Meter(m) => meter_node(m, state),
-        Node::Accordion(a) => accordion_node(a, theme, state, path, errors),
+        Node::Accordion(a) => accordion_node(a, theme, state, path, budget, errors),
         Node::Spinner(l) => leaf(spinner(), l, theme, path, errors),
         Node::Skeleton(k) => skeleton_node(k),
         Node::Icon(i) => icon_node(i, path, errors),
-        Node::Image(i) => image_node(i, theme, path, errors),
+        Node::Image(i) => image_node(i, theme, path, budget, errors),
         Node::Toast(t) => toast_stack_node(t, path, errors),
         // ── Data ──────────────────────────────────────────────────────────────
         Node::DataTable(d) => data_table_node(d, path, errors),
-        Node::VirtualList(v) => virtual_list_node(v, theme, state, path, errors),
+        Node::VirtualList(v) => virtual_list_node(v, theme, state, path, budget, errors),
         // ── Overlays ──────────────────────────────────────────────────────────
-        Node::Modal(m) => modal_node(m, theme, state, path, errors),
-        Node::Tooltip(t) => tooltip_node(t, theme, state, path, errors),
-        Node::Drawer(d) => drawer_node(d, theme, state, path, errors),
-        Node::Popover(p) => popover_node(p, theme, state, path, errors),
-        Node::DropdownMenu(d) => dropdown_menu_node(d, theme, state, path, errors),
+        Node::Modal(m) => modal_node(m, theme, state, path, budget, errors),
+        Node::Tooltip(t) => tooltip_node(t, theme, state, path, budget, errors),
+        Node::Drawer(d) => drawer_node(d, theme, state, path, budget, errors),
+        Node::Popover(p) => popover_node(p, theme, state, path, budget, errors),
+        Node::DropdownMenu(d) => dropdown_menu_node(d, theme, state, path, budget, errors),
         Node::CommandPalette(c) => command_palette_node(c, state, path, errors),
         // ── Decoration ────────────────────────────────────────────────────────
         Node::Divider(l) => leaf(divider(), l, theme, path, errors),
@@ -523,6 +549,7 @@ fn toolbar_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let mut w = toolbar();
@@ -533,7 +560,14 @@ fn toolbar_node(
         w = w.label(label.clone());
     }
     for (i, child) in t.children.iter().enumerate() {
-        let c = node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors);
+        let c = node_to_element(
+            child,
+            theme,
+            state,
+            &format!("{path}/children/{i}"),
+            budget,
+            errors,
+        );
         w = w.item(c);
     }
     let el: Element<Action> = w.into();
@@ -564,6 +598,7 @@ fn drawer_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let side = match d.side.as_str() {
@@ -590,7 +625,14 @@ fn drawer_node(
         w = w.on_close(Action::Intent(intent.clone()));
     }
     for (i, child) in d.children.iter().enumerate() {
-        let c = node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors);
+        let c = node_to_element(
+            child,
+            theme,
+            state,
+            &format!("{path}/children/{i}"),
+            budget,
+            errors,
+        );
         w = w.child(c);
     }
     let el: Element<Action> = w.into();
@@ -644,6 +686,7 @@ fn accordion_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let open = match &a.bind {
@@ -658,6 +701,7 @@ fn accordion_node(
             theme,
             state,
             &format!("{path}/items/{i}/body"),
+            budget,
             errors,
         );
         let mut it = accordion_item(item.title.clone(), body);
@@ -775,6 +819,7 @@ fn modal_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let children: Vec<Element<Action>> = m
@@ -782,7 +827,14 @@ fn modal_node(
         .iter()
         .enumerate()
         .map(|(i, child)| {
-            node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors)
+            node_to_element(
+                child,
+                theme,
+                state,
+                &format!("{path}/children/{i}"),
+                budget,
+                errors,
+            )
         })
         .collect();
     // Wrap all children into a single col for the modal body.
@@ -814,9 +866,17 @@ fn tooltip_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
-    let target_el = node_to_element(&t.target, theme, state, &format!("{path}/target"), errors);
+    let target_el = node_to_element(
+        &t.target,
+        theme,
+        state,
+        &format!("{path}/target"),
+        budget,
+        errors,
+    );
     let el: Element<Action> = tooltip(target_el, t.label.clone());
     if let Some(id) = &t.id { el.id(id) } else { el }
 }
@@ -826,10 +886,25 @@ fn popover_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
-    let trigger = node_to_element(&p.trigger, theme, state, &format!("{path}/trigger"), errors);
-    let content = node_to_element(&p.content, theme, state, &format!("{path}/content"), errors);
+    let trigger = node_to_element(
+        &p.trigger,
+        theme,
+        state,
+        &format!("{path}/trigger"),
+        budget,
+        errors,
+    );
+    let content = node_to_element(
+        &p.content,
+        theme,
+        state,
+        &format!("{path}/content"),
+        budget,
+        errors,
+    );
     let el = trigger.child(popover(content));
     if let Some(id) = &p.id { el.id(id) } else { el }
 }
@@ -839,9 +914,17 @@ fn dropdown_menu_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
-    let trigger = node_to_element(&d.trigger, theme, state, &format!("{path}/trigger"), errors);
+    let trigger = node_to_element(
+        &d.trigger,
+        theme,
+        state,
+        &format!("{path}/trigger"),
+        budget,
+        errors,
+    );
     if d.items.len() > MAX_LIST_ITEMS {
         errors.push(DescribeError::new(
             format!("{path}/items"),
@@ -919,9 +1002,17 @@ fn field_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
-    let control = node_to_element(&f.control, theme, state, &format!("{path}/control"), errors);
+    let control = node_to_element(
+        &f.control,
+        theme,
+        state,
+        &format!("{path}/control"),
+        budget,
+        errors,
+    );
     let mut w = field(f.label.clone()).child(control).required(f.required);
     if let Some(err) = &f.error {
         w = w.error(err.clone());
@@ -937,14 +1028,29 @@ fn split_pane_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let fraction = s
         .bind
         .as_ref()
         .map_or(s.fraction, |k| bound_number(state, k, s.fraction));
-    let first = node_to_element(&s.first, theme, state, &format!("{path}/first"), errors);
-    let second = node_to_element(&s.second, theme, state, &format!("{path}/second"), errors);
+    let first = node_to_element(
+        &s.first,
+        theme,
+        state,
+        &format!("{path}/first"),
+        budget,
+        errors,
+    );
+    let second = node_to_element(
+        &s.second,
+        theme,
+        state,
+        &format!("{path}/second"),
+        budget,
+        errors,
+    );
     let mut w = split_pane(fraction, first, second);
     if s.vertical {
         w = w.vertical();
@@ -1405,6 +1511,7 @@ fn image_node(
     i: &ImageNode,
     theme: &Theme,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     if i.label.trim().is_empty() {
@@ -1431,11 +1538,16 @@ fn image_node(
         }
     };
     // `Limits` is `#[non_exhaustive]`, so it cannot be struct-literal
-    // constructed here even with `..Default::default()` — set the two
-    // strict dimension caps on the default instance instead.
+    // constructed here even with `..Default::default()` — set the caps on
+    // the default instance instead. `max_alloc` is this *document's*
+    // remaining aggregate image budget (see `MAX_TOTAL_IMAGE_BYTES`), not
+    // just this image's own allowance: the `image` crate checks it against
+    // the *native* decoded size (`decoder.total_bytes()`) before allocating
+    // the native-format pixel buffer, refusing cleanly rather than OOMing.
     let mut limits = Limits::default();
     limits.max_image_width = Some(MAX_IMAGE_DIM);
     limits.max_image_height = Some(MAX_IMAGE_DIM);
+    limits.max_alloc = Some(*budget as u64);
     let mut reader = ImageReader::with_format(std::io::Cursor::new(bytes), ImageFormat::Png);
     reader.limits(limits);
     let img = match reader.decode() {
@@ -1449,6 +1561,32 @@ fn image_node(
         }
     };
     let (w, h) = (img.width(), img.height());
+    // The crate's own `max_alloc` check above only bounds the *native*-format
+    // decode, but every image here always gets converted to RGBA8 next —
+    // for a non-RGBA source that conversion allocates a *fresh, separate*
+    // buffer the crate's check never saw, and it can be larger than the
+    // native decode (e.g. a native grayscale image is 4x smaller than its
+    // RGBA8 form). Check the actual RGBA8 byte count this node is about to
+    // commit against the remaining budget ourselves before paying for it.
+    let needed = u64::from(w) * u64::from(h) * 4;
+    if needed > *budget as u64 {
+        errors.push(DescribeError::new(
+            format!("{path}/png"),
+            format!(
+                "image needs {needed} decoded bytes, exceeding the {budget} bytes remaining in \
+                 this document's aggregate image budget ({MAX_TOTAL_IMAGE_BYTES} total); \
+                 degrading to an empty spacer"
+            ),
+        ));
+        return apply_style(spacer(), &i.style, theme, path, errors);
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "needed <= *budget (checked above), and budget is itself a usize"
+    )]
+    {
+        *budget -= needed as usize;
+    }
     let pixels = img.to_rgba8().into_raw();
     let mut el = image_rgba8(w, h, pixels).label(i.label.clone());
     el = apply_style(el, &i.style, theme, path, errors);
@@ -1587,6 +1725,7 @@ fn virtual_list_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     if v.items.len() > MAX_LIST_ITEMS {
@@ -1605,9 +1744,19 @@ fn virtual_list_node(
     // view, since `Element` is not `Clone` and the closure must outlive this
     // function. That rebuild is real, ordinary node parsing — never a code
     // closure supplied by the author — so it carries the same "never
-    // executable" guarantee as every other child in the tree.
+    // executable" guarantee as every other child in the tree. This eager
+    // pass shares the *caller's* `budget`, so a `virtual_list` of many
+    // large images is bounded by the same aggregate cap as everything else
+    // in the document, not decoded unconditionally regardless of size.
     for (i, item) in items.iter().enumerate() {
-        let _ = node_to_element(item, theme, state, &format!("{path}/items/{i}"), errors);
+        let _ = node_to_element(
+            item,
+            theme,
+            state,
+            &format!("{path}/items/{i}"),
+            budget,
+            errors,
+        );
     }
     let row_height = if v.row_height.is_finite() && v.row_height > 0.0 {
         v.row_height
@@ -1626,12 +1775,20 @@ fn virtual_list_node(
     let state = state.clone();
     let count = items.len();
     let el = virtual_list(count, row_height, move |i| {
+        // A fresh scratch budget per row-render: only viewport-bounded rows
+        // ever materialize at once here (unlike the eager pass above), so
+        // the per-image clamps (`MAX_IMAGE_DIM`, `MAX_IMAGE_B64_LEN`) still
+        // apply to each row individually, but the *aggregate* budget is
+        // scoped to this one row's rebuild rather than shared across the
+        // whole (never-simultaneously-materialized) list.
         let mut scratch = Vec::new();
+        let mut row_budget = MAX_TOTAL_IMAGE_BYTES;
         node_to_element(
             &items[i],
             &theme,
             &state,
             "virtual_list/items",
+            &mut row_budget,
             &mut scratch,
         )
     });
@@ -1794,6 +1951,7 @@ fn container(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let mut el = apply_style(base, &c.style, theme, path, errors);
@@ -1808,7 +1966,14 @@ fn container(
         .iter()
         .enumerate()
         .map(|(i, child)| {
-            node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors)
+            node_to_element(
+                child,
+                theme,
+                state,
+                &format!("{path}/children/{i}"),
+                budget,
+                errors,
+            )
         })
         .collect();
     el.children(children)
