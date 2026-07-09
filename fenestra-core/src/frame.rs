@@ -1378,6 +1378,25 @@ fn apply_flip(
     }
 }
 
+thread_local! {
+    /// Bumped once per [`build_frame`] to the frame's number. See [`frame_epoch`].
+    static FRAME_EPOCH: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// The current frame-build epoch: the number of the frame [`build_frame`] is
+/// currently (or most recently) laying out. It is bumped once per frame,
+/// *before* the tree is walked — so the lazy row builder of a virtualized
+/// container ([`Element::virtual_rows`]), which runs during the walk, can key a
+/// per-frame scratch budget off it: work a row does on materialization (e.g.
+/// decoding an image) is then bounded once per frame across all the rows the
+/// window covers, instead of resetting per row (which lets a tiny `row_height`
+/// collapse the window onto every row, each with a full, independent budget).
+/// Returns 0 before the first frame has been built.
+#[must_use]
+pub fn frame_epoch() -> u64 {
+    FRAME_EPOCH.with(std::cell::Cell::get)
+}
+
 /// Lays out an element tree into a [`Frame`] at the given logical size and
 /// DPI scale. A root with `Auto` width/height is stretched to the canvas.
 pub fn build_frame<Msg>(
@@ -1396,6 +1415,7 @@ pub fn build_frame<Msg>(
     state.exiting.retain(|_, r| !r.settled);
     let mut tree: TaffyTree<MeasureCtx> = TaffyTree::new();
     state.frame_no += 1;
+    FRAME_EPOCH.with(|e| e.set(state.frame_no));
     let mut transitions_running = false;
     let mut path = Vec::new();
     let mut pending = Vec::new();

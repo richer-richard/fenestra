@@ -48,7 +48,7 @@ pub use element::{
     row, spacer, span, stack, text,
 };
 pub use events::{Dispatch, InputEvent, Key, KeyInput, click_msg_of, dispatch, refresh_hover};
-pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene};
+pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene, frame_epoch};
 pub use frame_state::FrameState;
 pub use i18n::{Catalog, Locale};
 pub use id::WidgetId;

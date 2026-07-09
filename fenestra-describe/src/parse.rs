@@ -11,12 +11,13 @@
 //! resolve, or an alignment word it does not know, degrades to a default and
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
+use std::cell::Cell;
 use std::rc::Rc;
 
 use fenestra_core::{
     AdaptiveTint, Color, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat,
     ShadowToken, Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight,
-    col, div, divider, image_rgba8, linear_gradient, row, spacer, stack, text,
+    col, div, divider, frame_epoch, image_rgba8, linear_gradient, row, spacer, stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, TreeNode as KitTreeNode, accordion, accordion_item, avatar,
@@ -1774,23 +1775,38 @@ fn virtual_list_node(
     let theme = theme.clone();
     let state = state.clone();
     let count = items.len();
+    // One image-decode budget shared across every row the window materializes
+    // in a single frame, reset each frame (keyed by `frame_epoch`). A per-row
+    // reset was unsound: the virtual window is *not* bounded by a viewport-full
+    // of rows — a tiny `row_height` collapses it onto every item at once
+    // (`frame::virtual_window` has no `row_height` floor), and `expand_virtual`
+    // materializes the whole window into one `Vec` in a single build. So a
+    // per-row full budget let a `virtual_list` of large images decode the whole
+    // list simultaneously on the paint path, defeating the aggregate cap. With
+    // a shared per-frame budget, once it is spent the remaining rows' images are
+    // refused *before* allocation (their `Limits::max_alloc` is near zero, so
+    // the decode fails fast) and degrade to spacers — bounding both peak memory
+    // and per-frame decode work regardless of how many rows the window covers.
+    let frame_budget = Rc::new(Cell::new((u64::MAX, 0usize)));
     let el = virtual_list(count, row_height, move |i| {
-        // A fresh scratch budget per row-render: only viewport-bounded rows
-        // ever materialize at once here (unlike the eager pass above), so
-        // the per-image clamps (`MAX_IMAGE_DIM`, `MAX_IMAGE_B64_LEN`) still
-        // apply to each row individually, but the *aggregate* budget is
-        // scoped to this one row's rebuild rather than shared across the
-        // whole (never-simultaneously-materialized) list.
+        let epoch = frame_epoch();
+        let (seen, remaining) = frame_budget.get();
+        let mut budget = if seen == epoch {
+            remaining
+        } else {
+            MAX_TOTAL_IMAGE_BYTES
+        };
         let mut scratch = Vec::new();
-        let mut row_budget = MAX_TOTAL_IMAGE_BYTES;
-        node_to_element(
+        let el = node_to_element(
             &items[i],
             &theme,
             &state,
             "virtual_list/items",
-            &mut row_budget,
+            &mut budget,
             &mut scratch,
-        )
+        );
+        frame_budget.set((epoch, budget));
+        el
     });
     if let Some(id) = &v.id { el.id(id) } else { el }
 }

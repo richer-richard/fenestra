@@ -20,6 +20,7 @@
 //! is in place) — nowhere near the unbounded multi-gigabyte case the bug
 //! allowed.
 
+use fenestra_core::{Fonts, FrameState, Theme, build_frame};
 use fenestra_describe::format::Description;
 use fenestra_describe::parse::{MAX_TOTAL_IMAGE_BYTES, to_element, to_element_lenient, validate};
 use image::ImageEncoder;
@@ -30,7 +31,15 @@ use image::ImageEncoder;
 /// clamp test, which fails for an unrelated reason — a missing IDAT chunk —
 /// before it would ever reach an allocation-budget check).
 fn solid_png(side: u32) -> Vec<u8> {
-    let raw = vec![0u8; (side as usize) * (side as usize) * 4];
+    solid_png_filled(side, 0)
+}
+
+/// Like [`solid_png`] but every byte is `fill`, so different `fill`s produce
+/// distinct (still tiny, still fully-decodable) payloads — used to build
+/// several *different* full-size images whose decodes can't be deduplicated by
+/// a content cache, so the aggregate budget itself is what must bound them.
+fn solid_png_filled(side: u32, fill: u8) -> Vec<u8> {
+    let raw = vec![fill; (side as usize) * (side as usize) * 4];
     let mut buf = Vec::new();
     image::codecs::png::PngEncoder::new(&mut buf)
         .write_image(&raw, side, side, image::ExtendedColorType::Rgba8)
@@ -157,6 +166,56 @@ fn virtual_list_of_large_images_is_bounded() {
     assert!(!errs.iter().any(|e| e.path.contains("items/0")), "{errs:?}");
     assert!(is_budget_error("items/1"), "{errs:?}");
     assert!(is_budget_error("items/2"), "{errs:?}");
+}
+
+#[test]
+fn virtual_list_render_path_bounds_aggregate_decode() {
+    // The tests above exercise the eager parse-time validation pass. The rows a
+    // user actually sees are built lazily by `virtual_list`'s render closure,
+    // inside `build_frame` — the path none of the above touch. A tiny
+    // `row_height` collapses the virtual window onto *every* row at once, so
+    // without one image-decode budget shared across a frame's rows (each row
+    // otherwise reset to the full document cap), the aggregate DoS reopens on
+    // the paint path. Render it and assert only budget-worth of full-size
+    // images materialize; the rest degrade to spacers (their labels disappear).
+    // Three *distinct* full-size images (~256 MiB decoded each): distinctness
+    // matters, so a content cache can't collapse them into one shared decode —
+    // the per-frame budget itself is what has to stop the aggregate.
+    let p0 = base64_encode(&solid_png_filled(8192, 0));
+    let p1 = base64_encode(&solid_png_filled(8192, 1));
+    let p2 = base64_encode(&solid_png_filled(8192, 2));
+    let json = format!(
+        r#"{{"schema":"fenestra/1","root":{{"virtual_list":{{"row_height":1,"items":[
+            {{"image":{{"png":"{p0}","label":"IMGZERO"}}}},
+            {{"image":{{"png":"{p1}","label":"IMGONE"}}}},
+            {{"image":{{"png":"{p2}","label":"IMGTWO"}}}}
+        ]}}}}}}"#
+    );
+    let desc: Description = serde_json::from_str(&json).unwrap();
+    let (el, _) = to_element_lenient(&desc, &Theme::light());
+    let mut fonts = Fonts::embedded();
+    let mut state = FrameState::new();
+    // A 480px-tall viewport over 1px rows virtualizes all three rows into view.
+    let frame = build_frame(
+        &el,
+        &Theme::light(),
+        &mut fonts,
+        &mut state,
+        (640.0, 480.0),
+        1.0,
+    );
+    let yaml = frame.access_yaml();
+    let materialized = ["IMGZERO", "IMGONE", "IMGTWO"]
+        .iter()
+        .filter(|label| yaml.contains(**label))
+        .count();
+    // 384 MiB budget / ~256 MiB per full-size image → exactly one fits per
+    // frame; if two or three materialize, the per-row budget reset bug is back.
+    assert!(
+        materialized <= 1,
+        "virtual_list render path must bound aggregate image decode to the \
+         per-frame budget; {materialized} of 3 full-size images materialized"
+    );
 }
 
 #[test]
