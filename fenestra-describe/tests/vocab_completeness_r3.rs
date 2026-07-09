@@ -2,7 +2,8 @@
 //! plus the thirteen kit widgets that completed the fenestra/1 grammar
 //! (`field`, `split_pane`, `combobox`, `multi_select`, `tag_input`,
 //! `date_picker`, `tree`, `toast`, `data_table`, `virtual_list`, `popover`,
-//! `dropdown_menu`, `command_palette`). Each widget gets a parse test, a
+//! `dropdown_menu`, `command_palette`), plus the `color_picker` follow-up
+//! added once the kit shipped that widget. Each widget gets a parse test, a
 //! structural assertion (an access-tree role or label), and — where the node
 //! carries a hostile-input clamp — a negative test proving the clamp fires
 //! instead of panicking.
@@ -616,5 +617,95 @@ fn image_rejects_unknown_field() {
 #[test]
 fn data_table_rejects_unknown_field() {
     let json = r#"{"schema":"fenestra/1","root":{"data_table":{"columns":[],"rows":[],"resize_active":0}}}"#;
+    assert!(serde_json::from_str::<Description>(json).is_err());
+}
+
+// ── color_picker (follow-up: fenestra_kit::color_picker landed after R3) ──────
+
+#[test]
+fn color_picker_renders_swatch_and_label() {
+    let json = r##"{"schema":"fenestra/1","root":{"color_picker":{"value":"#3b82f6","label":"Accent color"}}}"##;
+    let el = build(json);
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("image"), "yaml: {yaml}");
+    assert!(yaml.contains("Current color #3b82f6"), "yaml: {yaml}");
+    assert!(yaml.contains("Accent color"), "yaml: {yaml}");
+    // The hue/alpha thumbs are keyboard-accessible sliders.
+    assert!(
+        yaml.contains("Hue") && yaml.contains("Alpha"),
+        "yaml: {yaml}"
+    );
+}
+
+#[test]
+fn color_picker_defaults_to_neutral_gray_and_default_label() {
+    let el = build(r#"{"schema":"fenestra/1","root":{"color_picker":{}}}"#);
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("Current color #808080"), "yaml: {yaml}");
+    assert!(yaml.contains("\"Color\""), "yaml: {yaml}");
+}
+
+#[test]
+fn color_picker_accepts_oklch_text() {
+    let json = r#"{"schema":"fenestra/1","root":{"color_picker":{"value":"oklch(0.7 0.15 250)"}}}"#;
+    assert!(validate(json).is_ok());
+    let _ = build(json);
+}
+
+#[test]
+fn color_picker_bind_reads_state_value() {
+    let json = r##"{"schema":"fenestra/1","state":{"accent":"#ff0000"},"root":{"color_picker":{"bind":"accent"}}}"##;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    let el = to_element(&desc, &Theme::light()).expect("parses and builds");
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("Current color #ff0000"), "yaml: {yaml}");
+}
+
+#[test]
+fn color_picker_invalid_value_falls_back_and_records_error() {
+    let json = r#"{"schema":"fenestra/1","root":{"color_picker":{"value":"not a color"}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    let (el, errs) = to_element_lenient(&desc, &Theme::light());
+    assert!(errs.iter().any(|e| e.path.contains("value")), "{errs:?}");
+    // Degrades to the documented neutral-gray fallback rather than panicking.
+    let yaml = light_yaml(&el);
+    assert!(yaml.contains("Current color #808080"), "yaml: {yaml}");
+}
+
+#[test]
+fn color_picker_disabled_builds() {
+    let json =
+        r##"{"schema":"fenestra/1","root":{"color_picker":{"value":"#00ff00","disabled":true}}}"##;
+    let el = build(json);
+    let _ = light_yaml(&el);
+}
+
+#[test]
+fn color_picker_oversized_pad_size_is_clamped_by_the_widget_not_an_error() {
+    // The kit widget itself clamps `pad_size` to 80.0..=480.0; describe does
+    // not duplicate that clamp (see the `ColorPickerNode` doc comment), so
+    // this must build without recording an error.
+    let json = r#"{"schema":"fenestra/1","root":{"color_picker":{"pad_size":10000.0}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    let (_, errs) = to_element_lenient(&desc, &Theme::light());
+    assert!(errs.is_empty(), "{errs:?}");
+}
+
+#[test]
+fn color_picker_non_finite_pad_size_records_error() {
+    // `1e39` is a valid, finite `f64` (`f64::MAX` is ~1.8e308) but overflows
+    // `f32::MAX` (~3.4e38), so it saturates to `f32::INFINITY` when narrowed
+    // — a legitimate non-finite value can reach the parser this way even
+    // though JSON syntax itself disallows bare `NaN`/`Infinity` tokens.
+    let json = r#"{"schema":"fenestra/1","root":{"color_picker":{"pad_size":1e39}}}"#;
+    let desc: Description = serde_json::from_str(json).unwrap();
+    let (_, errs) = to_element_lenient(&desc, &Theme::light());
+    assert!(errs.iter().any(|e| e.path.contains("pad_size")), "{errs:?}");
+}
+
+#[test]
+fn color_picker_rejects_unknown_field() {
+    let json =
+        r##"{"schema":"fenestra/1","root":{"color_picker":{"value":"#000000","opacity":0.5}}}"##;
     assert!(serde_json::from_str::<Description>(json).is_err());
 }

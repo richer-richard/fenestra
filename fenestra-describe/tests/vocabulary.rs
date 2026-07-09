@@ -68,6 +68,7 @@ fn vocabulary_covers_every_node_variant() {
         "multi_select",
         "tag_input",
         "date_picker",
+        "color_picker",
         // Navigation
         "tabs",
         "segmented",
@@ -140,6 +141,7 @@ fn tag_of(n: &Node) -> &'static str {
         Node::MultiSelect(_) => "multi_select",
         Node::TagInput(_) => "tag_input",
         Node::DatePicker(_) => "date_picker",
+        Node::ColorPicker(_) => "color_picker",
         // Navigation
         Node::Tabs(_) => "tabs",
         Node::Segmented(_) => "segmented",

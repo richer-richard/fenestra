@@ -151,6 +151,11 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Month calendar. Single-date by default; `range:true` switches to start/end selection. Drops the kit's WAI-ARIA keyboard grid navigation (`on_focus`/`focused_day`).",
         r#"{"year":2026,"month":6}"#,
     ),
+    (
+        "color_picker",
+        "OKLCH color picker: lightness×chroma pad, hue/alpha strips, a swatch, and a hex/`oklch()` text entry. `value` is hex or `oklch()` text; `bind` a root `state` text key for the committed hex value.",
+        r##"{"value":"#3b82f6","label":"Accent color"}"##,
+    ),
     // ── Navigation ────────────────────────────────────────────────────────
     (
         "tabs",

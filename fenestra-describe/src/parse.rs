@@ -14,32 +14,33 @@
 use std::rc::Rc;
 
 use fenestra_core::{
-    AdaptiveTint, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat, ShadowToken,
-    Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight, col, div,
-    divider, image_rgba8, linear_gradient, row, spacer, stack, text,
+    AdaptiveTint, Color, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat,
+    ShadowToken, Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight,
+    col, div, divider, image_rgba8, linear_gradient, row, spacer, stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, TreeNode as KitTreeNode, accordion, accordion_item, avatar,
-    badge, breadcrumbs, button, callout, card, checkbox, combobox, command_palette, crumb,
-    data_table, date_picker, date_range_picker, drawer, dropdown_menu, field, kbd, kbd_raised,
-    menubar, meter, modal, multi_select, pagination, popover, progress, progress_indeterminate,
-    radio, segmented, select, skeleton, skeleton_circle, skeleton_text, slider, spin_button,
-    spinner, split_pane, stat_card, status as kit_status, stepper, switch, tabs, tag_input,
-    text_area, text_input, toast_stack, toolbar, tooltip, tree_view, virtual_list,
+    badge, breadcrumbs, button, callout, card, checkbox, color_picker, combobox, command_palette,
+    crumb, data_table, date_picker, date_range_picker, drawer, dropdown_menu, field,
+    format_color_text, kbd, kbd_raised, menubar, meter, modal, multi_select, pagination,
+    parse_color_text, popover, progress, progress_indeterminate, radio, segmented, select,
+    skeleton, skeleton_circle, skeleton_text, slider, spin_button, spinner, split_pane, stat_card,
+    status as kit_status, stepper, switch, tabs, tag_input, text_area, text_input, toast_stack,
+    toolbar, tooltip, tree_view, virtual_list,
 };
 use image::{ImageFormat, ImageReader, Limits};
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
-    AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, ComboboxNode,
-    CommandPaletteNode, Container, DataTableNode, DatePickerNode, DateSpec, Description,
-    DrawerNode, DropdownMenuNode, EdgeSpec, FieldNode, FilterSpec, IconNode, ImageNode, InputNode,
-    KbdNode, Leaf, MenubarNode, MeterNode, ModalNode, MultiSelectNode, Node, PaginationNode,
-    PopoverNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1, SegmentedNode, SelectNode,
-    SheenSpec, SkeletonNode, SpinButtonNode, SplitPaneNode, StatCardNode, StatusNode, StepperNode,
-    Style, TabsNode, TagInputNode, TextNode, ToastStackNode, ToolbarNode, TooltipNode, TrackSpec,
-    TreeItemDto, TreeViewNode, VirtualListNode,
+    AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode,
+    ColorPickerNode, ComboboxNode, CommandPaletteNode, Container, DataTableNode, DatePickerNode,
+    DateSpec, Description, DrawerNode, DropdownMenuNode, EdgeSpec, FieldNode, FilterSpec, IconNode,
+    ImageNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode, ModalNode, MultiSelectNode, Node,
+    PaginationNode, PopoverNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1, SegmentedNode,
+    SelectNode, SheenSpec, SkeletonNode, SpinButtonNode, SplitPaneNode, StatCardNode, StatusNode,
+    StepperNode, Style, TabsNode, TagInputNode, TextNode, ToastStackNode, ToolbarNode, TooltipNode,
+    TrackSpec, TreeItemDto, TreeViewNode, VirtualListNode,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -306,6 +307,7 @@ fn node_to_element(
         Node::MultiSelect(m) => multi_select_node(m, path, errors),
         Node::TagInput(t) => tag_input_node(t, path, errors),
         Node::DatePicker(d) => date_picker_node(d, path, errors),
+        Node::ColorPicker(c) => color_picker_node(c, state, path, errors),
         // ── Navigation ────────────────────────────────────────────────────────
         Node::Tabs(t) => tabs_node(t, state),
         Node::Segmented(s) => segmented_node(s, state),
@@ -1167,6 +1169,79 @@ fn date_picker_node(
     }
     let el: Element<Action> = w.into();
     if let Some(id) = &d.id { el.id(id) } else { el }
+}
+
+/// sRGB middle gray (`#808080`) a `color_picker` falls back to when its
+/// `value` (or the bound state text overriding it) fails to parse — plain
+/// sRGB rather than an OKLCH construction, since OKLCH lightness is
+/// perceptual (`oklch(0.5, 0, 0)` renders as `#636363`, not `#808080`) and
+/// the documented fallback is specifically the hex `#808080`.
+fn fallback_picker_color() -> Color {
+    Color::from_rgba8(0x80, 0x80, 0x80, 0xFF)
+}
+
+fn color_picker_node(
+    c: &ColorPickerNode,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let text = c
+        .bind
+        .as_ref()
+        .map_or_else(|| c.value.clone(), |k| bound_text(state, k, &c.value));
+    let color = parse_color_text(&text).unwrap_or_else(|| {
+        errors.push(DescribeError::new(
+            format!("{path}/value"),
+            format!("{text:?} is not a valid hex or oklch() color; falling back to #808080"),
+        ));
+        fallback_picker_color()
+    });
+    let mut w = color_picker(color);
+    if let Some(label) = &c.label {
+        w = w.label(label.clone());
+    }
+    w = w.disabled(c.disabled);
+    if let Some(side) = c.pad_size {
+        if side.is_finite() {
+            w = w.pad_size(side);
+        } else {
+            errors.push(DescribeError::new(
+                format!("{path}/pad_size"),
+                format!("pad_size must be a finite number; got {side}"),
+            ));
+        }
+    }
+    // `bind` takes priority: both the pad/hue/alpha gestures and a text edit
+    // that currently parses commit the formatted hex back to the same key —
+    // an edit that doesn't yet parse leaves it alone (see the node's doc
+    // comment for why there is only one state slot, not a separate draft).
+    match &c.bind {
+        Some(key) => {
+            let key_change = key.clone();
+            w = w.on_change(move |color| {
+                Action::SetText(key_change.clone(), format_color_text(color))
+            });
+            let key_text = key.clone();
+            w = w.on_text_change(move |_, parsed| match parsed {
+                Some(color) => Action::SetText(key_text.clone(), format_color_text(color)),
+                None => Action::Intent(String::new()),
+            });
+        }
+        None => {
+            if let Some(intent) = &c.on_change {
+                let intent_change = intent.clone();
+                w = w.on_change(move |_| Action::Intent(intent_change.clone()));
+                let intent_text = intent.clone();
+                w = w.on_text_change(move |_, _| Action::Intent(intent_text.clone()));
+            }
+        }
+    }
+    if let Some(key) = &c.id {
+        w = w.id(key);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &c.id { el.id(id) } else { el }
 }
 
 // ── Tree helpers ──────────────────────────────────────────────────────────────

@@ -111,6 +111,10 @@ pub enum Node {
     /// A month calendar. Single-date by default; `range:true` switches to
     /// start/end range selection.
     DatePicker(DatePickerNode),
+    /// An OKLCH color picker: a lightness×chroma pad, hue/alpha strips, a
+    /// swatch, and a hex/`oklch()` text entry. `bind` a root `state` text key
+    /// for the committed hex value.
+    ColorPicker(ColorPickerNode),
     // ── Navigation ────────────────────────────────────────────────────────
     /// An underline tab strip. `bind` a root `state` number key for the active index.
     Tabs(TabsNode),
@@ -1519,6 +1523,58 @@ pub struct DatePickerNode {
     /// Reserved fallback trace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
+}
+
+/// An OKLCH color picker: a lightness×chroma pad, hue/alpha strips, a
+/// swatch, and a hex/`oklch()` text entry. `value` is a hex (`#rrggbb`/
+/// `#rrggbbaa`) or CSS `oklch(l c h[ / a])` string, parsed with the kit's own
+/// `parse_color_text`; an unparseable `value` (or the bound state text
+/// overriding it) degrades to sRGB middle gray (`#808080`) and records a
+/// path-pointed error — never a panic. `bind` a
+/// root `state` text key: every pad/hue/alpha gesture, and every text edit
+/// that currently parses, commits the formatted hex back to it; an edit
+/// that doesn't yet parse (mid-keystroke) leaves the bound value alone,
+/// mirroring the kit widget's own "don't destroy the last good color on an
+/// invalid keystroke" contract. The kit widget also supports a *separate*
+/// in-progress text buffer (`ColorPicker::text`, for showing invalid
+/// partial input while the confirmed `value` stays unchanged) — that has no
+/// JSON projection here: describe has one state slot per `bind`, not two,
+/// so an invalid keystroke is simply not committed rather than shown.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ColorPickerNode {
+    /// Current color as hex or `oklch()` text.
+    #[serde(default = "default_color_picker_value")]
+    pub value: String,
+    /// Bind to a `state` text key (see the struct docs for the commit rule).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Accessible label (default `"Color"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Disables every control (pad, strips, entry field) and dims the widget.
+    #[serde(default)]
+    pub disabled: bool,
+    /// The 2D pad's side length in logical px (200 by default); the widget
+    /// itself clamps this to `80.0..=480.0`, so no separate clamp is needed here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad_size: Option<f32>,
+    /// Intent emitted on any gesture or valid text edit (ignored when `bind`
+    /// is set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// Default `value` for a `color_picker` when omitted: a neutral mid-gray —
+/// the same fallback an unparseable `value` degrades to (serde `default` attribute).
+pub fn default_color_picker_value() -> String {
+    "#808080".to_string()
 }
 
 /// One item of a [`TreeViewNode`]: a stable `id`, visible `label`, and nested
