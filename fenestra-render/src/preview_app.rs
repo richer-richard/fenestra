@@ -1,6 +1,6 @@
 //! `PreviewApp`: a live-reload wrapper around a `fenestra/1` description file.
 //! `fenestra preview <file>` opens this in a window; a background thread polls
-//! the file's (mtime, len) every ~200ms and nudges a reload through the
+//! the file's content signature every ~200ms and nudges a reload through the
 //! [`Proxy`] the runner hands to [`App::init`]. A parse failure never crashes
 //! or blanks the window: the last description that parsed cleanly keeps
 //! rendering, with a themed error callout (path-pointed, from
@@ -11,7 +11,7 @@
 //! and a removed one is dropped (see [`merge_state`]).
 //!
 //! The reload/merge logic below (`reload_from_str`, [`merge_state`],
-//! `file_meta`) is plain data in, data out, and is exercised headlessly in
+//! `file_signature`) is plain data in, data out, and is exercised headlessly in
 //! this module's tests. The windowed run itself
 //! (`fenestra_shell::run_app` driving this as an `App`) is NOT covered by
 //! CI — it opens a real OS window and needs a display the test runner
@@ -19,7 +19,9 @@
 
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, SystemTime};
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
 
 use fenestra_core::{App, Element, Proxy, SP3, Theme, col};
 use fenestra_describe::error::DescribeError;
@@ -38,7 +40,7 @@ const POLL_INTERVAL: Duration = Duration::from_millis(200);
 pub enum PreviewMsg {
     /// Forwarded from a widget handler in the current view.
     Action(Action),
-    /// The poll thread saw the file's (mtime, len) change; re-read and re-parse it.
+    /// The poll thread saw the file's content change; re-read and re-parse it.
     Reload,
 }
 
@@ -53,6 +55,9 @@ pub struct PreviewApp {
     /// Problems from the most recent reload attempt; empty means `desc` is
     /// exactly what's on disk right now.
     errors: Vec<DescribeError>,
+    /// Set on drop to stop the background poll thread — so a host that opens and
+    /// closes a preview without exiting the process doesn't leak the thread.
+    stop: Arc<AtomicBool>,
 }
 
 impl PreviewApp {
@@ -68,6 +73,7 @@ impl PreviewApp {
             desc: fallback_description(),
             state: StateMap::new(),
             errors: Vec::new(),
+            stop: Arc::new(AtomicBool::new(false)),
         };
         app.reload();
         app
@@ -144,12 +150,21 @@ impl PreviewApp {
     }
 }
 
+impl Drop for PreviewApp {
+    fn drop(&mut self) {
+        // Signal the poll thread to stop; it observes this within one poll
+        // interval and returns, so dropping a preview reclaims its thread.
+        self.stop.store(true, Ordering::Relaxed);
+    }
+}
+
 impl App for PreviewApp {
     type Msg = PreviewMsg;
 
     fn init(&mut self, proxy: Proxy<Self::Msg>) {
         let path = self.path.clone();
-        std::thread::spawn(move || poll_for_changes(&path, &proxy));
+        let stop = Arc::clone(&self.stop);
+        std::thread::spawn(move || poll_for_changes(&path, &proxy, &stop));
     }
 
     fn update(&mut self, msg: PreviewMsg) {
@@ -222,22 +237,34 @@ fn fallback_description() -> Description {
         .expect("the fallback description is valid fenestra/1 JSON")
 }
 
-/// Stats `path`, returning `(modified time, length)` — cheap enough to poll.
-fn file_meta(path: &Path) -> io::Result<(SystemTime, u64)> {
-    let meta = std::fs::metadata(path)?;
-    Ok((meta.modified()?, meta.len()))
+/// Hashes `path`'s bytes into a change signature. Content-based rather than
+/// `(mtime, len)` so a same-length rewrite that lands within the filesystem's
+/// mtime resolution — a common "I saved and nothing happened" case on coarse
+/// (1s) timestamps — still registers as a change. `None` when the file can't be
+/// read (e.g. mid-save or renamed), which itself differs from a good read and
+/// so still drives a reload.
+fn file_signature(path: &Path) -> io::Result<u64> {
+    use std::hash::{Hash, Hasher};
+    let bytes = std::fs::read(path)?;
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut hasher);
+    Ok(hasher.finish())
 }
 
 /// Polls `path` every [`POLL_INTERVAL`] and sends [`PreviewMsg::Reload`]
-/// whenever its (mtime, len) changes. Runs for the life of the process: once
-/// the window closes, `main` returns and the process exit takes this thread
-/// down with it, so there's no shutdown signal to plumb through — sending on
-/// a dead `Proxy` after that point is a documented no-op anyway.
-fn poll_for_changes(path: &Path, proxy: &Proxy<PreviewMsg>) {
-    let mut last = file_meta(path).ok();
-    loop {
+/// whenever its content signature changes. Returns once `stop` is set — the
+/// owning [`PreviewApp`] was dropped — so an embedding host that opens and
+/// closes previews doesn't leak a thread per preview. (The `fenestra preview`
+/// CLI never sets it: the process exit takes the thread down, and sending on a
+/// dead `Proxy` after that is a documented no-op.)
+fn poll_for_changes(path: &Path, proxy: &Proxy<PreviewMsg>, stop: &AtomicBool) {
+    let mut last = file_signature(path).ok();
+    while !stop.load(Ordering::Relaxed) {
         std::thread::sleep(POLL_INTERVAL);
-        let current = file_meta(path).ok();
+        if stop.load(Ordering::Relaxed) {
+            break;
+        }
+        let current = file_signature(path).ok();
         if current != last {
             last = current;
             proxy.send(PreviewMsg::Reload);
@@ -272,17 +299,35 @@ mod tests {
     }
 
     #[test]
-    fn poll_detects_mtime_and_len_changes() {
-        let path = env::temp_dir().join("fenestra_preview_poll_test.json");
-        std::fs::write(&path, "one").unwrap();
-        let before = file_meta(&path).unwrap();
-        // Coarse (e.g. 1s) mtime resolution on some filesystems means a
-        // same-second rewrite needs a real gap to register as changed.
-        std::thread::sleep(Duration::from_millis(1100));
-        std::fs::write(&path, "a longer second write").unwrap();
-        let after = file_meta(&path).unwrap();
-        assert_ne!(before, after, "mtime or length should change on rewrite");
+    fn poll_signature_detects_a_same_length_edit() {
+        let path = env::temp_dir().join("fenestra_preview_sig_test.json");
+        std::fs::write(&path, "aaa").unwrap();
+        let before = file_signature(&path).unwrap();
+        // Same length, different bytes, and (in a test) the same coarse mtime
+        // tick — a `(mtime, len)` stat could miss this; a content hash cannot.
+        std::fs::write(&path, "bbb").unwrap();
+        let after = file_signature(&path).unwrap();
+        assert_ne!(
+            before, after,
+            "a same-length content change must be detected"
+        );
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn drop_signals_the_poll_thread_to_stop() {
+        let missing = env::temp_dir().join("fenestra_preview_drop_test.json");
+        let app = PreviewApp::new(missing, Theme::light());
+        let stop = Arc::clone(&app.stop);
+        assert!(
+            !stop.load(Ordering::Relaxed),
+            "the flag is clear while the app is alive"
+        );
+        drop(app);
+        assert!(
+            stop.load(Ordering::Relaxed),
+            "dropping the app must set the poll thread's stop flag"
+        );
     }
 
     #[test]
