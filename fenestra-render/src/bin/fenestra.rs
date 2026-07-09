@@ -2,7 +2,9 @@
 //! JSON. Each subcommand reads a description from a path (or stdin with `-`),
 //! writes its result as JSON to stdout, any image to `--out`, and signals the
 //! outcome through the exit code: `0` ok, `1` a verification failed, `3` a parse
-//! or IO error (clap uses `2` for usage errors).
+//! or IO error (clap uses `2` for usage errors). The exception is `preview`,
+//! which opens a live-reload window against a real file path — there's
+//! nothing to reload from stdin, so it doesn't follow that convention.
 
 use std::fs;
 use std::io::{self, Read};
@@ -19,8 +21,9 @@ use fenestra_describe::inspect::{
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
 use fenestra_render::engine::{Step, interact, match_screenshot, render, validate_masks};
-use fenestra_render::resolve_theme;
 use fenestra_render::scenario::{Scenario, bless, verify};
+use fenestra_render::{PreviewApp, resolve_theme};
+use fenestra_shell::{WindowOptions, run_app};
 use serde_json::json;
 
 #[derive(Parser)]
@@ -160,6 +163,20 @@ enum Command {
         #[arg(long)]
         bless: bool,
     },
+    /// Open a live-reload preview window for a description file: edit and
+    /// save, and the window updates. A broken edit shows a themed error
+    /// panel over the last good view instead of crashing or going blank.
+    Preview {
+        /// Description path to preview (a real file, not stdin — there's
+        /// nothing to reload from a pipe).
+        desc: PathBuf,
+        /// Initial window size, `WxH`.
+        #[arg(long, default_value = "800x600")]
+        size: String,
+        /// Theme JSON path (`ThemeSpec` or `{"preset":"dark"}`).
+        #[arg(long)]
+        theme: Option<PathBuf>,
+    },
 }
 
 const EXIT_VERIFY_FAILED: u8 = 1;
@@ -226,6 +243,7 @@ fn main() -> ExitCode {
             out,
             bless,
         } => cmd_verify(scenario, out.as_deref(), bless),
+        Command::Preview { desc, size, theme } => cmd_preview(desc, &size, theme),
     }
 }
 
@@ -486,6 +504,27 @@ fn cmd_verify(scenario: Option<PathBuf>, out: Option<&Path>, do_bless: bool) -> 
             verdict(v.report.ok)
         }
         Err(e) => fail(&e),
+    }
+}
+
+/// Opens a live-reload preview window against `desc` (a real path — there's
+/// no stdin fallback, since there'd be nothing to reload). Blocks until the
+/// window closes.
+fn cmd_preview(desc: PathBuf, size: &str, theme: Option<PathBuf>) -> ExitCode {
+    let theme = match load_theme(theme.as_deref()) {
+        Ok(t) => t,
+        Err(c) => return c,
+    };
+    let (width, height) = match parse_size(size) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    let app = PreviewApp::new(desc, theme);
+    let options =
+        WindowOptions::titled(app.window_title()).with_size(f64::from(width), f64::from(height));
+    match run_app(app, options) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => err(&format!("error running preview: {e}")),
     }
 }
 
