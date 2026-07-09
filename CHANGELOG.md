@@ -155,6 +155,25 @@ kit gains an OKLCH color picker. Additive; every prior golden is byte-identical.
 
 ### Security
 
+- **A second, adversarial code review of the batch closed a P0 and two P1s
+  (agent-reachable), each with a regression test.** (1) *P0* — the aggregate
+  image-decode budget was reset to its full value inside `virtual_list`'s lazy
+  per-row render closure, so on the *paint* path each materialized row decoded
+  with an independent full budget; a tiny `row_height` collapses the virtual
+  window onto every row at once, so a `virtual_list` of large images could
+  decode the whole list simultaneously and OOM, defeating the very cap this
+  batch introduced. A per-frame budget (`fenestra_core::frame_epoch`) now bounds
+  all rows a frame materializes; over-budget rows fail decode before allocation
+  and degrade to spacers. (2) *P1* — an image decoded on every rebuild (`view()`
+  runs per frame), so an `interact {"tab": 4096}` step or an animated preview
+  re-ran the full decode thousands of times (a hang, contradicting `film_ui`'s
+  "degrades instead of hanging"); an LRU decode cache (capped at
+  `MAX_TOTAL_IMAGE_BYTES`) now decodes each payload once and shares the blob.
+  (3) *P1* — `Step::Drag`'s `to` selector skipped strict resolution and panicked
+  in `Frame::get` on a miss instead of returning `EngineError::Step`; it now
+  resolves like every other target. The `image_budget_security` suite only
+  exercised the eager parse pass, so it was green with the P0 present — a
+  render-path test (real `build_frame`) now covers it.
 - **Three unfixable transitive RUSTSEC advisories are documented and ignored, not
   silenced.** `quick-xml 0.39.4` (RUSTSEC-2026-0194, RUSTSEC-2026-0195, both HIGH) reaches
   the workspace through winit's Wayland backend and `zbus_xml`'s AT-SPI stack; no

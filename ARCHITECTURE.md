@@ -3404,3 +3404,25 @@ ranked menu; Richard picked all four. Decisions worth keeping:
   Lightness/Chroma focus targets over one draggable field). A full-`f32`-domain
   proptest (per the fenestra-anim lesson) caught a `rem_euclid` hue-wrap boundary
   bug (`-1e-7` → exactly `360.0`) pre-ship.
+- **Image-decode safety is enforced on the *paint* path, not just at parse
+  time** (post-batch code-review hardening). The aggregate `MAX_TOTAL_IMAGE_BYTES`
+  budget is threaded through parsing, but `virtual_list` builds its rows lazily
+  inside `build_frame`, after parsing returns — and `frame::virtual_window` has
+  no `row_height` floor, so a tiny `row_height` makes the window cover every row
+  and materialize them all in one build. The lazy closure therefore keys one
+  shared budget off a new `fenestra_core::frame_epoch()` (bumped once per
+  `build_frame`), reset per frame: all rows a frame materializes draw from it,
+  and once spent the remaining images fail decode before allocation (their
+  `Limits::max_alloc` is ~0). Chosen over changing the public `virtual_rows`
+  builder signature (which would force an image concern onto every native
+  virtual-list caller) and over a `row_height` floor alone (a max-size canvas
+  still shows ~1000 rows). Separately, images are decoded on *every* rebuild
+  (`view()` runs per frame), so a driven/animated image re-ran the full decode
+  each frame; a thread-local, LRU, `MAX_TOTAL_IMAGE_BYTES`-capped decode cache
+  (keyed by the base64 payload) now decodes each once and shares the
+  reference-counted blob via new core `image_payload()`/`image_from_data()`.
+  Identical images legitimately share one allocation, so the budget bounds
+  *distinct* (genuinely-allocated) images; `clear_image_cache()` reclaims the
+  memory between unrelated documents. Also: `Step::Drag`'s `to` selector now
+  resolves strictly (a miss/ambiguity returns `EngineError::Step` with the
+  access tree, not a `Frame::get` panic), matching every other target step.
