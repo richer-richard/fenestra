@@ -2,8 +2,7 @@
 //! visual regression corpus, the headless `gallery` example, and README art.
 
 use fenestra_core::{
-    Element, FamilyRole, SP2, SP3, SP4, SP6, TextSize, Theme, Weight, col, div, divider, oklch,
-    row, text,
+    Element, FamilyRole, SP2, SP3, SP4, SP6, TextSize, Theme, Weight, col, div, divider, row, text,
 };
 
 use crate::{
@@ -99,7 +98,7 @@ pub fn gallery_controls(theme: &Theme) -> Element<()> {
         section(
             "COLOR PICKER",
             col().items_start().children([Element::from(
-                color_picker(oklch(0.65, 0.15, 250.0))
+                color_picker(theme.accent)
                     .label("Accent color")
                     .pad_size(120.0)
                     .on_change(|_| ())
