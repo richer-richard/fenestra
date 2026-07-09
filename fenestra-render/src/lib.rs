@@ -11,7 +11,7 @@ pub mod theme_input;
 pub use described_app::DescribedApp;
 pub use engine::{
     EngineError, InteractOut, RenderOut, ScreenshotDiff, Step, diff_images, interact,
-    match_screenshot, render,
+    match_screenshot, render, validate_masks,
 };
 pub use scenario::{
     AriaExpect, CheckOutcome, Expect, QueryExpect, Scenario, ScreenshotExpect, VerifyOut,

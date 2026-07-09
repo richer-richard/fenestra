@@ -9,7 +9,7 @@
 
 use fenestra_core::Theme;
 use fenestra_describe as describe;
-use fenestra_describe::dto::{A11yReport, AriaDiff, FocusOrder, LayoutReport, QueryResult};
+use fenestra_describe::dto::{A11yReport, AriaDiff, Bounds, FocusOrder, LayoutReport, QueryResult};
 use fenestra_describe::error::DescribeError;
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{self, AriaMode, Selector};
@@ -189,7 +189,7 @@ impl FenestraServer {
 
     #[tool(
         name = "match_screenshot",
-        description = "Compare a UI's render against a baseline PNG (path on disk), pixel by pixel, with an optional per-channel tolerance and differing-pixel budget. Returns the diff stats and a diff-image preview on mismatch — a normal result."
+        description = "Compare a UI's render against a baseline PNG (path on disk), pixel by pixel, with an optional per-channel tolerance, differing-pixel budget, and mask rectangles to ignore (volatile regions). Returns the diff stats and a diff-image preview on mismatch — a normal result."
     )]
     async fn match_screenshot(
         &self,
@@ -198,6 +198,7 @@ impl FenestraServer {
         let desc = parse_desc(&p.description)?;
         let theme = theme_of(p.theme.as_ref())?;
         let size = parse_size(p.size.as_deref())?;
+        engine::validate_masks(&p.masks).map_err(|e| ErrorData::invalid_params(e, None))?;
         let baseline = image::open(&p.baseline_path)
             .map_err(|e| {
                 ErrorData::invalid_params(
@@ -206,9 +207,9 @@ impl FenestraServer {
                 )
             })?
             .into_rgba8();
-        let (tol, budget) = (p.tolerance, p.budget);
+        let (tol, budget, masks) = (p.tolerance, p.budget, p.masks.clone());
         let diff = blocking(move || {
-            engine::match_screenshot(&desc, &theme, size, &baseline, tol, budget, &[])
+            engine::match_screenshot(&desc, &theme, size, &baseline, tol, budget, &masks)
         })
         .await?
         .map_err(engine_err)?;
@@ -419,6 +420,9 @@ struct MatchScreenshotParams {
     /// Allowed differing-pixel fraction.
     #[serde(default)]
     budget: f64,
+    /// Rectangles to ignore when comparing (volatile regions), logical px.
+    #[serde(default)]
+    masks: Vec<Bounds>,
     #[serde(default)]
     size: Option<String>,
     #[serde(default)]
@@ -691,6 +695,119 @@ mod tests {
     fn server_identifies_as_fenestra() {
         let info = FenestraServer::new().get_info();
         assert_eq!(info.server_info.name, "fenestra-mcp");
+    }
+
+    /// `masks` excludes a rectangle from the pixel diff: the same mismatch
+    /// that fails unmasked passes once the whole frame is masked out.
+    #[tokio::test]
+    async fn match_screenshot_mask_ignores_region() {
+        let s = FenestraServer::new();
+        let theme = resolve_theme(None).unwrap();
+        let desc = parse_desc(&good()).unwrap();
+        let baseline_png = engine::render(&desc, &theme, (300, 120)).unwrap().png;
+        let path = std::env::temp_dir().join("fenestra_mcp_mask_test_baseline.png");
+        baseline_png.save(&path).unwrap();
+        let baseline_path = path.to_str().unwrap().to_string();
+        let other =
+            json!({ "schema": "fenestra/1", "root": { "button": { "label": "Different" } } });
+
+        let unmasked = s
+            .match_screenshot(Parameters(MatchScreenshotParams {
+                description: other.clone(),
+                baseline_path: baseline_path.clone(),
+                tolerance: 3,
+                budget: 0.002,
+                masks: vec![],
+                size: Some("300x120".to_string()),
+                theme: None,
+            }))
+            .await
+            .unwrap();
+        let structured = unmasked
+            .structured_content
+            .as_ref()
+            .expect("structured content");
+        assert_eq!(
+            structured.get("ok").and_then(Value::as_bool),
+            Some(false),
+            "unmasked mismatch should not be ok: {structured}"
+        );
+
+        let masked = s
+            .match_screenshot(Parameters(MatchScreenshotParams {
+                description: other,
+                baseline_path,
+                tolerance: 3,
+                budget: 0.002,
+                masks: vec![Bounds {
+                    x: 0.0,
+                    y: 0.0,
+                    w: 300.0,
+                    h: 120.0,
+                }],
+                size: Some("300x120".to_string()),
+                theme: None,
+            }))
+            .await
+            .unwrap();
+        let structured = masked
+            .structured_content
+            .as_ref()
+            .expect("structured content");
+        assert_eq!(
+            structured.get("ok").and_then(Value::as_bool),
+            Some(true),
+            "fully masked comparison should be ok: {structured}"
+        );
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Hostile masks (non-finite coordinates, negative width/height) are
+    /// rejected as a protocol error before the baseline is even read — proven
+    /// here by pointing at a baseline path that does not exist.
+    #[tokio::test]
+    async fn match_screenshot_rejects_hostile_masks() {
+        let s = FenestraServer::new();
+        let bogus_baseline = "/nonexistent/fenestra_mcp_no_such_baseline.png".to_string();
+
+        let nan_mask = s
+            .match_screenshot(Parameters(MatchScreenshotParams {
+                description: good(),
+                baseline_path: bogus_baseline.clone(),
+                tolerance: 0,
+                budget: 0.0,
+                masks: vec![Bounds {
+                    x: f64::NAN,
+                    y: 0.0,
+                    w: 10.0,
+                    h: 10.0,
+                }],
+                size: None,
+                theme: None,
+            }))
+            .await;
+        let err = nan_mask.expect_err("a NaN mask coordinate is rejected");
+        assert!(format!("{err:?}").contains("finite"), "{err:?}");
+
+        let negative_mask = s
+            .match_screenshot(Parameters(MatchScreenshotParams {
+                description: good(),
+                baseline_path: bogus_baseline,
+                tolerance: 0,
+                budget: 0.0,
+                masks: vec![Bounds {
+                    x: 0.0,
+                    y: 0.0,
+                    w: -5.0,
+                    h: 10.0,
+                }],
+                size: None,
+                theme: None,
+            }))
+            .await;
+        let err = negative_mask.expect_err("a negative mask width is rejected");
+        assert!(format!("{err:?}").contains("negative"), "{err:?}");
     }
 
     #[tokio::test]

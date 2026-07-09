@@ -377,6 +377,32 @@ pub fn match_screenshot(
     Ok(diff_images(baseline, &actual, channel_tol, budget, masks))
 }
 
+/// Validates a mask list before it reaches [`diff_images`]. Diffing itself
+/// never panics on a stray mask — a `NaN` comparison is simply false, a
+/// negative extent matches nothing — but a boundary that accepts masks from an
+/// untrusted caller (the CLI, the MCP tool) should reject the mistake rather
+/// than silently ignore it, so both call `validate_masks` first.
+///
+/// # Errors
+/// A path-pointed message (`mask[i].field`) for the first non-finite
+/// coordinate or negative width/height found.
+pub fn validate_masks(masks: &[Bounds]) -> Result<(), String> {
+    for (i, m) in masks.iter().enumerate() {
+        for (field, v) in [("x", m.x), ("y", m.y), ("w", m.w), ("h", m.h)] {
+            if !v.is_finite() {
+                return Err(format!("mask[{i}].{field} must be finite, got {v}"));
+            }
+        }
+        if m.w < 0.0 || m.h < 0.0 {
+            return Err(format!(
+                "mask[{i}] has a negative size: w={}, h={}",
+                m.w, m.h
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// Whether `(x, y)` lies inside any mask rectangle.
 fn masked(x: u32, y: u32, masks: &[Bounds]) -> bool {
     masks.iter().any(|m| {

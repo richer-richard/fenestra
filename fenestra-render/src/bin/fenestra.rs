@@ -11,13 +11,14 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use fenestra_core::Theme;
+use fenestra_describe::dto::Bounds;
 use fenestra_describe::format::{Description, description_schema};
 use fenestra_describe::inspect::{
     AriaMode, Selector, check_a11y, focus_order, layout_report, match_aria, query,
 };
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
-use fenestra_render::engine::{Step, interact, match_screenshot, render};
+use fenestra_render::engine::{Step, interact, match_screenshot, render, validate_masks};
 use fenestra_render::resolve_theme;
 use fenestra_render::scenario::{Scenario, bless, verify};
 use serde_json::json;
@@ -127,6 +128,10 @@ enum Command {
         /// Allowed differing-pixel fraction.
         #[arg(long, default_value_t = 0.0)]
         budget: f64,
+        /// Ignore this rectangle when comparing (repeatable): `x,y,w,h` in
+        /// logical pixels, e.g. `--mask 10,10,80,20`.
+        #[arg(long = "mask", value_name = "X,Y,W,H")]
+        masks: Vec<String>,
         #[arg(long, default_value = "800x600")]
         size: String,
         #[arg(long)]
@@ -201,10 +206,18 @@ fn main() -> ExitCode {
             baseline,
             tolerance,
             budget,
+            masks,
             size,
             theme,
             out,
-        } => cmd_match_png(desc, &baseline, tolerance, budget, &size, theme, out),
+        } => cmd_match_png(
+            desc,
+            &baseline,
+            (tolerance, budget, &masks),
+            &size,
+            theme,
+            out,
+        ),
         Command::Vocabulary => cmd_vocabulary(),
         Command::Schema => cmd_schema(),
         Command::Validate { desc } => cmd_validate(desc),
@@ -347,21 +360,27 @@ fn cmd_match_aria(
 fn cmd_match_png(
     desc: Option<PathBuf>,
     baseline: &Path,
-    tolerance: u8,
-    budget: f64,
+    // (tolerance, budget, `--mask` values) — bundled to stay under clippy's
+    // too-many-arguments limit.
+    shot: (u8, f64, &[String]),
     size: &str,
     theme: Option<PathBuf>,
     out: Option<PathBuf>,
 ) -> ExitCode {
+    let (tolerance, budget, masks) = shot;
     let (desc, theme, size) = match common(desc, size, theme) {
         Ok(v) => v,
+        Err(c) => return c,
+    };
+    let masks = match parse_masks(masks) {
+        Ok(m) => m,
         Err(c) => return c,
     };
     let baseline = match image::open(baseline) {
         Ok(img) => img.into_rgba8(),
         Err(e) => return err(&format!("error reading baseline: {e}")),
     };
-    match match_screenshot(&desc, &theme, size, &baseline, tolerance, budget, &[]) {
+    match match_screenshot(&desc, &theme, size, &baseline, tolerance, budget, &masks) {
         Ok(diff) => {
             print_json(&json!({
                 "ok": diff.ok,
@@ -535,6 +554,39 @@ fn parse_size(s: &str) -> Result<(u32, u32), ExitCode> {
     Err(err(&format!(
         "invalid size {s:?}; expected WxH like 800x600"
     )))
+}
+
+/// Parses one `--mask` value (`x,y,w,h`, logical px) into a `Bounds`.
+fn parse_mask(s: &str) -> Result<Bounds, String> {
+    let parts: Vec<&str> = s.split(',').map(str::trim).collect();
+    let [x, y, w, h] = parts.as_slice() else {
+        return Err(format!(
+            "invalid --mask {s:?}; expected x,y,w,h, got {} field(s)",
+            parts.len()
+        ));
+    };
+    let field = |name: &str, v: &str| -> Result<f64, String> {
+        v.parse::<f64>()
+            .map_err(|e| format!("invalid --mask {s:?}: {name}={v:?} ({e})"))
+    };
+    Ok(Bounds {
+        x: field("x", x)?,
+        y: field("y", y)?,
+        w: field("w", w)?,
+        h: field("h", h)?,
+    })
+}
+
+/// Parses every `--mask` value and rejects hostile rectangles (non-finite
+/// coordinates, negative width/height) before they reach the engine.
+fn parse_masks(masks: &[String]) -> Result<Vec<Bounds>, ExitCode> {
+    let parsed: Vec<Bounds> = masks
+        .iter()
+        .map(|s| parse_mask(s))
+        .collect::<Result<_, _>>()
+        .map_err(|e| err(&e))?;
+    validate_masks(&parsed).map_err(|e| err(&e))?;
+    Ok(parsed)
 }
 
 /// Prints a value as pretty JSON to stdout.

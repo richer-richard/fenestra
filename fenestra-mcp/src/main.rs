@@ -1,4 +1,4 @@
-//! The fenestra MCP server binary: serves the eight UI render/verify tools over
+//! The fenestra MCP server binary: serves the twelve UI render/verify tools over
 //! stdio, so an MCP client (an AI assistant) can build, render, query, and
 //! assert native UIs described as JSON.
 

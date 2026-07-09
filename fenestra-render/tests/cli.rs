@@ -111,6 +111,98 @@ fn verify_bless_then_diff_on_mismatch() {
     let _ = std::fs::remove_file(&diff);
 }
 
+/// `match-png --mask x,y,w,h` excludes a rectangle from the pixel diff: the
+/// same region that fails unmasked passes once it is masked out.
+#[test]
+fn match_png_mask_ignores_region() {
+    let dir = std::env::temp_dir();
+    let baseline = dir.join("fenestra_cli_mask_baseline.png");
+    let _ = std::fs::remove_file(&baseline);
+    let b = baseline.to_str().unwrap();
+
+    let (code, _out, stderr) = run(&["render", "--size", "300x120", "--out", b], GOOD);
+    assert_eq!(code, 0, "render stderr: {stderr}");
+    assert!(baseline.exists(), "render writes the baseline");
+
+    let other = r#"{"schema":"fenestra/1","root":{"button":{"label":"Different"}}}"#;
+
+    // Unmasked: a different label makes the two renders differ.
+    let (code, out, stderr) = run(
+        &[
+            "match-png",
+            "--baseline",
+            b,
+            "--size",
+            "300x120",
+            "--tolerance",
+            "3",
+            "--budget",
+            "0.002",
+        ],
+        other,
+    );
+    assert_eq!(code, 1, "unmasked mismatch is exit 1: {out}\n{stderr}");
+    assert!(out.contains("\"ok\": false"), "{out}");
+
+    // Masked over the whole frame: the same mismatch is now ignored.
+    let (code, out, stderr) = run(
+        &[
+            "match-png",
+            "--baseline",
+            b,
+            "--size",
+            "300x120",
+            "--tolerance",
+            "3",
+            "--budget",
+            "0.002",
+            "--mask",
+            "0,0,300,120",
+        ],
+        other,
+    );
+    assert_eq!(code, 0, "masked match is exit 0: {out}\n{stderr}");
+    assert!(out.contains("\"ok\": true"), "{out}");
+
+    let _ = std::fs::remove_file(&baseline);
+}
+
+/// Hostile `--mask` values (malformed, non-numeric, non-finite, negative) are
+/// rejected with a self-explaining exit-3 error, never a panic — the baseline
+/// here doesn't even exist, proving mask validation runs before the file read.
+#[test]
+fn match_png_hostile_mask_is_rejected() {
+    let missing = "/nonexistent/fenestra_cli_no_such_baseline.png";
+
+    let (code, _out, stderr) = run(
+        &["match-png", "--baseline", missing, "--mask", "1,2,3"],
+        GOOD,
+    );
+    assert_eq!(code, 3, "wrong field count is exit 3: {stderr}");
+    assert!(stderr.contains("--mask"), "{stderr}");
+
+    let (code, _out, stderr) = run(
+        &["match-png", "--baseline", missing, "--mask", "x,0,10,10"],
+        GOOD,
+    );
+    assert_eq!(code, 3, "non-numeric field is exit 3: {stderr}");
+    assert!(stderr.contains("--mask"), "{stderr}");
+
+    let (code, _out, stderr) = run(
+        &["match-png", "--baseline", missing, "--mask", "0,0,-10,10"],
+        GOOD,
+    );
+    assert_eq!(code, 3, "negative width is exit 3: {stderr}");
+    assert!(stderr.contains("negative"), "{stderr}");
+
+    let (code, _out, stderr) = run(
+        &["match-png", "--baseline", missing, "--mask", "NaN,0,10,10"],
+        GOOD,
+    );
+    assert_eq!(code, 3, "non-finite coordinate is exit 3: {stderr}");
+    assert!(stderr.contains("finite"), "{stderr}");
+}
+
 /// A `verify` setup error (an unreadable baseline, no `--bless`) exits 3 with a
 /// self-explaining message — distinct from a check failure (exit 1).
 #[test]
