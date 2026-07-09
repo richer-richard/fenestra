@@ -3347,3 +3347,82 @@ path.
   `perf_gate --release -- --ignored` test that caught the debug_assert/cfg regression in
   the prior entry — clean this time), and a byte-identical rerun of every motion/gallery
   golden confirm the relocation is behavior-preserving, not just compiling.
+
+## Community batch: authoring completeness, preview, filmstrips, color picker (2026-07-09)
+
+Four features aimed at open-source usefulness, built after a full-repo scan and a
+ranked menu; Richard picked all four. Decisions worth keeping:
+
+- **Grammar payload rule, made explicit.** Every widget added to the `fenestra/1`
+  grammar keeps its handlers as a single inert intent string or a scalar
+  (bool/number/text) state write — never a value computed from the interaction —
+  because `Action` has no per-event payload slot. Three kit capabilities don't fit
+  that shape and are deliberately not authorable, each documented in its node's own
+  doc comment: data_table column resize/reorder (need a computed pixel width or a
+  from/to index pair), combobox/command_palette keyboard-cursor state
+  (`highlighted`/`on_navigate`), and date_picker's WAI-ARIA keyboard grid nav.
+  `virtual_list` items are literal child `Node`s, never a code closure — the
+  "data-only, never executable" boundary holds. Overlay nodes (`popover`,
+  `dropdown_menu`) carry zero state: `Overlay::Toggle` is engine-managed, and
+  `command_palette` follows the modal/drawer tree-presence-is-visibility precedent.
+- **Images decode before they allocate.** The `image` node's base64 payload (strict
+  RFC 4648, decoded by a dependency-free inline decoder per the markdown-lexer
+  precedent) is capped at 8 MiB, and the PNG decoder's `Limits` reject
+  IHDR-declared dimensions over 8192/axis *before* the pixel buffer is allocated —
+  proven by a test with a hand-crafted header-only bomb. Alt text is required, not
+  defaulted: an unlabeled image is exactly the failure the a11y gate exists to
+  catch.
+- **`fenestra preview` polls; it does not watch.** The live-reload window stats
+  (mtime, len) every 200ms on a thread behind the `App::init` proxy rather than
+  pulling in a filesystem-watcher dependency — imperceptible for a human
+  save-and-glance loop, zero new supply-chain surface. A broken edit keeps the
+  last-good view rendering under a path-pointed error callout; runtime state
+  merges across reloads (persisting bindings keep values, new ones seed, removed
+  ones drop — a rename is indistinguishable from a remove, so best-effort by
+  nature). Known limitation: the OS title bar's clean/error suffix is set at open;
+  the in-window callout is the live indicator. The windowed run itself sits outside
+  the CI envelope and the module docs say so.
+- **Filmstrips: determinism comes from the clock, not from suppressing motion**
+  (closes deferred item #6). `Harness::film` captures over `pump`'s deterministic
+  clock; the reduced-motion default stays untouched (a filmstrip under it is
+  deliberately static). `fenestra film`/`film_ui` are the one engine surface that
+  turns real motion on, and they do it *before* driving steps — a step-triggered
+  transition would otherwise be snapped to its end state before capture starts.
+  The strip composer is a public, non-panicking `testing::filmstrip_image`; the
+  golden asserts call it and panic on `Err`. Both surfaces report the actual
+  frames/interval/scale after clamping; a max-frames × full-scale request can
+  legitimately exceed the 8192px texture ceiling and surfaces as a clean error.
+  The MCP tool-count test now derives its assertion from the expected-names list,
+  so the count can't rot the way the "eight tools" docs did.
+- **Color picker: `Color` stays canonical; OKLCH is a view** (closes the
+  color-picker line of deferred item #10; rating/OTP-PIN/avatar-badge maturity
+  remain). The stored value is always a displayable `Color`; the pad/strips only
+  construct one through core's `oklch()`, which gamut-maps by reducing chroma — so
+  there is no invalid state to represent, only "this construction got chroma-
+  clamped," surfaced as an amber badge with an accessible label. The 2D pad's
+  keyboard model mirrors RangeSlider's two-thumb precedent (independent
+  Lightness/Chroma focus targets over one draggable field). A full-`f32`-domain
+  proptest (per the fenestra-anim lesson) caught a `rem_euclid` hue-wrap boundary
+  bug (`-1e-7` → exactly `360.0`) pre-ship.
+- **Image-decode safety is enforced on the *paint* path, not just at parse
+  time** (post-batch code-review hardening). The aggregate `MAX_TOTAL_IMAGE_BYTES`
+  budget is threaded through parsing, but `virtual_list` builds its rows lazily
+  inside `build_frame`, after parsing returns — and `frame::virtual_window` has
+  no `row_height` floor, so a tiny `row_height` makes the window cover every row
+  and materialize them all in one build. The lazy closure therefore keys one
+  shared budget off a new `fenestra_core::frame_epoch()` (bumped once per
+  `build_frame`), reset per frame: all rows a frame materializes draw from it,
+  and once spent the remaining images fail decode before allocation (their
+  `Limits::max_alloc` is ~0). Chosen over changing the public `virtual_rows`
+  builder signature (which would force an image concern onto every native
+  virtual-list caller) and over a `row_height` floor alone (a max-size canvas
+  still shows ~1000 rows). Separately, images are decoded on *every* rebuild
+  (`view()` runs per frame), so a driven/animated image re-ran the full decode
+  each frame; a thread-local, LRU, `MAX_TOTAL_IMAGE_BYTES`-capped decode cache
+  (keyed by the base64 payload) now decodes each once and shares the
+  reference-counted blob via new core `image_payload()`/`image_from_data()`.
+  Identical images legitimately share one allocation, so the budget bounds
+  *distinct* (genuinely-allocated) images; `clear_image_cache()` reclaims the
+  memory between unrelated documents. Also: `Step::Drag`'s `to` selector now
+  resolves strictly (a miss/ambiguity returns `EngineError::Step` with the
+  access tree, not a `Frame::get` panic), matching every other target step.

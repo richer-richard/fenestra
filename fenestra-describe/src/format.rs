@@ -70,6 +70,9 @@ pub enum Node {
     Stack(Container),
     /// A raised-surface content card (vertical flex, SP6 padding, rounded).
     Card(Container),
+    /// Two children split by a draggable divider. `bind` a root `state`
+    /// number key for the split fraction.
+    SplitPane(SplitPaneNode),
     // ── Text ──────────────────────────────────────────────────────────────
     /// A run of text. Supports `on_click` for clickable labels.
     Text(TextNode),
@@ -93,6 +96,25 @@ pub enum Node {
     Select(SelectNode),
     /// A compact number stepper: a value flanked by − / + step buttons.
     SpinButton(SpinButtonNode),
+    /// A labelled form-field wrapper: a label (with an optional required
+    /// mark) above `control`, and help or error text (error wins) below it.
+    Field(FieldNode),
+    /// An editable select: typing filters `options`; `bind` a root `state`
+    /// text key for the value (both typing and picking an option write it).
+    Combobox(ComboboxNode),
+    /// A set of toggleable option chips. `selected` lists the pre-checked
+    /// option indices.
+    MultiSelect(MultiSelectNode),
+    /// A bordered field holding removable tag chips plus an inline entry
+    /// field for typing new ones.
+    TagInput(TagInputNode),
+    /// A month calendar. Single-date by default; `range:true` switches to
+    /// start/end range selection.
+    DatePicker(DatePickerNode),
+    /// An OKLCH color picker: a lightness×chroma pad, hue/alpha strips, a
+    /// swatch, and a hex/`oklch()` text entry. `bind` a root `state` text key
+    /// for the committed hex value.
+    ColorPicker(ColorPickerNode),
     // ── Navigation ────────────────────────────────────────────────────────
     /// An underline tab strip. `bind` a root `state` number key for the active index.
     Tabs(TabsNode),
@@ -109,6 +131,9 @@ pub enum Node {
     Toolbar(ToolbarNode),
     /// An application menu bar: top-level `menus`, each a dropdown of items.
     Menubar(MenubarNode),
+    /// A nested disclosure tree with app-owned expansion and selection; one
+    /// tab stop, keyboard-navigable (arrows, Home/End, type-ahead).
+    Tree(TreeViewNode),
     // ── Display / feedback ─────────────────────────────────────────────────
     /// A status pill. `status`: accent (default) | danger | warning | success.
     Badge(BadgeNode),
@@ -136,6 +161,18 @@ pub enum Node {
     Skeleton(SkeletonNode),
     /// A named Lucide icon (24×24, stroked).
     Icon(IconNode),
+    /// A base64-encoded PNG image, decoded to RGBA8 at parse time. `label`
+    /// is the required accessible alt text.
+    Image(ImageNode),
+    /// A stack of transient status toasts pinned to the top-right. An empty
+    /// `items` list renders nothing.
+    Toast(ToastStackNode),
+    // ── Data ──────────────────────────────────────────────────────────────
+    /// A sortable, optionally multi-select data grid.
+    DataTable(DataTableNode),
+    /// A fixed-row-height virtualized list of literal child nodes (never a
+    /// code closure — a bounded, authored array of rows).
+    VirtualList(VirtualListNode),
     // ── Overlays ──────────────────────────────────────────────────────────
     /// A centered modal dialog with title, children, and optional `on_close` intent.
     Modal(ModalNode),
@@ -143,6 +180,16 @@ pub enum Node {
     Tooltip(TooltipNode),
     /// An edge-anchored drawer / sheet panel with a backdrop and `children`.
     Drawer(DrawerNode),
+    /// A floating panel anchored below `trigger`, toggled by clicking it
+    /// (self-contained: outside click / Escape close it automatically).
+    Popover(PopoverNode),
+    /// A menu that toggles open when `trigger` is clicked; `items` are
+    /// `(label, on_select intent)` pairs. Self-contained like `popover`.
+    DropdownMenu(DropdownMenuNode),
+    /// A modal Cmd-K launcher: typing filters `commands`, Enter runs the top
+    /// match. Present in the tree = shown (like `modal`); omit it from the
+    /// next description to close it.
+    CommandPalette(CommandPaletteNode),
     // ── Decoration ────────────────────────────────────────────────────────
     /// A themed hairline rule.
     Divider(Leaf),
@@ -1268,6 +1315,556 @@ pub struct DrawerNode {
     /// Reserved fallback trace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
+}
+
+// ── R3 vocabulary expansion: image + kit-widget completeness ────────────────
+//
+// The nodes below complete the fenestra/1 grammar against the kit's full
+// widget set. Three of the kit's widgets carry *continuous, per-event*
+// payloads (a computed pixel width, a drag-and-drop from/to index pair) that
+// do not fit any [`crate::state::Action`] variant — every handler here is a
+// single inert intent string or a framework-owned scalar (bool/number/text)
+// state write, never a value computed from the interaction itself. Where a
+// kit widget cannot be represented for that reason, its node's doc comment
+// says so explicitly rather than silently omitting it.
+
+/// A form field: a label (with an optional required mark) above `control`,
+/// and help or error text (error wins) below it.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct FieldNode {
+    /// The field label.
+    pub label: String,
+    /// The wrapped control (input, select, switch, …).
+    pub control: Box<Node>,
+    /// Muted helper text below the control (hidden when `error` is set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub help: Option<String>,
+    /// A validation message shown in the danger tone; wins over `help`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// Appends a danger-toned `*` to the label.
+    #[serde(default)]
+    pub required: bool,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// Two children split by a draggable divider.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SplitPaneNode {
+    /// The first (left/top) pane content.
+    pub first: Box<Node>,
+    /// The second (right/bottom) pane content.
+    pub second: Box<Node>,
+    /// The split fraction (the widget itself clamps to `0.05..=0.95`).
+    #[serde(default = "default_half")]
+    pub fraction: f32,
+    /// Bind the fraction to a `state` number key (the framework sets it on drag).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Stack the panes vertically (divider drags up/down) instead of side by side.
+    #[serde(default)]
+    pub vertical: bool,
+    /// Intent emitted on drag (ignored when `bind` is set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_resize: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// An editable select: typing filters `options` (case-insensitive contains)
+/// while `open` is true; picking an option updates the bound value. Drops
+/// the kit widget's `on_navigate`/`highlighted` keyboard-cursor wiring (a
+/// decorative veil over the active option) — Enter still accepts the top
+/// filtered match without it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ComboboxNode {
+    /// The full option list (filtered client-side by the typed value).
+    pub options: Vec<String>,
+    /// The current text value.
+    #[serde(default)]
+    pub value: String,
+    /// Bind the value to a `state` text key: both typing and picking an
+    /// option write it (the framework sets it; takes priority over
+    /// `on_input`/`on_pick`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Whether the filtered listbox is shown.
+    #[serde(default)]
+    pub open: bool,
+    /// Placeholder shown while `value` is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    /// Intent emitted on every edit of the text (ignored when `bind` is set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_input: Option<String>,
+    /// Intent emitted when an option is picked (ignored when `bind` is set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_pick: Option<String>,
+    /// Intent emitted when the listbox wants to close (outside click, Escape).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_close: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A set of toggleable option chips.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MultiSelectNode {
+    /// The option labels.
+    pub options: Vec<String>,
+    /// Indices of the pre-checked options.
+    #[serde(default)]
+    pub selected: Vec<usize>,
+    /// Whether the group is disabled.
+    #[serde(default)]
+    pub disabled: bool,
+    /// Intent emitted when a chip is toggled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_toggle: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A bordered field holding removable tag chips plus an inline entry field.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TagInputNode {
+    /// The current tags, in order.
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Placeholder shown in the inline field while it is empty.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub placeholder: Option<String>,
+    /// Intent emitted when a chip's remove button is pressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_remove: Option<String>,
+    /// Intent emitted on every edit of the inline field. The kit widget has
+    /// no commit-on-Enter hook and keeps no draft of its own, so this fires
+    /// per keystroke with the field's full current text, not once on submit
+    /// — the same constraint the kit widget's own docs call out.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_add: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A calendar date as `[year, month 1..=12, day 1..=31]`.
+pub type DateSpec = [i32; 3];
+
+/// A month calendar. Single-date by default; `range:true` switches to
+/// start/end range selection. Drops the kit widget's WAI-ARIA keyboard grid
+/// navigation (`on_focus` + app-owned `focused_day`, driving arrow/Home/End/
+/// PageUp/PageDown): Enter/Space still select a computed default focus (the
+/// selected day, else today, else the 1st, within the visible month), but
+/// arrow-key cursor movement has no bound handler to report to and is
+/// silently inert rather than broken.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DatePickerNode {
+    /// The visible year.
+    pub year: i32,
+    /// The visible month, `1..=12`.
+    pub month: u32,
+    /// Range mode instead of single-date.
+    #[serde(default)]
+    pub range: bool,
+    /// The selected date (single mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<DateSpec>,
+    /// The range start (range mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_start: Option<DateSpec>,
+    /// The range end (range mode).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub range_end: Option<DateSpec>,
+    /// The date marked "today" (the widget is clock-free; pass it explicitly).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub today: Option<DateSpec>,
+    /// Days before this date render disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min: Option<DateSpec>,
+    /// Days after this date render disabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<DateSpec>,
+    /// Intent emitted when a day is picked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_pick: Option<String>,
+    /// Intent emitted when a header prev/next month/year button is pressed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_month: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// An OKLCH color picker: a lightness×chroma pad, hue/alpha strips, a
+/// swatch, and a hex/`oklch()` text entry. `value` is a hex (`#rrggbb`/
+/// `#rrggbbaa`) or CSS `oklch(l c h[ / a])` string, parsed with the kit's own
+/// `parse_color_text`; an unparseable `value` (or the bound state text
+/// overriding it) degrades to sRGB middle gray (`#808080`) and records a
+/// path-pointed error — never a panic. `bind` a
+/// root `state` text key: every pad/hue/alpha gesture, and every text edit
+/// that currently parses, commits the formatted hex back to it; an edit
+/// that doesn't yet parse (mid-keystroke) leaves the bound value alone,
+/// mirroring the kit widget's own "don't destroy the last good color on an
+/// invalid keystroke" contract. The kit widget also supports a *separate*
+/// in-progress text buffer (`ColorPicker::text`, for showing invalid
+/// partial input while the confirmed `value` stays unchanged) — that has no
+/// JSON projection here: describe has one state slot per `bind`, not two,
+/// so an invalid keystroke is simply not committed rather than shown.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ColorPickerNode {
+    /// Current color as hex or `oklch()` text.
+    #[serde(default = "default_color_picker_value")]
+    pub value: String,
+    /// Bind to a `state` text key (see the struct docs for the commit rule).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// Accessible label (default `"Color"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+    /// Disables every control (pad, strips, entry field) and dims the widget.
+    #[serde(default)]
+    pub disabled: bool,
+    /// The 2D pad's side length in logical px (200 by default); the widget
+    /// itself clamps this to `80.0..=480.0`, so no separate clamp is needed here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pad_size: Option<f32>,
+    /// Intent emitted on any gesture or valid text edit (ignored when `bind`
+    /// is set).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_change: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// Default `value` for a `color_picker` when omitted: a neutral mid-gray —
+/// the same fallback an unparseable `value` degrades to (serde `default` attribute).
+pub fn default_color_picker_value() -> String {
+    "#808080".to_string()
+}
+
+/// One item of a [`TreeViewNode`]: a stable `id`, visible `label`, and nested
+/// `children` (empty = leaf). Recursive like [`Node`] itself, so the same
+/// JSON-nesting ceiling applies: `serde_json` caps deserialization recursion
+/// at 128 levels by default, well before the parser's own total-node clamp
+/// (`items`/`children` fan-out, not depth) ever comes into play.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TreeItemDto {
+    /// Stable id; expansion and selection key off it.
+    pub id: String,
+    /// The visible label.
+    pub label: String,
+    /// Child items (empty = leaf).
+    #[serde(default)]
+    pub children: Vec<TreeItemDto>,
+}
+
+/// A nested disclosure tree with app-owned expansion and selection; one tab
+/// stop, keyboard-navigable (arrows, Home/End, type-ahead) for free from the
+/// kit widget.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct TreeViewNode {
+    /// The root items.
+    pub items: Vec<TreeItemDto>,
+    /// Ids currently expanded.
+    #[serde(default)]
+    pub expanded: Vec<String>,
+    /// The selected id, highlighted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<String>,
+    /// Intent emitted when a branch is toggled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_toggle: Option<String>,
+    /// Intent emitted when a node is selected (leaf click, or keyboard nav).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_select: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A base64-encoded PNG image, decoded to RGBA8 at parse time.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ImageNode {
+    /// The image bytes, base64-encoded (RFC 4648 standard alphabet, `=`
+    /// padding, no embedded whitespace). A decode failure — bad base64, not
+    /// a PNG, or a clamp violation — degrades to an invisible spacer and
+    /// records a path-pointed error; it never panics.
+    pub png: String,
+    /// Required accessible label (alt text). An image without one is
+    /// rejected with a path-pointed error rather than silently defaulted —
+    /// this is the a11y failure the format exists to catch.
+    pub label: String,
+    /// Layout and appearance. `style.w`/`style.h` resize the image (it sizes
+    /// to the decoded pixel dimensions by default); `style.rounded_full`
+    /// crops a square source into a round avatar.
+    #[serde(default)]
+    pub style: Style,
+    /// Intent string emitted on click (makes the image interactive).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_click: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace — the same annotate-only field every other
+    /// node carries; kept here purely for shape consistency across the
+    /// grammar, not because images have a distinct fallback path.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// One toast: a message and status color.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ToastItemDto {
+    /// The message text.
+    pub message: String,
+    /// Status color: `accent` (default) | `danger` | `warning` | `success`.
+    #[serde(default = "default_status")]
+    pub status: String,
+}
+
+/// A stack of transient status toasts pinned to the top-right. An empty
+/// `items` list renders nothing.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ToastStackNode {
+    /// The toasts, in order.
+    #[serde(default)]
+    pub items: Vec<ToastItemDto>,
+    /// Stack width in logical px (340 by default).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub width: Option<f32>,
+    /// Intent emitted when a toast's close button (or a swipe) dismisses it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_dismiss: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A `data_table`'s sort indicator (purely visual — the widget never sorts
+/// its own `rows`; the host sorts and re-authors them).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SortSpec {
+    /// The sorted column's index.
+    pub column: usize,
+    /// Ascending (`true`) or descending.
+    pub ascending: bool,
+}
+
+/// A sortable, optionally multi-select data grid. Elm-pure like the kit
+/// widget: `rows` render exactly as given (sort/filter your own data before
+/// authoring), and every handler is a single inert intent — the host reads
+/// which control fired from whatever it authors next, the same contract as
+/// `tabs`/`select`. Drops the kit widget's column **resize** (`on_resize`/
+/// `on_resize_end`/`resize_active`) and **reorder** (`on_reorder`, a
+/// drag-and-drop from/to index pair): both need a computed value (a pixel
+/// width, a pair of indices) per event that no single intent string or
+/// scalar state write can carry. `column_widths`/`pinned_left`/
+/// `pinned_right` are static layout, not interactions, so they stay
+/// authorable.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DataTableNode {
+    /// The column headers.
+    pub columns: Vec<String>,
+    /// The row cells, outer = row, inner = column (parallel to `columns`).
+    #[serde(default)]
+    pub rows: Vec<Vec<String>>,
+    /// Draws the sort indicator on one column (▲/▼); purely visual.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sort: Option<SortSpec>,
+    /// Highlights one row by index.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected: Option<usize>,
+    /// Adds a leading tri-state checkbox column; `selection[i]` is row `i`'s
+    /// checked state (the header shows checked/mixed/unchecked from this).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selection: Option<Vec<bool>>,
+    /// Forces the scrolling sticky-header body.
+    #[serde(default)]
+    pub sticky_header: bool,
+    /// Explicit per-column widths in logical px (parallel to `columns`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column_widths: Option<Vec<f32>>,
+    /// Freezes the first `n` columns to the left edge on horizontal scroll
+    /// (needs `column_widths`).
+    #[serde(default)]
+    pub pinned_left: usize,
+    /// Freezes the last `n` columns to the right edge on horizontal scroll
+    /// (needs `column_widths`).
+    #[serde(default)]
+    pub pinned_right: usize,
+    /// Current per-column filter text (parallel to `columns`), shown in a
+    /// filter row between the header and body. The widget never filters
+    /// `rows` itself — wire `on_filter`, filter your data, and re-author it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub filter: Option<Vec<String>>,
+    /// Intent emitted when a header is clicked to sort.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_sort: Option<String>,
+    /// Intent emitted when a row is clicked.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_select: Option<String>,
+    /// Intent emitted when a row's checkbox is toggled (needs `selection`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_select_row: Option<String>,
+    /// Intent emitted when the header's tri-state checkbox is toggled
+    /// (needs `selection`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_select_all: Option<String>,
+    /// Intent emitted when a filter cell is edited (needs `filter`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_filter: Option<String>,
+    /// Stable key (also namespaces the virtualized body's scroll state and
+    /// the per-column filter editors).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A fixed-row-height virtualized list: only rows scrolled into view
+/// materialize. `items` are literal child nodes built through the same
+/// [`Node`] grammar as everything else — never a code closure — so a "100k
+/// row" list is only ever as large as the JSON actually sent; see
+/// [`MAX_LIST_ITEMS`](crate::parse::MAX_LIST_ITEMS) for the authored clamp.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct VirtualListNode {
+    /// The row content, in order.
+    pub items: Vec<Node>,
+    /// Fixed row height in logical px.
+    pub row_height: f32,
+    /// Stable key (recommended: the scroll offset is kept per id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// One dropdown/popover-menu item: a label and the intent it emits when
+/// chosen. Reuses the same shape as [`MenubarMenuDto`]'s items. Deliberately
+/// the *simple* menu shape (`(label, message)` pairs) — the kit's richer
+/// `menu_item`/`menu_items` API (leading icons, trailing shortcut hints,
+/// disabled rows, nested submenus, separators) has no JSON projection here;
+/// author a plain flat list of choices instead.
+pub type DropdownMenuItemDto = MenuItemDto;
+
+/// A menu that toggles open when `trigger` is clicked; outside click, an
+/// item click, or Escape close it automatically (no state needed — the
+/// engine owns the open/closed flag).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct DropdownMenuNode {
+    /// The clickable anchor content.
+    pub trigger: Box<Node>,
+    /// The dropdown items (see [`DropdownMenuItemDto`]).
+    pub items: Vec<DropdownMenuItemDto>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A floating panel anchored below `trigger`, toggled by clicking it — the
+/// general-purpose escape hatch when `content` isn't a flat action list
+/// (unlike `dropdown_menu`, `content` is any node).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct PopoverNode {
+    /// The clickable anchor content.
+    pub trigger: Box<Node>,
+    /// The panel content.
+    pub content: Box<Node>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// A modal Cmd-K launcher. Present in the tree = shown — the same
+/// tree-presence-is-visibility contract as `modal`/`drawer` (there is no
+/// `open` field; omit the node from the next description to close it).
+/// Drops the kit widget's `on_navigate`/`highlighted` keyboard-cursor wiring,
+/// same as `combobox` — Enter still runs the top filtered match.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct CommandPaletteNode {
+    /// The current query text.
+    #[serde(default)]
+    pub query: String,
+    /// Bind the query to a `state` text key (the framework sets it as the
+    /// user types).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bind: Option<String>,
+    /// The command list (see [`MenuItemDto`]).
+    pub commands: Vec<MenuItemDto>,
+    /// Intent emitted on Escape / outside click.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_close: Option<String>,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    /// Reserved fallback trace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fallback: Option<String>,
+}
+
+/// Default `0.5` for the split pane's `fraction` (serde `default` attribute).
+pub fn default_half() -> f32 {
+    0.5
 }
 
 /// Default value for `status`/`delta_status` fields (serde `default` attribute).

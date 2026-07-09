@@ -20,3 +20,4 @@ kurbo.workspace = true
 fenestra-shell.workspace = true
 image.workspace = true
 insta.workspace = true
+proptest.workspace = true

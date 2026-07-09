@@ -15,21 +15,43 @@ binary.
 
 ## Tools
 
-- `describe_vocabulary` — the description grammar (call this first).
-- `render_ui` — render to a typed access tree, a preview image, and a11y warnings.
-- `query_ui` — find nodes by a semantic selector.
-- `interact` — drive clicks / typing / keys by selector (never coordinates).
-- `check_a11y` — contrast, labeling, and per-text-node legibility.
-- `match_aria_snapshot` — assert an accessibility snapshot.
-- `match_screenshot` — compare against a baseline image.
-- `validate` — validate a description without rendering.
+- `describe_vocabulary` — the description grammar: every node type with a
+  minimal example, and the theme color roles a color may name. Call this
+  first.
+- `describe_schema` — the formal JSON Schema for a `fenestra/1` description,
+  the machine-checkable complement to `describe_vocabulary`.
+- `render_ui` — render to a typed access tree, a downscaled preview image, and
+  automatic accessibility warnings.
+- `query_ui` — find nodes by a semantic selector (role, name, value, or id);
+  a miss returns the nearest candidates to guide a retry.
+- `interact` — drive scripted interactions (click, type, key, tab, hover,
+  wheel, drag) by semantic selector, never coordinates.
+- `check_a11y` — theme contrast, labeling of every interactive control, and
+  per-text-node APCA + WCAG 2 legibility.
+- `focus_order` — the keyboard focus order: the refs a Tab cycle visits, in
+  order, honoring a modal focus trap.
+- `check_layout` — layout geometry from the real frame: interactive targets
+  below the minimum hit size, and signal-bearing nodes clipped off-screen.
+- `match_aria_snapshot` — assert an expected accessibility snapshot (partial /
+  strict / regex).
+- `match_screenshot` — compare against a baseline PNG, pixel by pixel, with an
+  optional tolerance, differing-pixel budget, and mask rectangles to ignore.
+- `validate` — validate a description without rendering; problems come back
+  path-pointed.
+- `run_scenario` — drive a description + optional steps through a whole
+  bundle of expectations (emitted intents, a11y, aria, screenshot, queries) in
+  one pass, asserted against the post-interaction frame.
+- `film_ui` — drive optional steps (applied first, so a click can trigger the
+  transition to watch), then capture frames with real motion on and compose
+  them into one captioned filmstrip. The one tool that turns reduced motion
+  off — every other tool stays reduced-motion for deterministic pixels.
 
-Each tool leads with a typed structured result — the four assertion tools
-(`query_ui`, `check_a11y`, `match_aria_snapshot`, `describe_vocabulary`) carry a
-formal `outputSchema` so a client knows the result shape up front. The visual
-tools also attach a downscaled preview image and a `resource_link` to the
-full-resolution PNG (a `file://` temp path), so a large image never bloats the
-response yet stays one fetch away.
+Each tool leads with a typed structured result — `query_ui`, `check_a11y`,
+`focus_order`, `check_layout`, `match_aria_snapshot`, and `describe_vocabulary`
+carry a formal `outputSchema` so a client knows the result shape up front. The
+visual tools also attach a downscaled preview image and a `resource_link` to
+the full-resolution PNG (a `file://` temp path), so a large image never
+bloats the response yet stays one fetch away.
 
 ## License
 

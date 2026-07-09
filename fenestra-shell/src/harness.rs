@@ -18,7 +18,10 @@
 //! Determinism: scale 1.0, reduced motion, embedded fonts, and an
 //! explicit clock — animations only advance when [`Harness::pump`] is
 //! called. Nothing is painted unless [`Harness::render`] is called, so
-//! structural tests stay fast.
+//! structural tests stay fast. [`Harness::film`] captures a whole sequence
+//! of renders across the clock, so an agent can watch a transition play
+//! instead of only ever seeing frozen frames — see its docs for how that
+//! squares with the reduced-motion default above.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
@@ -32,6 +35,19 @@ use image::RgbaImage;
 
 use crate::element_render::with_fonts;
 use crate::with_headless;
+
+/// Hard ceiling on `frames` in [`Harness::film`]: a filmstrip is meant for
+/// an agent to review in one sitting, and every frame is a full GPU render —
+/// this many already takes seconds and produces a strip nobody reviews at a
+/// glance. Clamp-over-panic: a hostile or mistaken huge request degrades to
+/// this ceiling instead of hanging or exhausting memory rendering it.
+pub const MAX_FILM_FRAMES: usize = 64;
+
+/// Hard ceiling on `interval_ms` in [`Harness::film`]: a span this long turns
+/// "watch a transition play" into unrelated snapshots minutes apart. Chain
+/// several `film` calls (or `pump` between them) to cover a longer timeline
+/// at a sensible cadence.
+pub const MAX_FILM_INTERVAL_MS: u64 = 60_000;
 
 /// One headless window: its own retained state, view, and frame —
 /// exactly like the windowed runner keeps per window.
@@ -524,5 +540,40 @@ where
             .expect("headless renderer unavailable")
         })
         .expect("headless render failed")
+    }
+
+    /// Captures `frames` renders of the active window, `interval_ms` apart on
+    /// the deterministic clock: the first frame is the window exactly as it
+    /// stands now, then [`Self::pump`] and [`Self::render`] repeat — so
+    /// `film(3, 100)` returns the states at +0ms, +100ms, +200ms.
+    ///
+    /// [`Self::new`] defaults every harness to reduced motion, the same
+    /// default every other verification path relies on so single-shot
+    /// goldens stay stable — under it every transition snaps to its target
+    /// immediately, so a filmstrip captured without changing that is `frames`
+    /// copies of the same pixels. Call
+    /// [`Self::set_reduced_motion`]`(false)` first to see real motion play;
+    /// determinism still holds, because it comes from the clock (advanced
+    /// only by [`Self::pump`]), never from suppressing animation.
+    ///
+    /// `frames` is floored at 1 and clamped to [`MAX_FILM_FRAMES`];
+    /// `interval_ms` is clamped to [`MAX_FILM_INTERVAL_MS`] (see their docs).
+    ///
+    /// # Panics
+    /// If rendering fails (see [`Self::render`]).
+    pub fn film(&mut self, frames: usize, interval_ms: u64) -> Vec<RgbaImage> {
+        let frames = frames.clamp(1, MAX_FILM_FRAMES);
+        let interval_ms = interval_ms.min(MAX_FILM_INTERVAL_MS);
+        let mut out = Vec::with_capacity(frames);
+        out.push(self.render());
+        for _ in 1..frames {
+            #[expect(
+                clippy::cast_precision_loss,
+                reason = "interval_ms is clamped to MAX_FILM_INTERVAL_MS, far under f64's exact-integer range"
+            )]
+            self.pump(interval_ms as f64);
+            out.push(self.render());
+        }
+        out
     }
 }

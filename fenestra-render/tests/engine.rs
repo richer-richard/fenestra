@@ -1,12 +1,16 @@
 //! The cli engine: render (tree + png + warnings), interact (emitted intents +
-//! after-tree, self-explaining misses), and match_screenshot (tolerance + masks).
-//! These exercise the render path, so they need a GPU.
+//! after-tree, self-explaining misses), match_screenshot (tolerance + masks),
+//! and film (filmstrips of a description + steps). These exercise the render
+//! path, so they need a GPU.
 
 use fenestra_describe::dto::{AccessNodeDto, Bounds};
 use fenestra_describe::format::Description;
 use fenestra_describe::inspect::Selector;
 use fenestra_render::engine::EngineError;
-use fenestra_render::{Step, interact, match_screenshot, render, resolve_theme};
+use fenestra_render::{Step, diff_images, film, interact, match_screenshot, render, resolve_theme};
+use fenestra_shell::testing::MAX_STRIP_SCALE;
+use fenestra_shell::{MAX_FILM_FRAMES, MAX_FILM_INTERVAL_MS};
+use image::RgbaImage;
 
 const FORM: &str = r#"{"schema":"fenestra/1","root":{"col":{"children":[
     {"button":{"label":"Add","on_click":"add"}},
@@ -59,6 +63,41 @@ fn interact_miss_is_self_explaining() {
     let err = interact(&desc(FORM), &theme, (400, 300), &steps, false)
         .err()
         .unwrap();
+    match err {
+        EngineError::Step { index, tree, .. } => {
+            assert_eq!(index, 0);
+            assert!(
+                tree.contains("button"),
+                "the tree should be included: {tree}"
+            );
+        }
+        EngineError::Parse(e) => panic!("expected a Step error, got Parse: {e:?}"),
+        EngineError::Scenario(m) => panic!("expected a Step error, got Scenario: {m}"),
+    }
+}
+
+#[test]
+fn interact_drag_to_missing_target_is_self_explaining() {
+    // Regression: `Step::Drag`'s `to` selector must resolve strictly like every
+    // other target — a miss returns a self-explaining `EngineError::Step` (with
+    // the access tree), never a panic in `Frame::get`. `from` resolves; only
+    // `to` misses.
+    let theme = resolve_theme(None).unwrap();
+    let steps = vec![Step::Drag {
+        from: Box::new(Selector {
+            role: Some("button".into()),
+            name: Some("Add".into()),
+            ..Default::default()
+        }),
+        to: Box::new(Selector {
+            role: Some("button".into()),
+            name: Some("DoesNotExist".into()),
+            ..Default::default()
+        }),
+    }];
+    let err = interact(&desc(FORM), &theme, (400, 300), &steps, false)
+        .err()
+        .expect("a Drag whose `to` matches nothing must be an error, not a panic");
     match err {
         EngineError::Step { index, tree, .. } => {
             assert_eq!(index, 0);
@@ -236,4 +275,188 @@ fn live_region_surfaces_in_the_after_tree() {
         any_live(&out.tree),
         "the live status must surface in the access tree"
     );
+}
+
+/// A bound checkbox: the stock kit widget's own background/border
+/// `Transition::colors()` fires when the click flips `checked`, giving `film`
+/// a real transition (200ms, `MotionDuration::Base`) using only the ordinary
+/// `fenestra/1` vocabulary — no raw builder code or new description features.
+const TOGGLE: &str = r#"{"schema":"fenestra/1","state":{"agreed":false},"root":{
+    "checkbox":{"bind":"agreed","label":"Agree","id":"cb"}
+}}"#;
+
+fn click_cb() -> Vec<Step> {
+    vec![Step::Click(Selector {
+        id: Some("cb".into()),
+        ..Default::default()
+    })]
+}
+
+fn differing_pixels(a: &RgbaImage, b: &RgbaImage) -> usize {
+    a.pixels().zip(b.pixels()).filter(|(x, y)| x != y).count()
+}
+
+#[test]
+fn film_drives_steps_first_and_captures_a_real_transition() {
+    let theme = resolve_theme(None).unwrap();
+    let out = film(&desc(TOGGLE), &theme, (240, 80), &click_cb(), 5, 50, 1.0).unwrap();
+    assert_eq!(out.frame_count, 5);
+    assert_eq!(out.frames.len(), 5);
+
+    // The click (applied before capture starts) kicks off a 200ms crossfade;
+    // 5 frames at 50ms span exactly that window, so the last frame should
+    // differ from the first — the transition actually played, it didn't
+    // snap instantly (which reduced motion, the default elsewhere, would do).
+    assert!(
+        differing_pixels(&out.frames[0], &out.frames[4]) > 0,
+        "the checkbox's fill should have visibly changed over the transition"
+    );
+    // And it's a genuine in-flight animation, not a step-change straight to
+    // the end state: the very next frame already differs from the first.
+    assert!(
+        differing_pixels(&out.frames[0], &out.frames[1]) > 0,
+        "frame 1 (+50ms) should already have moved off the starting frame"
+    );
+}
+
+#[test]
+fn film_without_steps_is_static_on_an_unchanging_view() {
+    // No steps: nothing triggers a transition, so every frame should match
+    // the first — within the same platform GPU-parallelism noise floor
+    // `match_screenshot_identical_is_ok` tolerates (3/255 channel, 0.2%
+    // budget), not byte identity.
+    let theme = resolve_theme(None).unwrap();
+    let out = film(&desc(TOGGLE), &theme, (240, 80), &[], 4, 50, 1.0).unwrap();
+    for (i, frame) in out.frames.iter().enumerate().skip(1) {
+        let diff = diff_images(&out.frames[0], frame, 3, 0.002, &[]);
+        assert!(
+            diff.ok,
+            "frame {i}: nothing changed, so it should match the first within noise: {}/{} differ",
+            diff.differing, diff.total
+        );
+    }
+}
+
+#[test]
+fn film_strip_grows_with_frame_count() {
+    let theme = resolve_theme(None).unwrap();
+    let few = film(&desc(TOGGLE), &theme, (240, 80), &click_cb(), 2, 50, 1.0).unwrap();
+    let many = film(&desc(TOGGLE), &theme, (240, 80), &click_cb(), 6, 50, 1.0).unwrap();
+    assert!(
+        many.strip.width() > few.strip.width(),
+        "more cells should make a wider strip: {} vs {}",
+        many.strip.width(),
+        few.strip.width()
+    );
+    assert_eq!(
+        few.strip.height(),
+        many.strip.height(),
+        "cell height (one row) shouldn't depend on frame count"
+    );
+}
+
+#[test]
+fn film_clamps_hostile_frames_and_interval_and_reports_the_actual_values() {
+    // A tiny scale keeps 64 (clamped) cells well under the renderer's texture
+    // limit, isolating the frames/interval clamp from the strip-size one below.
+    let theme = resolve_theme(None).unwrap();
+    let out = film(
+        &desc(TOGGLE),
+        &theme,
+        (240, 80),
+        &[],
+        usize::MAX,
+        u64::MAX,
+        0.05,
+    )
+    .unwrap();
+    assert_eq!(
+        out.frame_count, MAX_FILM_FRAMES,
+        "an enormous frame request clamps to the documented ceiling"
+    );
+    assert_eq!(
+        out.interval_ms, MAX_FILM_INTERVAL_MS,
+        "an enormous interval clamps to the documented ceiling"
+    );
+    assert_eq!(
+        out.scale, 0.05,
+        "an in-range scale passes through unchanged"
+    );
+}
+
+#[test]
+fn film_clamps_a_non_finite_scale_and_reports_the_actual_value() {
+    let theme = resolve_theme(None).unwrap();
+    let out = film(&desc(TOGGLE), &theme, (240, 80), &[], 2, 50, f32::NAN).unwrap();
+    assert_eq!(
+        out.scale, MAX_STRIP_SCALE,
+        "a non-finite scale clamps to the default (no shrink)"
+    );
+
+    let out = film(&desc(TOGGLE), &theme, (240, 80), &[], 2, 50, -5.0).unwrap();
+    assert_eq!(
+        out.scale,
+        fenestra_shell::testing::MIN_STRIP_SCALE,
+        "a negative scale clamps to the floor"
+    );
+}
+
+/// The clamps on `frames`/`interval_ms`/`scale` are each individually sound
+/// (proven above), but a caller can still combine max-clamped frames with a
+/// full (clamped) scale on a wide-ish view and legitimately ask for a strip
+/// bigger than the renderer can produce. Clamp-over-panic still holds here:
+/// this is a normal `Err`, never a crash.
+#[test]
+fn film_overflowing_strip_size_is_a_clean_error_not_a_panic() {
+    let theme = resolve_theme(None).unwrap();
+    let err = film(
+        &desc(TOGGLE),
+        &theme,
+        (240, 80),
+        &[],
+        usize::MAX,
+        1,
+        f32::INFINITY,
+    )
+    .err()
+    .unwrap();
+    match err {
+        EngineError::Scenario(message) => {
+            assert!(
+                message.contains("renderer's") && message.contains("limit"),
+                "{message}"
+            );
+        }
+        other => panic!("expected a Scenario error, got {other:?}"),
+    }
+}
+
+#[test]
+fn film_zero_frames_and_zero_interval_still_succeed() {
+    let theme = resolve_theme(None).unwrap();
+    let out = film(&desc(TOGGLE), &theme, (240, 80), &[], 0, 0, 1.0).unwrap();
+    assert_eq!(
+        out.frame_count, 1,
+        "a zero-frame request floors to one frame"
+    );
+    assert_eq!(out.interval_ms, 0);
+}
+
+#[test]
+fn film_step_miss_is_self_explaining() {
+    let theme = resolve_theme(None).unwrap();
+    let steps = vec![Step::Click(Selector {
+        id: Some("nope".into()),
+        ..Default::default()
+    })];
+    let err = film(&desc(TOGGLE), &theme, (240, 80), &steps, 3, 50, 1.0)
+        .err()
+        .unwrap();
+    match err {
+        EngineError::Step { index, tree, .. } => {
+            assert_eq!(index, 0);
+            assert!(tree.contains("checkbox"), "{tree}");
+        }
+        other => panic!("expected a Step error, got {other:?}"),
+    }
 }

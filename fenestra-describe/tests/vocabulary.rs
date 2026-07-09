@@ -50,6 +50,7 @@ fn vocabulary_covers_every_node_variant() {
         "div",
         "stack",
         "card",
+        "split_pane",
         // Text
         "text",
         // Form controls
@@ -62,6 +63,12 @@ fn vocabulary_covers_every_node_variant() {
         "text_area",
         "select",
         "spin_button",
+        "field",
+        "combobox",
+        "multi_select",
+        "tag_input",
+        "date_picker",
+        "color_picker",
         // Navigation
         "tabs",
         "segmented",
@@ -70,6 +77,7 @@ fn vocabulary_covers_every_node_variant() {
         "stepper",
         "toolbar",
         "menubar",
+        "tree",
         // Display / feedback
         "badge",
         "callout",
@@ -83,10 +91,18 @@ fn vocabulary_covers_every_node_variant() {
         "spinner",
         "skeleton",
         "icon",
+        "image",
+        "toast",
+        // Data
+        "data_table",
+        "virtual_list",
         // Overlays
         "modal",
         "tooltip",
         "drawer",
+        "popover",
+        "dropdown_menu",
+        "command_palette",
         // Decoration
         "divider",
         "spacer",
@@ -107,6 +123,7 @@ fn tag_of(n: &Node) -> &'static str {
         Node::Div(_) => "div",
         Node::Stack(_) => "stack",
         Node::Card(_) => "card",
+        Node::SplitPane(_) => "split_pane",
         // Text
         Node::Text(_) => "text",
         // Form controls
@@ -119,6 +136,12 @@ fn tag_of(n: &Node) -> &'static str {
         Node::TextArea(_) => "text_area",
         Node::Select(_) => "select",
         Node::SpinButton(_) => "spin_button",
+        Node::Field(_) => "field",
+        Node::Combobox(_) => "combobox",
+        Node::MultiSelect(_) => "multi_select",
+        Node::TagInput(_) => "tag_input",
+        Node::DatePicker(_) => "date_picker",
+        Node::ColorPicker(_) => "color_picker",
         // Navigation
         Node::Tabs(_) => "tabs",
         Node::Segmented(_) => "segmented",
@@ -127,6 +150,7 @@ fn tag_of(n: &Node) -> &'static str {
         Node::Stepper(_) => "stepper",
         Node::Toolbar(_) => "toolbar",
         Node::Menubar(_) => "menubar",
+        Node::Tree(_) => "tree",
         // Display / feedback
         Node::Badge(_) => "badge",
         Node::Callout(_) => "callout",
@@ -140,10 +164,18 @@ fn tag_of(n: &Node) -> &'static str {
         Node::Spinner(_) => "spinner",
         Node::Skeleton(_) => "skeleton",
         Node::Icon(_) => "icon",
+        Node::Image(_) => "image",
+        Node::Toast(_) => "toast",
+        // Data
+        Node::DataTable(_) => "data_table",
+        Node::VirtualList(_) => "virtual_list",
         // Overlays
         Node::Modal(_) => "modal",
         Node::Tooltip(_) => "tooltip",
         Node::Drawer(_) => "drawer",
+        Node::Popover(_) => "popover",
+        Node::DropdownMenu(_) => "dropdown_menu",
+        Node::CommandPalette(_) => "command_palette",
         // Decoration
         Node::Divider(_) => "divider",
         Node::Spacer(_) => "spacer",

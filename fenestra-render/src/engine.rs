@@ -10,7 +10,8 @@ use fenestra_describe::format::Description;
 use fenestra_describe::inspect::{self, Selector};
 use fenestra_describe::parse::to_element;
 use fenestra_describe::state::{Action, StateMap};
-use fenestra_shell::{Harness, render_element};
+use fenestra_shell::testing::{clamp_strip_scale, filmstrip_image};
+use fenestra_shell::{Harness, MAX_FILM_INTERVAL_MS, render_element};
 use image::{Rgba, RgbaImage};
 use serde::Deserialize;
 
@@ -181,6 +182,71 @@ pub fn interact(
     })
 }
 
+/// What [`film`] produced.
+pub struct FilmOut {
+    /// The individual captured frames, before composition.
+    pub frames: Vec<RgbaImage>,
+    /// The frames composed into one captioned, bordered filmstrip.
+    pub strip: RgbaImage,
+    /// The frame count actually captured (`Harness::film` floors at 1 and
+    /// ceilings at `fenestra_shell::MAX_FILM_FRAMES`) — may differ from the
+    /// request.
+    pub frame_count: usize,
+    /// The interval actually used between frames, in ms (ceilinged at
+    /// [`MAX_FILM_INTERVAL_MS`]) — may differ from the request.
+    pub interval_ms: u64,
+    /// The per-cell strip scale actually used (clamped, see
+    /// [`clamp_strip_scale`]) — may differ from the request.
+    pub scale: f32,
+}
+
+/// Drives `steps` (applied first — so a click can trigger the transition
+/// about to be watched), then captures `frames` renders spaced `interval_ms`
+/// apart and composes them into one filmstrip.
+///
+/// Unlike every other verb in this module (which stays reduced-motion for
+/// deterministic pixels), `film` turns real animation on *before* driving
+/// anything: the whole point is watching motion play, and a transition a
+/// step triggers under reduced motion would already be snapped to its end
+/// state by the time capture starts, making the filmstrip static regardless
+/// of `frames`/`interval_ms`.
+///
+/// # Errors
+/// [`EngineError::Parse`] on a parse error, [`EngineError::Step`] when a
+/// step's target does not resolve, or [`EngineError::Scenario`] when the
+/// captured frames can't compose into a strip (an oversized `scale` on a
+/// long `frames` request — `Harness::film` always captures at least one
+/// frame, so the empty-input case never reaches this path).
+pub fn film(
+    desc: &Description,
+    theme: &Theme,
+    size: (u32, u32),
+    steps: &[Step],
+    frames: usize,
+    interval_ms: u64,
+    scale: f32,
+) -> Result<FilmOut, EngineError> {
+    to_element(desc, theme).map_err(EngineError::Parse)?;
+    let app = DescribedApp::new(desc.clone(), theme.clone());
+    let mut h = Harness::new(app, theme.clone(), size);
+    h.set_reduced_motion(false);
+    for (index, step) in steps.iter().enumerate() {
+        apply_step(&mut h, step, index)?;
+    }
+    let captured = h.film(frames, interval_ms);
+    let interval_ms = interval_ms.min(MAX_FILM_INTERVAL_MS);
+    let scale = clamp_strip_scale(scale);
+    let strip = filmstrip_image(&captured, interval_ms, scale)
+        .map_err(|e| EngineError::Scenario(format!("cannot compose filmstrip: {e}")))?;
+    Ok(FilmOut {
+        frame_count: captured.len(),
+        frames: captured,
+        strip,
+        interval_ms,
+        scale,
+    })
+}
+
 /// Validates the description (so a parse error is reported before anything is
 /// driven), then runs `steps` on a fresh headless harness and hands back the
 /// live harness for inspection — the post-interaction frame, state, and emitted
@@ -287,12 +353,12 @@ fn apply_step(h: &mut Harness<DescribedApp>, step: &Step, index: usize) -> Resul
             h.wheel_xy(&q, *dx, *dy);
         }
         Step::Drag { from, to } => {
+            // Both endpoints resolve strictly (like every other target step) so
+            // a missing/ambiguous `to` returns a self-explaining EngineError::Step
+            // with the access tree — never a panic in `Frame::get` (which the bare
+            // `to.to_query()` used to reach via `h.drag` → `center`).
             let from_q = resolve(h, from, index)?;
-            let to_q = to.to_query().map_err(|message| EngineError::Step {
-                index,
-                message,
-                tree: h.frame().access_yaml(),
-            })?;
+            let to_q = resolve(h, to, index)?;
             h.drag(&from_q, &to_q);
         }
         Step::PumpMs(ms) => h.pump(*ms),
@@ -375,6 +441,32 @@ pub fn match_screenshot(
     let el = to_element(desc, theme).map_err(EngineError::Parse)?;
     let actual = render_element(el, theme, size);
     Ok(diff_images(baseline, &actual, channel_tol, budget, masks))
+}
+
+/// Validates a mask list before it reaches [`diff_images`]. Diffing itself
+/// never panics on a stray mask — a `NaN` comparison is simply false, a
+/// negative extent matches nothing — but a boundary that accepts masks from an
+/// untrusted caller (the CLI, the MCP tool) should reject the mistake rather
+/// than silently ignore it, so both call `validate_masks` first.
+///
+/// # Errors
+/// A path-pointed message (`mask[i].field`) for the first non-finite
+/// coordinate or negative width/height found.
+pub fn validate_masks(masks: &[Bounds]) -> Result<(), String> {
+    for (i, m) in masks.iter().enumerate() {
+        for (field, v) in [("x", m.x), ("y", m.y), ("w", m.w), ("h", m.h)] {
+            if !v.is_finite() {
+                return Err(format!("mask[{i}].{field} must be finite, got {v}"));
+            }
+        }
+        if m.w < 0.0 || m.h < 0.0 {
+            return Err(format!(
+                "mask[{i}] has a negative size: w={}, h={}",
+                m.w, m.h
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Whether `(x, y)` lies inside any mask rectangle.

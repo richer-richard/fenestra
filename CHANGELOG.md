@@ -2,11 +2,61 @@
 
 ## Unreleased
 
-A hardening + correctness pass from an adversarial self-review: agent-reachable DoS
-vectors closed, three retained-state/correctness bugs fixed, and the headless
-verification envelope documented. Additive; every prior golden is byte-identical.
+A hardening + correctness pass from an adversarial self-review — agent-reachable DoS
+vectors closed, three retained-state/correctness bugs fixed, the headless
+verification envelope documented — followed by a community-usefulness batch:
+the JSON authoring grammar now reaches the whole kit, `fenestra preview` gives
+authors a live-reload window, filmstrips let agents watch motion play, and the
+kit gains an OKLCH color picker. Additive; every prior golden is byte-identical.
 
 ### Added
+
+- **The fenestra/1 grammar now reaches the whole kit.** A new `image` node
+  (base64 PNG through a dependency-free strict RFC 4648 decoder; dimension
+  limits enforced *before* pixel allocation against decompression bombs; alt
+  text required) and 14 previously code-only widgets become authorable:
+  `field`, `split_pane`, `combobox`, `multi_select`, `tag_input`,
+  `date_picker`, `tree`, `toast`, `data_table`, `virtual_list`, `popover`,
+  `dropdown_menu`, `command_palette`, and `color_picker`. Every handler stays
+  an inert intent string or a scalar state write; the three kit capabilities
+  that need computed per-event payloads (data_table column resize/reorder,
+  keyboard-cursor navigation, calendar grid nav) are deliberately not
+  authorable and say so in their node docs. List/table inputs clamp
+  (`MAX_LIST_ITEMS` 1000, `MAX_TABLE_COLUMNS` 128), path-pointed, never
+  panicking.
+- **`fenestra preview <file>`: a live-reload window for authoring `fenestra/1`
+  JSON.** Edit and save; the window re-renders (200ms mtime/len poll, no new
+  dependency). A parse error never crashes or blanks the window — the last
+  description that loaded cleanly keeps rendering under a themed, path-pointed
+  error panel, and a broken very-first load shows the panel alone. Runtime
+  state survives a reload best-effort (bindings the edit still declares keep
+  their values; new ones seed; removed ones drop).
+- **`Harness::film` + `fenestra film` + the `film_ui` MCP tool: agents can
+  watch motion play.** `film(frames, interval_ms)` captures a render sequence
+  across the harness's deterministic clock (call `set_reduced_motion(false)`
+  first — determinism comes from the clock, not from suppressing animation);
+  `testing::assert_filmstrip_snapshot` locks a captioned strip as a golden
+  through the existing snapshot machinery, and the public non-panicking
+  `testing::filmstrip_image` composes strips outside tests. The CLI and MCP
+  surfaces drive optional steps *first* — with motion already on, so a
+  step-triggered transition is still in flight at capture — and report the
+  actual frame count / interval / scale used after clamping
+  (`MAX_FILM_FRAMES` 64, `MAX_FILM_INTERVAL_MS` 60s), never just the request.
+  MCP grows to thirteen tools.
+- **OKLCH color picker (`fenestra_kit::color_picker`).** A generated
+  lightness×chroma pad, hue and checkerboard-backed alpha strips, a swatch,
+  and a forgiving hex/`oklch()` text entry — Elm-pure like every kit widget,
+  keyboard-operable on every channel (the 2D pad exposes independent
+  Lightness/Chroma focus targets per the RangeSlider two-thumb precedent),
+  with an honest gamut-mapped indicator built only on core's existing
+  `oklch`/`oklch_of`. Text parsing rejects `nan`/`inf` literals explicitly and
+  never commits an unparseable edit. A proptest sweep over the full `f32`
+  domain caught a `rem_euclid` hue-wrap boundary bug before it shipped.
+- **Screenshot masks on every compare surface.** `match-png` gains a
+  repeatable `--mask x,y,w,h` flag and the `match_screenshot` MCP tool an
+  optional `masks` array — validated (finite, non-negative) before any disk
+  I/O; the scenario path already threaded masks, now the ad-hoc surfaces do
+  too.
 
 - **`fenestra-anim`: a new standalone leaf crate for keyframe animation math**,
   published independently at `0.1.0`. Extracted from `fenestra-core` (`CubicBezier`,
@@ -45,6 +95,19 @@ verification envelope documented. Additive; every prior golden is byte-identical
 
 ### Fixed
 
+- **Second-pass polish from the same code review (P2s + a convention).** The
+  color picker's amber badge no longer claims "Out of gamut — showing the
+  nearest displayable color" (the picker only ever holds a displayable color, so
+  nothing is substituted) — it now reads "At the sRGB gamut edge …", the honest
+  meaning. `date_picker` now rejects a day past its month's length (April 31,
+  Feb 30) with a path-pointed error instead of silently selecting nothing.
+  `image_node` decodes with `into_rgba8` (consuming) so the native and RGBA8
+  buffers aren't both resident — the transient peak stays near the committed
+  budget. `fenestra preview` detects changes by content hash (a same-length
+  rewrite within a coarse mtime tick is no longer missed) and its poll thread
+  now stops when the `PreviewApp` is dropped (no leak when embedded). The
+  color-picker gallery example seeds from `theme.accent` rather than a raw
+  `oklch()` literal (the kit's "colors only through theme tokens" rule).
 - **`fenestra-motion`: a 10-angle multi-agent review found and fixed 15 issues**
   before the crate's PR merged — none shipped. Two reproduced live before the
   fix: a hostile document (`start: u64::MAX`-class span) panicked with an
@@ -105,6 +168,25 @@ verification envelope documented. Additive; every prior golden is byte-identical
 
 ### Security
 
+- **A second, adversarial code review of the batch closed a P0 and two P1s
+  (agent-reachable), each with a regression test.** (1) *P0* — the aggregate
+  image-decode budget was reset to its full value inside `virtual_list`'s lazy
+  per-row render closure, so on the *paint* path each materialized row decoded
+  with an independent full budget; a tiny `row_height` collapses the virtual
+  window onto every row at once, so a `virtual_list` of large images could
+  decode the whole list simultaneously and OOM, defeating the very cap this
+  batch introduced. A per-frame budget (`fenestra_core::frame_epoch`) now bounds
+  all rows a frame materializes; over-budget rows fail decode before allocation
+  and degrade to spacers. (2) *P1* — an image decoded on every rebuild (`view()`
+  runs per frame), so an `interact {"tab": 4096}` step or an animated preview
+  re-ran the full decode thousands of times (a hang, contradicting `film_ui`'s
+  "degrades instead of hanging"); an LRU decode cache (capped at
+  `MAX_TOTAL_IMAGE_BYTES`) now decodes each payload once and shares the blob.
+  (3) *P1* — `Step::Drag`'s `to` selector skipped strict resolution and panicked
+  in `Frame::get` on a miss instead of returning `EngineError::Step`; it now
+  resolves like every other target. The `image_budget_security` suite only
+  exercised the eager parse pass, so it was green with the P0 present — a
+  render-path test (real `build_frame`) now covers it.
 - **Three unfixable transitive RUSTSEC advisories are documented and ignored, not
   silenced.** `quick-xml 0.39.4` (RUSTSEC-2026-0194, RUSTSEC-2026-0195, both HIGH) reaches
   the workspace through winit's Wayland backend and `zbus_xml`'s AT-SPI stack; no

@@ -69,6 +69,11 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Raised-surface content card (vertical flex, SP6 padding, rounded).",
         r#"{"children":[]}"#,
     ),
+    (
+        "split_pane",
+        "Two children split by a draggable divider. `bind` a root `state` number key for the split fraction.",
+        r#"{"first":{"text":{"content":"Left"}},"second":{"text":{"content":"Right"}}}"#,
+    ),
     // ── Text ──────────────────────────────────────────────────────────────
     (
         "text",
@@ -121,6 +126,36 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Compact number stepper (value between − / + buttons). `on_decrement`/`on_increment` fire intents; `can_decrement`/`can_increment` gate the ends.",
         r#"{"value":"3"}"#,
     ),
+    (
+        "field",
+        "Labelled form-field wrapper: a label (with an optional required mark) above `control`, and help or error text (error wins) below it.",
+        r#"{"label":"Email","control":{"text_input":{"value":""}}}"#,
+    ),
+    (
+        "combobox",
+        "Editable select: typing filters `options`; `bind` a root `state` text key for the value (both typing and picking write it). Drops the kit's keyboard-cursor `highlighted`/`on_navigate`.",
+        r#"{"options":["Rust","Ruby","Python"],"value":"ru","open":true}"#,
+    ),
+    (
+        "multi_select",
+        "A set of toggleable option chips. `selected` lists the pre-checked option indices.",
+        r#"{"options":["Rust","Go","Zig"],"selected":[0,2]}"#,
+    ),
+    (
+        "tag_input",
+        "Bordered field holding removable tag chips plus an inline entry field for typing new ones.",
+        r#"{"tags":["design","rust"],"placeholder":"Add a tag…"}"#,
+    ),
+    (
+        "date_picker",
+        "Month calendar. Single-date by default; `range:true` switches to start/end selection. Drops the kit's WAI-ARIA keyboard grid navigation (`on_focus`/`focused_day`).",
+        r#"{"year":2026,"month":6}"#,
+    ),
+    (
+        "color_picker",
+        "OKLCH color picker: lightness×chroma pad, hue/alpha strips, a swatch, and a hex/`oklch()` text entry. `value` is hex or `oklch()` text; `bind` a root `state` text key for the committed hex value.",
+        r##"{"value":"#3b82f6","label":"Accent color"}"##,
+    ),
     // ── Navigation ────────────────────────────────────────────────────────
     (
         "tabs",
@@ -156,6 +191,11 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "menubar",
         "Application menu bar: top-level `menus`, each with a `title` and dropdown `items` (label + optional on_select intent).",
         r#"{"menus":[{"title":"File","items":[{"label":"New"},{"label":"Open"}]}]}"#,
+    ),
+    (
+        "tree",
+        "Nested disclosure tree with app-owned expansion/selection; one tab stop, keyboard-navigable (arrows, Home/End, type-ahead).",
+        r#"{"items":[{"id":"root","label":"Root","children":[{"id":"child","label":"Child"}]}]}"#,
     ),
     // ── Display / feedback ─────────────────────────────────────────────────
     (
@@ -218,6 +258,26 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Named Lucide icon (24x24, stroked).",
         r#"{"name":"plus"}"#,
     ),
+    (
+        "image",
+        "Base64-encoded PNG (RFC 4648 standard alphabet), decoded to RGBA8 at parse time. `label` (alt text) is required. `style.w`/`style.h` resize it; `style.rounded_full` crops a round avatar.",
+        r#"{"png":"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=","label":"A transparent pixel"}"#,
+    ),
+    (
+        "toast",
+        "Stack of transient status toasts pinned to the top-right. An empty `items` list renders nothing.",
+        r#"{"items":[{"message":"Report saved","status":"success"}]}"#,
+    ),
+    (
+        "data_table",
+        "Sortable, optionally multi-select data grid. `rows` render exactly as given; every handler is a single inert intent. Drops column resize/reorder (need a computed value per event); `column_widths`/`pinned_left`/`pinned_right` are static layout, not interactions, so they stay authorable.",
+        r#"{"columns":["Name","Role"],"rows":[["Ripley","Officer"]]}"#,
+    ),
+    (
+        "virtual_list",
+        "Fixed-row-height virtualized list of literal child `items` (never a code closure) — only rows scrolled into view materialize.",
+        r#"{"items":[{"text":{"content":"Item 0"}}],"row_height":32}"#,
+    ),
     // ── Overlays ──────────────────────────────────────────────────────────
     (
         "modal",
@@ -233,6 +293,21 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "drawer",
         "Edge-anchored drawer / sheet with a backdrop. `side`: left (default) | right | top | bottom; `children` are the panel content; `on_close` intent on Esc/scrim.",
         r#"{"title":"Filters","side":"left","children":[{"text":{"content":"Body"}}]}"#,
+    ),
+    (
+        "popover",
+        "Floating panel anchored below `trigger`, toggled by clicking it (self-contained: no state needed). `content` is any node.",
+        r#"{"trigger":{"button":{"label":"Open"}},"content":{"text":{"content":"Panel content"}}}"#,
+    ),
+    (
+        "dropdown_menu",
+        "Menu that toggles open when `trigger` is clicked; `items` are (label, on_select intent) pairs — the kit's richer icon/shortcut/submenu menu items have no JSON projection here.",
+        r#"{"trigger":{"button":{"label":"Actions"}},"items":[{"label":"Rename"},{"label":"Delete"}]}"#,
+    ),
+    (
+        "command_palette",
+        "Modal Cmd-K launcher: typing filters `commands`, Enter runs the top match. Present in the tree = shown (like `modal`); omit it to close. Drops the kit's keyboard-cursor `highlighted`/`on_navigate`.",
+        r#"{"commands":[{"label":"New file"},{"label":"Open"}]}"#,
     ),
     // ── Decoration ────────────────────────────────────────────────────────
     ("divider", "Themed hairline rule.", r#"{}"#),

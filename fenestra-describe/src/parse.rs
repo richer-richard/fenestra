@@ -11,27 +11,39 @@
 //! resolve, or an alignment word it does not know, degrades to a default and
 //! records a path-pointed [`DescribeError`] instead of failing the whole screen.
 
+use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
+use std::rc::Rc;
+
 use fenestra_core::{
-    AdaptiveTint, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat, ShadowToken,
-    Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight, col, div,
-    divider, linear_gradient, row, spacer, stack, text,
+    AdaptiveTint, Color, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat,
+    ShadowToken, Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight,
+    col, div, divider, frame_epoch, image_from_data, image_payload, linear_gradient, row, spacer,
+    stack, text,
 };
 use fenestra_kit::{
-    ButtonVariant, Status as KitStatus, accordion, accordion_item, avatar, badge, breadcrumbs,
-    button, callout, card, checkbox, crumb, drawer, kbd, kbd_raised, menubar, meter, modal,
-    pagination, progress, progress_indeterminate, radio, segmented, select, skeleton,
-    skeleton_circle, skeleton_text, slider, spin_button, spinner, stat_card, status as kit_status,
-    stepper, switch, tabs, text_area, text_input, toolbar, tooltip,
+    ButtonVariant, Status as KitStatus, TreeNode as KitTreeNode, accordion, accordion_item, avatar,
+    badge, breadcrumbs, button, callout, card, checkbox, color_picker, combobox, command_palette,
+    crumb, data_table, date_picker, date_range_picker, drawer, dropdown_menu, field,
+    format_color_text, kbd, kbd_raised, menubar, meter, modal, multi_select, pagination,
+    parse_color_text, popover, progress, progress_indeterminate, radio, segmented, select,
+    skeleton, skeleton_circle, skeleton_text, slider, spin_button, spinner, split_pane, stat_card,
+    status as kit_status, stepper, switch, tabs, tag_input, text_area, text_input, toast_stack,
+    toolbar, tooltip, tree_view, virtual_list,
 };
+use image::{ImageFormat, ImageReader, Limits};
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
-    AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode, Container,
-    Description, DrawerNode, EdgeSpec, FilterSpec, IconNode, InputNode, KbdNode, Leaf, MenubarNode,
-    MeterNode, ModalNode, Node, PaginationNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1,
-    SegmentedNode, SelectNode, SheenSpec, SkeletonNode, SpinButtonNode, StatCardNode, StatusNode,
-    StepperNode, Style, TabsNode, TextNode, ToolbarNode, TooltipNode, TrackSpec,
+    AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode,
+    ColorPickerNode, ComboboxNode, CommandPaletteNode, Container, DataTableNode, DatePickerNode,
+    DateSpec, Description, DrawerNode, DropdownMenuNode, EdgeSpec, FieldNode, FilterSpec, IconNode,
+    ImageNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode, ModalNode, MultiSelectNode, Node,
+    PaginationNode, PopoverNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1, SegmentedNode,
+    SelectNode, SheenSpec, SkeletonNode, SpinButtonNode, SplitPaneNode, StatCardNode, StatusNode,
+    StepperNode, Style, TabsNode, TagInputNode, TextNode, ToastStackNode, ToolbarNode, TooltipNode,
+    TrackSpec, TreeItemDto, TreeViewNode, VirtualListNode,
 };
 use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 
@@ -40,6 +52,52 @@ use crate::state::{Action, StateMap, bound_bool, bound_number, bound_text};
 /// reaching the headless blur pipeline as an unbounded box-window. (The pipeline
 /// caps the box radius at the image extent as a backstop.)
 const MAX_BLUR_PX: f32 = 200.0;
+
+/// The largest number of items an authored literal collection (table rows,
+/// tree nodes, virtual-list rows, toast/option/command/tag lists, …) may
+/// carry. These are not amplifying like `grid_cols`' `repeat` count or
+/// pagination's `siblings` (both bounded deeper in `fenestra-core`/
+/// `fenestra-kit`) — every item here is a literal element proportional to the
+/// JSON actually sent — but a bound still keeps parse-time work (and, for
+/// `virtual_list`, the per-row rebuild closure) sane against a hostile payload.
+pub const MAX_LIST_ITEMS: usize = 1000;
+
+/// The largest number of columns a `data_table` may declare. Columns become
+/// grid tracks, so this stays well under `fenestra-core`'s own
+/// `MAX_GRID_TRACKS` (1024) ceiling.
+const MAX_TABLE_COLUMNS: usize = 128;
+
+/// The largest base64-encoded `image` payload (characters), checked before
+/// any decode work starts.
+const MAX_IMAGE_B64_LEN: usize = 8 * 1024 * 1024;
+
+/// The largest width or height (px) a decoded `image` may have. Enforced
+/// through the `image` crate's own [`Limits`] *before* the pixel buffer is
+/// allocated — the PNG decoder checks the IHDR-declared dimensions as soon as
+/// it reads the header — so a "decompression bomb" (a tiny file whose header
+/// declares an enormous canvas) is rejected pre-decode, not after.
+const MAX_IMAGE_DIM: u32 = 8192;
+
+/// The largest *aggregate* decoded-RGBA byte count a single [`to_element`] /
+/// [`to_element_lenient`] call may spend across every `image` node in the
+/// document (not just one). The per-image dimension cap bounds each image
+/// individually (8192×8192×4 ≈ 256 MiB), but a document can nest arbitrarily
+/// many images —
+/// as children of one container, as `virtual_list` items, nested in
+/// `field`/`split_pane`/`tooltip`/`popover`/`dropdown_menu` content, and so
+/// on — and a solid-color PNG compresses to a few hundred KiB regardless of
+/// its declared canvas, so the *per-image* base64/dimension clamps alone do
+/// nothing to bound the sum. 384 MiB comfortably fits one full-size image
+/// (~256 MiB) plus headroom for a handful of smaller ones, while still
+/// refusing a document that strings together enough images to exhaust host
+/// memory. A `budget: &mut usize` threaded through every function that can
+/// reach an `image` node (see `node_to_element` and its recursive callers)
+/// starts at this value and is spent — via the `image` crate's own
+/// `Limits::max_alloc`, so a too-large decode is refused *before* allocating,
+/// not after — as each image commits; once exhausted, further images degrade
+/// to a spacer with a path-pointed error, exactly like any other per-image
+/// failure.
+pub const MAX_TOTAL_IMAGE_BYTES: usize = 384 * 1024 * 1024;
 
 /// Parses `desc` into an element, or the accumulated problems, against the
 /// description's own initial `state`. Strict: any problem makes this return `Err`.
@@ -96,26 +154,32 @@ pub fn to_element_lenient_with(
             ),
         ));
     }
-    let el = node_to_element(&desc.root, theme, state, "root", &mut errors);
+    let mut budget = MAX_TOTAL_IMAGE_BYTES;
+    let el = node_to_element(&desc.root, theme, state, "root", &mut budget, &mut errors);
     (el, errors)
 }
 
 /// Maps one node to an element, recursing into children. Always produces an
-/// element; soft problems append to `errors`.
+/// element; soft problems append to `errors`. `budget` is the remaining
+/// aggregate decoded-image byte allowance for this call (see
+/// [`MAX_TOTAL_IMAGE_BYTES`]) — threaded through every recursive path that
+/// can reach an `image` node, spent by `image_node`.
 fn node_to_element(
     node: &Node,
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     match node {
         // ── Layout containers ─────────────────────────────────────────────────
-        Node::Row(c) => container(row(), c, theme, state, path, errors),
-        Node::Col(c) => container(col(), c, theme, state, path, errors),
-        Node::Div(c) => container(div(), c, theme, state, path, errors),
-        Node::Stack(c) => container(stack(), c, theme, state, path, errors),
-        Node::Card(c) => container(card(), c, theme, state, path, errors),
+        Node::Row(c) => container(row(), c, theme, state, path, budget, errors),
+        Node::Col(c) => container(col(), c, theme, state, path, budget, errors),
+        Node::Div(c) => container(div(), c, theme, state, path, budget, errors),
+        Node::Stack(c) => container(stack(), c, theme, state, path, budget, errors),
+        Node::Card(c) => container(card(), c, theme, state, path, budget, errors),
+        Node::SplitPane(s) => split_pane_node(s, theme, state, path, budget, errors),
         // ── Text ──────────────────────────────────────────────────────────────
         Node::Text(t) => text_node(t, theme, path, errors),
         // ── Form controls ──────────────────────────────────────────────────────
@@ -267,14 +331,21 @@ fn node_to_element(
         }
         Node::Select(s) => select_node(s, state, path, errors),
         Node::SpinButton(s) => spin_button_node(s),
+        Node::Field(f) => field_node(f, theme, state, path, budget, errors),
+        Node::Combobox(c) => combobox_node(c, state, path, errors),
+        Node::MultiSelect(m) => multi_select_node(m, path, errors),
+        Node::TagInput(t) => tag_input_node(t, path, errors),
+        Node::DatePicker(d) => date_picker_node(d, path, errors),
+        Node::ColorPicker(c) => color_picker_node(c, state, path, errors),
         // ── Navigation ────────────────────────────────────────────────────────
         Node::Tabs(t) => tabs_node(t, state),
         Node::Segmented(s) => segmented_node(s, state),
         Node::Breadcrumbs(b) => breadcrumbs_node(b),
         Node::Pagination(p) => pagination_node(p, state),
         Node::Stepper(s) => stepper_node(s, state),
-        Node::Toolbar(t) => toolbar_node(t, theme, state, path, errors),
+        Node::Toolbar(t) => toolbar_node(t, theme, state, path, budget, errors),
         Node::Menubar(m) => menubar_node(m),
+        Node::Tree(t) => tree_view_node(t, path, errors),
         // ── Display / feedback ─────────────────────────────────────────────────
         Node::Badge(b) => badge_node(b, path, errors),
         Node::Callout(c) => callout_node(c, path, errors),
@@ -284,14 +355,22 @@ fn node_to_element(
         Node::Kbd(k) => kbd_node(k),
         Node::Progress(p) => progress_node(p),
         Node::Meter(m) => meter_node(m, state),
-        Node::Accordion(a) => accordion_node(a, theme, state, path, errors),
+        Node::Accordion(a) => accordion_node(a, theme, state, path, budget, errors),
         Node::Spinner(l) => leaf(spinner(), l, theme, path, errors),
         Node::Skeleton(k) => skeleton_node(k),
         Node::Icon(i) => icon_node(i, path, errors),
+        Node::Image(i) => image_node(i, theme, path, budget, errors),
+        Node::Toast(t) => toast_stack_node(t, path, errors),
+        // ── Data ──────────────────────────────────────────────────────────────
+        Node::DataTable(d) => data_table_node(d, path, errors),
+        Node::VirtualList(v) => virtual_list_node(v, theme, state, path, budget, errors),
         // ── Overlays ──────────────────────────────────────────────────────────
-        Node::Modal(m) => modal_node(m, theme, state, path, errors),
-        Node::Tooltip(t) => tooltip_node(t, theme, state, path, errors),
-        Node::Drawer(d) => drawer_node(d, theme, state, path, errors),
+        Node::Modal(m) => modal_node(m, theme, state, path, budget, errors),
+        Node::Tooltip(t) => tooltip_node(t, theme, state, path, budget, errors),
+        Node::Drawer(d) => drawer_node(d, theme, state, path, budget, errors),
+        Node::Popover(p) => popover_node(p, theme, state, path, budget, errors),
+        Node::DropdownMenu(d) => dropdown_menu_node(d, theme, state, path, budget, errors),
+        Node::CommandPalette(c) => command_palette_node(c, state, path, errors),
         // ── Decoration ────────────────────────────────────────────────────────
         Node::Divider(l) => leaf(divider(), l, theme, path, errors),
         Node::Spacer(l) => leaf(spacer(), l, theme, path, errors),
@@ -473,6 +552,7 @@ fn toolbar_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let mut w = toolbar();
@@ -483,7 +563,14 @@ fn toolbar_node(
         w = w.label(label.clone());
     }
     for (i, child) in t.children.iter().enumerate() {
-        let c = node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors);
+        let c = node_to_element(
+            child,
+            theme,
+            state,
+            &format!("{path}/children/{i}"),
+            budget,
+            errors,
+        );
         w = w.item(c);
     }
     let el: Element<Action> = w.into();
@@ -514,6 +601,7 @@ fn drawer_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let side = match d.side.as_str() {
@@ -540,7 +628,14 @@ fn drawer_node(
         w = w.on_close(Action::Intent(intent.clone()));
     }
     for (i, child) in d.children.iter().enumerate() {
-        let c = node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors);
+        let c = node_to_element(
+            child,
+            theme,
+            state,
+            &format!("{path}/children/{i}"),
+            budget,
+            errors,
+        );
         w = w.child(c);
     }
     let el: Element<Action> = w.into();
@@ -594,6 +689,7 @@ fn accordion_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let open = match &a.bind {
@@ -608,6 +704,7 @@ fn accordion_node(
             theme,
             state,
             &format!("{path}/items/{i}/body"),
+            budget,
             errors,
         );
         let mut it = accordion_item(item.title.clone(), body);
@@ -725,6 +822,7 @@ fn modal_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let children: Vec<Element<Action>> = m
@@ -732,7 +830,14 @@ fn modal_node(
         .iter()
         .enumerate()
         .map(|(i, child)| {
-            node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors)
+            node_to_element(
+                child,
+                theme,
+                state,
+                &format!("{path}/children/{i}"),
+                budget,
+                errors,
+            )
         })
         .collect();
     // Wrap all children into a single col for the modal body.
@@ -764,11 +869,1095 @@ fn tooltip_node(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
-    let target_el = node_to_element(&t.target, theme, state, &format!("{path}/target"), errors);
+    let target_el = node_to_element(
+        &t.target,
+        theme,
+        state,
+        &format!("{path}/target"),
+        budget,
+        errors,
+    );
     let el: Element<Action> = tooltip(target_el, t.label.clone());
     if let Some(id) = &t.id { el.id(id) } else { el }
+}
+
+fn popover_node(
+    p: &PopoverNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    budget: &mut usize,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let trigger = node_to_element(
+        &p.trigger,
+        theme,
+        state,
+        &format!("{path}/trigger"),
+        budget,
+        errors,
+    );
+    let content = node_to_element(
+        &p.content,
+        theme,
+        state,
+        &format!("{path}/content"),
+        budget,
+        errors,
+    );
+    let el = trigger.child(popover(content));
+    if let Some(id) = &p.id { el.id(id) } else { el }
+}
+
+fn dropdown_menu_node(
+    d: &DropdownMenuNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    budget: &mut usize,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let trigger = node_to_element(
+        &d.trigger,
+        theme,
+        state,
+        &format!("{path}/trigger"),
+        budget,
+        errors,
+    );
+    if d.items.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/items"),
+            format!(
+                "dropdown_menu items must be <= {MAX_LIST_ITEMS}; got {}",
+                d.items.len()
+            ),
+        ));
+    }
+    let items: Vec<(String, Action)> = d
+        .items
+        .iter()
+        .take(MAX_LIST_ITEMS)
+        .map(|it| (it.label.clone(), intent_or_empty(&it.on_select)))
+        .collect();
+    let el = trigger.child(dropdown_menu(items));
+    if let Some(id) = &d.id { el.id(id) } else { el }
+}
+
+fn command_palette_node(
+    c: &CommandPaletteNode,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if c.commands.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/commands"),
+            format!(
+                "command_palette commands must be <= {MAX_LIST_ITEMS}; got {}",
+                c.commands.len()
+            ),
+        ));
+    }
+    let query = c
+        .bind
+        .as_ref()
+        .map_or_else(|| c.query.clone(), |k| bound_text(state, k, &c.query));
+    let commands: Vec<(String, Action)> = c
+        .commands
+        .iter()
+        .take(MAX_LIST_ITEMS)
+        .map(|it| (it.label.clone(), intent_or_empty(&it.on_select)))
+        .collect();
+    // Present in the tree = shown (the `modal`/`drawer` contract) — always open.
+    let mut w = command_palette(query, true, commands);
+    if let Some(key) = &c.bind {
+        let key = key.clone();
+        w = w.on_input(move |s| Action::SetText(key.clone(), s));
+    }
+    if let Some(intent) = &c.on_close {
+        w = w.on_close(Action::Intent(intent.clone()));
+    }
+    if let Some(key) = &c.id {
+        w = w.id(key);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &c.id { el.id(id) } else { el }
+}
+
+/// Maps an optional author intent string to an [`Action`]: the intent when
+/// set, else an empty inert intent (the same fallback `menubar_node` uses for
+/// an item with no `on_select`).
+fn intent_or_empty(intent: &Option<String>) -> Action {
+    intent.as_ref().map_or_else(
+        || Action::Intent(String::new()),
+        |s| Action::Intent(s.clone()),
+    )
+}
+
+// ── Form / field helpers ──────────────────────────────────────────────────────
+
+fn field_node(
+    f: &FieldNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    budget: &mut usize,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let control = node_to_element(
+        &f.control,
+        theme,
+        state,
+        &format!("{path}/control"),
+        budget,
+        errors,
+    );
+    let mut w = field(f.label.clone()).child(control).required(f.required);
+    if let Some(err) = &f.error {
+        w = w.error(err.clone());
+    } else if let Some(help) = &f.help {
+        w = w.help(help.clone());
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &f.id { el.id(id) } else { el }
+}
+
+fn split_pane_node(
+    s: &SplitPaneNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    budget: &mut usize,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let fraction = s
+        .bind
+        .as_ref()
+        .map_or(s.fraction, |k| bound_number(state, k, s.fraction));
+    let first = node_to_element(
+        &s.first,
+        theme,
+        state,
+        &format!("{path}/first"),
+        budget,
+        errors,
+    );
+    let second = node_to_element(
+        &s.second,
+        theme,
+        state,
+        &format!("{path}/second"),
+        budget,
+        errors,
+    );
+    let mut w = split_pane(fraction, first, second);
+    if s.vertical {
+        w = w.vertical();
+    }
+    match &s.bind {
+        Some(key) => {
+            let key = key.clone();
+            w = w.on_resize(move |f| Action::SetNumber(key.clone(), f));
+        }
+        None => {
+            if let Some(intent) = &s.on_resize {
+                let intent = intent.clone();
+                w = w.on_resize(move |_| Action::Intent(intent.clone()));
+            }
+        }
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &s.id { el.id(id) } else { el }
+}
+
+fn combobox_node(
+    c: &ComboboxNode,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if c.options.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/options"),
+            format!(
+                "combobox options must be <= {MAX_LIST_ITEMS}; got {}",
+                c.options.len()
+            ),
+        ));
+    }
+    let options: Vec<String> = c.options.iter().take(MAX_LIST_ITEMS).cloned().collect();
+    let value = c
+        .bind
+        .as_ref()
+        .map_or_else(|| c.value.clone(), |k| bound_text(state, k, &c.value));
+    let mut w = combobox(value, c.open, options);
+    if let Some(ph) = &c.placeholder {
+        w = w.placeholder(ph.clone());
+    }
+    // `bind` takes priority: both typing and picking write the same state key
+    // (the same "framework owns the transition" contract as `text_input`).
+    match &c.bind {
+        Some(key) => {
+            let key_in = key.clone();
+            w = w.on_input(move |s| Action::SetText(key_in.clone(), s));
+            let key_pick = key.clone();
+            w = w.on_pick(move |s| Action::SetText(key_pick.clone(), s));
+        }
+        None => {
+            if let Some(intent) = &c.on_input {
+                let intent = intent.clone();
+                w = w.on_input(move |_| Action::Intent(intent.clone()));
+            }
+            if let Some(intent) = &c.on_pick {
+                let intent = intent.clone();
+                w = w.on_pick(move |_| Action::Intent(intent.clone()));
+            }
+        }
+    }
+    if let Some(intent) = &c.on_close {
+        w = w.on_close(Action::Intent(intent.clone()));
+    }
+    if let Some(key) = &c.id {
+        w = w.id(key);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &c.id { el.id(id) } else { el }
+}
+
+fn multi_select_node(
+    m: &MultiSelectNode,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if m.options.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/options"),
+            format!(
+                "multi_select options must be <= {MAX_LIST_ITEMS}; got {}",
+                m.options.len()
+            ),
+        ));
+    }
+    let options: Vec<String> = m.options.iter().take(MAX_LIST_ITEMS).cloned().collect();
+    let mut w = multi_select(m.selected.iter().copied(), options).disabled(m.disabled);
+    if let Some(key) = &m.id {
+        w = w.id(key);
+    }
+    if let Some(intent) = &m.on_toggle {
+        let intent = intent.clone();
+        w = w.on_toggle(move |_| Action::Intent(intent.clone()));
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &m.id { el.id(id) } else { el }
+}
+
+fn tag_input_node(
+    t: &TagInputNode,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if t.tags.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/tags"),
+            format!(
+                "tag_input tags must be <= {MAX_LIST_ITEMS}; got {}",
+                t.tags.len()
+            ),
+        ));
+    }
+    let tags: Vec<String> = t.tags.iter().take(MAX_LIST_ITEMS).cloned().collect();
+    let mut w = tag_input(tags);
+    if let Some(ph) = &t.placeholder {
+        w = w.placeholder(ph.clone());
+    }
+    if let Some(key) = &t.id {
+        w = w.id(key);
+    }
+    if let Some(intent) = &t.on_remove {
+        let intent = intent.clone();
+        w = w.on_remove(move |_| Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &t.on_add {
+        let intent = intent.clone();
+        w = w.on_add(move |_| Action::Intent(intent.clone()));
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &t.id { el.id(id) } else { el }
+}
+
+/// Validates and converts an authored `[y, m, d]` into the kit's `Date`
+/// tuple. An out-of-range month/day is a path-pointed error (like an unknown
+/// enum token elsewhere in this file), then clamped into range rather than
+/// passed on as a huge wrapped value.
+fn validate_date(d: DateSpec, path: &str, errors: &mut Vec<DescribeError>) -> fenestra_kit::Date {
+    let [y, m, day] = d;
+    if !(1..=12).contains(&m) {
+        errors.push(DescribeError::new(
+            format!("{path}/1"),
+            format!("month must be 1..=12; got {m}"),
+        ));
+    }
+    let month = m.clamp(1, 12);
+    // Validate the day against the *actual* length of that month: `[2026, 4, 31]`
+    // (April has 30) or `[2026, 2, 30]` pass a bare `1..=31` check but select no
+    // real calendar cell, so — matching the "clamp always records an error"
+    // contract every other node here follows — they must surface a path-pointed
+    // error rather than a silent no-op.
+    let max_day = days_in_month(y, month);
+    if !(1..=max_day).contains(&day) {
+        errors.push(DescribeError::new(
+            format!("{path}/2"),
+            format!("day must be 1..={max_day} for month {month}; got {day}"),
+        ));
+    }
+    #[expect(
+        clippy::cast_sign_loss,
+        reason = "month/day are clamped to their positive ranges immediately above"
+    )]
+    (y, month as u32, day.clamp(1, max_day) as u32)
+}
+
+/// Calendar days in a (year, month) pair, `month` already clamped to `1..=12`
+/// (Gregorian leap rule for February).
+fn days_in_month(year: i32, month: i32) -> i32 {
+    match month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31,
+        4 | 6 | 9 | 11 => 30,
+        2 if (year % 4 == 0 && year % 100 != 0) || year % 400 == 0 => 29,
+        2 => 28,
+        _ => 31,
+    }
+}
+
+fn date_picker_node(
+    d: &DatePickerNode,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let month = if (1..=12).contains(&d.month) {
+        d.month
+    } else {
+        errors.push(DescribeError::new(
+            format!("{path}/month"),
+            format!("month must be 1..=12; got {}", d.month),
+        ));
+        d.month.clamp(1, 12)
+    };
+    let mut w = if d.range {
+        date_range_picker((d.year, month))
+    } else {
+        date_picker((d.year, month))
+    };
+    if d.range {
+        let start = d
+            .range_start
+            .map(|s| validate_date(s, &format!("{path}/range_start"), errors));
+        let end = d
+            .range_end
+            .map(|e| validate_date(e, &format!("{path}/range_end"), errors));
+        w = w.range(start, end);
+    } else {
+        w = w.selected(
+            d.selected
+                .map(|s| validate_date(s, &format!("{path}/selected"), errors)),
+        );
+    }
+    if let Some(t) = d.today {
+        w = w.today(validate_date(t, &format!("{path}/today"), errors));
+    }
+    if let Some(mn) = d.min {
+        w = w.min(validate_date(mn, &format!("{path}/min"), errors));
+    }
+    if let Some(mx) = d.max {
+        w = w.max(validate_date(mx, &format!("{path}/max"), errors));
+    }
+    if let Some(key) = &d.id {
+        w = w.id(key);
+    }
+    // `on_focus` (the WAI-ARIA keyboard grid cursor) is not wired — see the
+    // `DatePickerNode` doc comment — so arrow-key navigation is silently
+    // inert; Enter/Space still select the widget's own computed default
+    // focus, and click-to-pick always works.
+    if d.range {
+        if let Some(intent) = &d.on_pick {
+            let intent = intent.clone();
+            w = w.on_pick_range(move |_| Action::Intent(intent.clone()));
+        }
+    } else if let Some(intent) = &d.on_pick {
+        let intent = intent.clone();
+        w = w.on_pick(move |_| Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &d.on_month {
+        let intent = intent.clone();
+        w = w.on_month(move |_| Action::Intent(intent.clone()));
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &d.id { el.id(id) } else { el }
+}
+
+/// sRGB middle gray (`#808080`) a `color_picker` falls back to when its
+/// `value` (or the bound state text overriding it) fails to parse — plain
+/// sRGB rather than an OKLCH construction, since OKLCH lightness is
+/// perceptual (`oklch(0.5, 0, 0)` renders as `#636363`, not `#808080`) and
+/// the documented fallback is specifically the hex `#808080`.
+fn fallback_picker_color() -> Color {
+    Color::from_rgba8(0x80, 0x80, 0x80, 0xFF)
+}
+
+fn color_picker_node(
+    c: &ColorPickerNode,
+    state: &StateMap,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let text = c
+        .bind
+        .as_ref()
+        .map_or_else(|| c.value.clone(), |k| bound_text(state, k, &c.value));
+    let color = parse_color_text(&text).unwrap_or_else(|| {
+        errors.push(DescribeError::new(
+            format!("{path}/value"),
+            format!("{text:?} is not a valid hex or oklch() color; falling back to #808080"),
+        ));
+        fallback_picker_color()
+    });
+    let mut w = color_picker(color);
+    if let Some(label) = &c.label {
+        w = w.label(label.clone());
+    }
+    w = w.disabled(c.disabled);
+    if let Some(side) = c.pad_size {
+        if side.is_finite() {
+            w = w.pad_size(side);
+        } else {
+            errors.push(DescribeError::new(
+                format!("{path}/pad_size"),
+                format!("pad_size must be a finite number; got {side}"),
+            ));
+        }
+    }
+    // `bind` takes priority: both the pad/hue/alpha gestures and a text edit
+    // that currently parses commit the formatted hex back to the same key —
+    // an edit that doesn't yet parse leaves it alone (see the node's doc
+    // comment for why there is only one state slot, not a separate draft).
+    match &c.bind {
+        Some(key) => {
+            let key_change = key.clone();
+            w = w.on_change(move |color| {
+                Action::SetText(key_change.clone(), format_color_text(color))
+            });
+            let key_text = key.clone();
+            w = w.on_text_change(move |_, parsed| match parsed {
+                Some(color) => Action::SetText(key_text.clone(), format_color_text(color)),
+                None => Action::Intent(String::new()),
+            });
+        }
+        None => {
+            if let Some(intent) = &c.on_change {
+                let intent_change = intent.clone();
+                w = w.on_change(move |_| Action::Intent(intent_change.clone()));
+                let intent_text = intent.clone();
+                w = w.on_text_change(move |_, _| Action::Intent(intent_text.clone()));
+            }
+        }
+    }
+    if let Some(key) = &c.id {
+        w = w.id(key);
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &c.id { el.id(id) } else { el }
+}
+
+// ── Tree helpers ──────────────────────────────────────────────────────────────
+
+fn tree_view_node(
+    t: &TreeViewNode,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let mut count = 0usize;
+    let mut truncated = false;
+    let roots: Vec<KitTreeNode> = t
+        .items
+        .iter()
+        .enumerate()
+        .filter_map(|(i, item)| {
+            tree_item(
+                item,
+                &format!("{path}/items/{i}"),
+                &mut count,
+                &mut truncated,
+            )
+        })
+        .collect();
+    if truncated {
+        errors.push(DescribeError::new(
+            format!("{path}/items"),
+            format!("tree has more than {MAX_LIST_ITEMS} total nodes; the excess is dropped"),
+        ));
+    }
+    let mut w = tree_view(roots);
+    if !t.expanded.is_empty() {
+        w = w.expanded(t.expanded.clone());
+    }
+    w = w.selected(t.selected.clone());
+    if let Some(intent) = &t.on_toggle {
+        let intent = intent.clone();
+        w = w.on_toggle(move |_| Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &t.on_select {
+        let intent = intent.clone();
+        w = w.on_select(move |_| Action::Intent(intent.clone()));
+    }
+    // `TreeView` has no builder-level `.id()`, so the stable key is applied
+    // only at the `Element` level below.
+    let el: Element<Action> = w.into();
+    if let Some(id) = &t.id { el.id(id) } else { el }
+}
+
+/// Converts one authored tree item (and its children) into the kit's
+/// `TreeNode`, truncating total fan-out at [`MAX_LIST_ITEMS`] — a node count
+/// cap, not a depth cap. JSON *nesting depth* is already bounded well before
+/// this runs: `serde_json` caps deserialization recursion at 128 levels by
+/// default, so a maliciously deep `children` chain fails to parse at all
+/// long before it could reach this function. Returns `None` (dropping the
+/// node and its whole subtree) once the cap is hit.
+fn tree_item(
+    item: &TreeItemDto,
+    path: &str,
+    count: &mut usize,
+    truncated: &mut bool,
+) -> Option<KitTreeNode> {
+    if *count >= MAX_LIST_ITEMS {
+        *truncated = true;
+        return None;
+    }
+    *count += 1;
+    let children: Vec<KitTreeNode> = item
+        .children
+        .iter()
+        .enumerate()
+        .filter_map(|(i, child)| {
+            tree_item(child, &format!("{path}/children/{i}"), count, truncated)
+        })
+        .collect();
+    Some(KitTreeNode::new(item.id.clone(), item.label.clone()).children(children))
+}
+
+// ── Image helpers ─────────────────────────────────────────────────────────────
+
+/// Decodes strict RFC 4648 standard-alphabet base64 (`A`–`Z`, `a`–`z`, `0`–`9`,
+/// `+`, `/`, `=` padding). No dependency — fenestra-describe already writes
+/// its own dependency-free lexers rather than pull one in for a single
+/// decode (see fenestra-markdown's syntax lexer). Rejects, never panics on: a
+/// non-alphabet byte, a length not a multiple of 4, `=` outside the final
+/// group or not a trailing suffix of it, a padding count other than 0/1/2,
+/// and non-zero padding bits (a non-canonical encoding). Embedded whitespace
+/// is also rejected — a hand-wrapped multi-line base64 string must be joined
+/// into one line first.
+#[expect(
+    clippy::cast_possible_truncation,
+    reason = "each output byte is masked out of a 24-bit accumulator before the `as u8`, so the \
+              low 8 bits always hold the whole value"
+)]
+fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
+    let s = input.as_bytes();
+    if s.is_empty() {
+        return Ok(Vec::new());
+    }
+    if !s.len().is_multiple_of(4) {
+        return Err(format!("base64 length {} is not a multiple of 4", s.len()));
+    }
+    fn val(b: u8) -> Option<u32> {
+        match b {
+            b'A'..=b'Z' => Some(u32::from(b - b'A')),
+            b'a'..=b'z' => Some(u32::from(b - b'a') + 26),
+            b'0'..=b'9' => Some(u32::from(b - b'0') + 52),
+            b'+' => Some(62),
+            b'/' => Some(63),
+            _ => None,
+        }
+    }
+    let groups = s.len() / 4;
+    let mut out = Vec::with_capacity(groups * 3);
+    for (i, group) in s.chunks_exact(4).enumerate() {
+        let is_last = i + 1 == groups;
+        let pad = group.iter().rev().take_while(|&&b| b == b'=').count();
+        if pad > 0 && !is_last {
+            return Err("'=' padding may only appear in the final group".to_string());
+        }
+        if pad > 2 {
+            return Err("a base64 group may end in at most two '=' characters".to_string());
+        }
+        let data_len = 4 - pad;
+        for (j, &b) in group.iter().enumerate() {
+            if b == b'=' && j < data_len {
+                return Err("'=' padding must be a trailing suffix of its group".to_string());
+            }
+        }
+        let mut v = [0u32; 4];
+        for (j, &b) in group[..data_len].iter().enumerate() {
+            v[j] = val(b).ok_or_else(|| format!("invalid base64 character {:?}", b as char))?;
+        }
+        let bits = (v[0] << 18) | (v[1] << 12) | (v[2] << 6) | v[3];
+        match pad {
+            0 => {
+                out.push((bits >> 16) as u8);
+                out.push((bits >> 8) as u8);
+                out.push(bits as u8);
+            }
+            1 => {
+                if bits & 0xFF != 0 {
+                    return Err("non-zero padding bits in the final base64 group".to_string());
+                }
+                out.push((bits >> 16) as u8);
+                out.push((bits >> 8) as u8);
+            }
+            2 => {
+                if bits & 0xFFFF != 0 {
+                    return Err("non-zero padding bits in the final base64 group".to_string());
+                }
+                out.push((bits >> 16) as u8);
+            }
+            _ => unreachable!("pad was checked to be 0..=2 above"),
+        }
+    }
+    Ok(out)
+}
+
+// ── decoded-image cache ───────────────────────────────────────────────────────
+//
+// `image_node` decodes its base64 PNG on every build, and `view()` rebuilds the
+// whole element tree on every frame (each click, every `pump`, every ~200ms
+// preview poll). Without a cache, an image in a driven or animated view re-runs
+// the full base64 → PNG → RGBA8 pipeline every frame — turning e.g. an
+// `interact` `{"tab": 4096}` step (up to `MAX_TAB_REPEAT` rebuilds) into
+// thousands of ~256 MiB decodes. This thread-local cache decodes each distinct
+// payload once and hands every later build a clone of the *same* atomically
+// reference-counted pixel blob (a cheap `ImageData` clone — no re-decode, no
+// copy). It holds at most `MAX_TOTAL_IMAGE_BYTES` of decoded bytes, evicting
+// least-recently-used, so it can never itself grow into a memory leak.
+
+thread_local! {
+    static DECODE_CACHE: RefCell<DecodeCache> = RefCell::new(DecodeCache::default());
+    /// Count of real PNG decodes (cache misses) — lets tests assert reuse.
+    static DECODE_COUNT: Cell<u64> = const { Cell::new(0) };
+}
+
+#[derive(Default)]
+struct DecodeCache {
+    entries: HashMap<u64, CachedImage>,
+    total_bytes: usize,
+    tick: u64,
+}
+
+struct CachedImage {
+    data: fenestra_core::ImageData,
+    bytes: usize,
+    last_used: u64,
+}
+
+/// A 64-bit content hash of a base64 payload — the cache key. A collision would
+/// serve one image's pixels for another's bytes; at 64 bits that is
+/// astronomically unlikely for the handful of images a document carries.
+fn image_cache_key(png_b64: &str) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    png_b64.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// The cached decoded image for `key`, if resident, marked most-recently-used.
+fn image_cache_get(key: u64) -> Option<fenestra_core::ImageData> {
+    DECODE_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.tick += 1;
+        let tick = c.tick;
+        let entry = c.entries.get_mut(&key)?;
+        entry.last_used = tick;
+        Some(entry.data.clone())
+    })
+}
+
+/// Inserts a freshly decoded image, first evicting least-recently-used entries
+/// so total resident decoded bytes stay within [`MAX_TOTAL_IMAGE_BYTES`]. An
+/// image as large as the whole budget is not cached (it would evict everything
+/// and still dominate) — it is simply rebuilt on demand.
+fn image_cache_put(key: u64, data: fenestra_core::ImageData, bytes: usize) {
+    if bytes > MAX_TOTAL_IMAGE_BYTES {
+        return;
+    }
+    DECODE_CACHE.with(|c| {
+        let mut c = c.borrow_mut();
+        c.tick += 1;
+        let last_used = c.tick;
+        while c.total_bytes + bytes > MAX_TOTAL_IMAGE_BYTES {
+            let Some(lru) = c
+                .entries
+                .iter()
+                .min_by_key(|(_, e)| e.last_used)
+                .map(|(&k, _)| k)
+            else {
+                break;
+            };
+            if let Some(removed) = c.entries.remove(&lru) {
+                c.total_bytes -= removed.bytes;
+            }
+        }
+        if let Some(prev) = c.entries.insert(
+            key,
+            CachedImage {
+                data,
+                bytes,
+                last_used,
+            },
+        ) {
+            c.total_bytes -= prev.bytes;
+        }
+        c.total_bytes += bytes;
+    });
+}
+
+/// Frees every decoded image this thread's `fenestra/1` image cache holds,
+/// reclaiming their memory. Rendering re-decodes (and re-caches) on demand, so
+/// this only trades memory for a one-time re-decode — useful between rendering
+/// unrelated documents in a long-lived process.
+pub fn clear_image_cache() {
+    DECODE_CACHE.with(|c| *c.borrow_mut() = DecodeCache::default());
+}
+
+/// Builds the image element from decoded pixel `data` and applies the node's
+/// style, click intent, and id — shared by the cache-hit and freshly-decoded
+/// paths so both render identically.
+fn image_element(
+    data: fenestra_core::ImageData,
+    i: &ImageNode,
+    theme: &Theme,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let mut el = image_from_data(data).label(i.label.clone());
+    el = apply_style(el, &i.style, theme, path, errors);
+    if let Some(intent) = &i.on_click {
+        el = el.on_click(Action::Intent(intent.clone()));
+    }
+    if let Some(id) = &i.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn image_node(
+    i: &ImageNode,
+    theme: &Theme,
+    path: &str,
+    budget: &mut usize,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if i.label.trim().is_empty() {
+        errors.push(DescribeError::new(
+            format!("{path}/label"),
+            "image requires a non-empty accessible label (alt text)".to_string(),
+        ));
+    }
+    // Reuse a previously decoded copy of this exact payload if one is resident:
+    // no re-decode, no re-copy, and no budget charge (it shares the allocation
+    // already committed rather than adding a new one).
+    let key = image_cache_key(&i.png);
+    if let Some(data) = image_cache_get(key) {
+        return image_element(data, i, theme, path, errors);
+    }
+    if i.png.len() > MAX_IMAGE_B64_LEN {
+        errors.push(DescribeError::new(
+            format!("{path}/png"),
+            format!(
+                "base64 payload must be <= {MAX_IMAGE_B64_LEN} characters; got {}",
+                i.png.len()
+            ),
+        ));
+        return apply_style(spacer(), &i.style, theme, path, errors);
+    }
+    let bytes = match decode_base64(&i.png) {
+        Ok(b) => b,
+        Err(msg) => {
+            errors.push(DescribeError::new(format!("{path}/png"), msg));
+            return apply_style(spacer(), &i.style, theme, path, errors);
+        }
+    };
+    // `Limits` is `#[non_exhaustive]`, so it cannot be struct-literal
+    // constructed here even with `..Default::default()` — set the caps on
+    // the default instance instead. `max_alloc` is this *document's*
+    // remaining aggregate image budget (see `MAX_TOTAL_IMAGE_BYTES`), not
+    // just this image's own allowance: the `image` crate checks it against
+    // the *native* decoded size (`decoder.total_bytes()`) before allocating
+    // the native-format pixel buffer, refusing cleanly rather than OOMing.
+    let mut limits = Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_DIM);
+    limits.max_image_height = Some(MAX_IMAGE_DIM);
+    limits.max_alloc = Some(*budget as u64);
+    let mut reader = ImageReader::with_format(std::io::Cursor::new(bytes), ImageFormat::Png);
+    reader.limits(limits);
+    let img = match reader.decode() {
+        Ok(img) => img,
+        Err(e) => {
+            errors.push(DescribeError::new(
+                format!("{path}/png"),
+                format!("PNG decode failed: {e}"),
+            ));
+            return apply_style(spacer(), &i.style, theme, path, errors);
+        }
+    };
+    let (w, h) = (img.width(), img.height());
+    // The crate's own `max_alloc` check above only bounds the *native*-format
+    // decode, but every image here always gets converted to RGBA8 next —
+    // for a non-RGBA source that conversion allocates a *fresh, separate*
+    // buffer the crate's check never saw, and it can be larger than the
+    // native decode (e.g. a native grayscale image is 4x smaller than its
+    // RGBA8 form). Check the actual RGBA8 byte count this node is about to
+    // commit against the remaining budget ourselves before paying for it.
+    let needed = u64::from(w) * u64::from(h) * 4;
+    if needed > *budget as u64 {
+        errors.push(DescribeError::new(
+            format!("{path}/png"),
+            format!(
+                "image needs {needed} decoded bytes, exceeding the {budget} bytes remaining in \
+                 this document's aggregate image budget ({MAX_TOTAL_IMAGE_BYTES} total); \
+                 degrading to an empty spacer"
+            ),
+        ));
+        return apply_style(spacer(), &i.style, theme, path, errors);
+    }
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "needed <= *budget (checked above), and budget is itself a usize"
+    )]
+    let needed_bytes = needed as usize;
+    *budget -= needed_bytes;
+    // Consume the decoded image (`into_rgba8`, not `to_rgba8`) so the native
+    // buffer is freed as the RGBA8 buffer is produced instead of both being
+    // resident at once — zero-copy when the source is already RGBA8, and it
+    // keeps the transient peak near the committed `needed_bytes` rather than
+    // ~2x it.
+    let pixels = img.into_rgba8().into_raw();
+    DECODE_COUNT.with(|n| n.set(n.get() + 1));
+    let data = image_payload(w, h, pixels);
+    image_cache_put(key, data.clone(), needed_bytes);
+    image_element(data, i, theme, path, errors)
+}
+
+// ── Toast helpers ─────────────────────────────────────────────────────────────
+
+fn toast_stack_node(
+    t: &ToastStackNode,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if t.items.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/items"),
+            format!(
+                "toast items must be <= {MAX_LIST_ITEMS}; got {}",
+                t.items.len()
+            ),
+        ));
+    }
+    let toasts: Vec<(String, KitStatus)> = t
+        .items
+        .iter()
+        .take(MAX_LIST_ITEMS)
+        .enumerate()
+        .map(|(i, item)| {
+            let status =
+                kit_status_from_str(&item.status, &format!("{path}/items/{i}"), "status", errors);
+            (item.message.clone(), status)
+        })
+        .collect();
+    let mut w = toast_stack(toasts);
+    if let Some(width) = t.width {
+        w = w.width(width);
+    }
+    if let Some(key) = &t.id {
+        w = w.id(key);
+    }
+    if let Some(intent) = &t.on_dismiss {
+        let intent = intent.clone();
+        w = w.on_dismiss(move |_| Action::Intent(intent.clone()));
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &t.id { el.id(id) } else { el }
+}
+
+// ── Data helpers ──────────────────────────────────────────────────────────────
+
+fn data_table_node(
+    d: &DataTableNode,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if d.columns.len() > MAX_TABLE_COLUMNS {
+        errors.push(DescribeError::new(
+            format!("{path}/columns"),
+            format!(
+                "data_table columns must be <= {MAX_TABLE_COLUMNS}; got {}",
+                d.columns.len()
+            ),
+        ));
+    }
+    if d.rows.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/rows"),
+            format!(
+                "data_table rows must be <= {MAX_LIST_ITEMS}; got {}",
+                d.rows.len()
+            ),
+        ));
+    }
+    let columns: Vec<String> = d.columns.iter().take(MAX_TABLE_COLUMNS).cloned().collect();
+    let rows: Vec<Vec<String>> = d.rows.iter().take(MAX_LIST_ITEMS).cloned().collect();
+    let mut w = data_table(columns, rows);
+    if let Some(key) = &d.id {
+        w = w.id(key);
+    }
+    if let Some(sort) = &d.sort {
+        w = w.sort(sort.column, sort.ascending);
+    }
+    w = w.selected(d.selected);
+    if let Some(flags) = &d.selection {
+        w = w.selection(flags.iter().copied());
+    }
+    if d.sticky_header {
+        w = w.sticky_header(true);
+    }
+    if let Some(widths) = &d.column_widths {
+        w = w.column_widths(widths.iter().copied());
+    }
+    if d.pinned_left > 0 {
+        w = w.pinned_left(d.pinned_left);
+    }
+    if d.pinned_right > 0 {
+        w = w.pinned_right(d.pinned_right);
+    }
+    if let Some(filter) = &d.filter {
+        w = w.filter(filter.iter().cloned());
+    }
+    // Column resize/reorder are not authorable here — see the `DataTableNode`
+    // doc comment; only the static `column_widths`/`pinned_left`/
+    // `pinned_right` layout knobs are.
+    if let Some(intent) = &d.on_sort {
+        let intent = intent.clone();
+        w = w.on_sort(move |_| Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &d.on_select {
+        let intent = intent.clone();
+        w = w.on_select(move |_| Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &d.on_select_row {
+        let intent = intent.clone();
+        w = w.on_select_row(move |_| Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &d.on_select_all {
+        w = w.on_select_all(Action::Intent(intent.clone()));
+    }
+    if let Some(intent) = &d.on_filter {
+        let intent = intent.clone();
+        w = w.on_filter(move |_, _| Action::Intent(intent.clone()));
+    }
+    let el: Element<Action> = w.into();
+    if let Some(id) = &d.id { el.id(id) } else { el }
+}
+
+fn virtual_list_node(
+    v: &VirtualListNode,
+    theme: &Theme,
+    state: &StateMap,
+    path: &str,
+    budget: &mut usize,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if v.items.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/items"),
+            format!(
+                "virtual_list items must be <= {MAX_LIST_ITEMS}; got {}",
+                v.items.len()
+            ),
+        ));
+    }
+    let items: Vec<Node> = v.items.iter().take(MAX_LIST_ITEMS).cloned().collect();
+    // Validate every row now, eagerly, so parse errors surface on this call —
+    // the built elements are discarded; the closure below rebuilds them
+    // lazily (from the same source `Node`s) whenever a row scrolls into
+    // view, since `Element` is not `Clone` and the closure must outlive this
+    // function. That rebuild is real, ordinary node parsing — never a code
+    // closure supplied by the author — so it carries the same "never
+    // executable" guarantee as every other child in the tree. This eager
+    // pass shares the *caller's* `budget`, so a `virtual_list` of many
+    // large images is bounded by the same aggregate cap as everything else
+    // in the document, not decoded unconditionally regardless of size.
+    for (i, item) in items.iter().enumerate() {
+        let _ = node_to_element(
+            item,
+            theme,
+            state,
+            &format!("{path}/items/{i}"),
+            budget,
+            errors,
+        );
+    }
+    let row_height = if v.row_height.is_finite() && v.row_height > 0.0 {
+        v.row_height
+    } else {
+        errors.push(DescribeError::new(
+            format!("{path}/row_height"),
+            format!(
+                "row_height must be a finite positive number; got {}",
+                v.row_height
+            ),
+        ));
+        24.0
+    };
+    let items = Rc::new(items);
+    let theme = theme.clone();
+    let state = state.clone();
+    let count = items.len();
+    // One image-decode budget shared across every row the window materializes
+    // in a single frame, reset each frame (keyed by `frame_epoch`). A per-row
+    // reset was unsound: the virtual window is *not* bounded by a viewport-full
+    // of rows — a tiny `row_height` collapses it onto every item at once
+    // (`frame::virtual_window` has no `row_height` floor), and `expand_virtual`
+    // materializes the whole window into one `Vec` in a single build. So a
+    // per-row full budget let a `virtual_list` of large images decode the whole
+    // list simultaneously on the paint path, defeating the aggregate cap. With
+    // a shared per-frame budget, once it is spent the remaining rows' images are
+    // refused *before* allocation (their `Limits::max_alloc` is near zero, so
+    // the decode fails fast) and degrade to spacers — bounding both peak memory
+    // and per-frame decode work regardless of how many rows the window covers.
+    let frame_budget = Rc::new(Cell::new((u64::MAX, 0usize)));
+    let el = virtual_list(count, row_height, move |i| {
+        let epoch = frame_epoch();
+        let (seen, remaining) = frame_budget.get();
+        let mut budget = if seen == epoch {
+            remaining
+        } else {
+            MAX_TOTAL_IMAGE_BYTES
+        };
+        let mut scratch = Vec::new();
+        let el = node_to_element(
+            &items[i],
+            &theme,
+            &state,
+            "virtual_list/items",
+            &mut budget,
+            &mut scratch,
+        );
+        frame_budget.set((epoch, budget));
+        el
+    });
+    if let Some(id) = &v.id { el.id(id) } else { el }
 }
 
 // ── Icon registry ─────────────────────────────────────────────────────────────
@@ -927,6 +2116,7 @@ fn container(
     theme: &Theme,
     state: &StateMap,
     path: &str,
+    budget: &mut usize,
     errors: &mut Vec<DescribeError>,
 ) -> Element<Action> {
     let mut el = apply_style(base, &c.style, theme, path, errors);
@@ -941,7 +2131,14 @@ fn container(
         .iter()
         .enumerate()
         .map(|(i, child)| {
-            node_to_element(child, theme, state, &format!("{path}/children/{i}"), errors)
+            node_to_element(
+                child,
+                theme,
+                state,
+                &format!("{path}/children/{i}"),
+                budget,
+                errors,
+            )
         })
         .collect();
     el.children(children)
@@ -1617,5 +2814,39 @@ pub fn validate(json: &str) -> Result<(), Vec<DescribeError>> {
         Ok(())
     } else {
         Err(errors)
+    }
+}
+
+#[cfg(test)]
+mod cache_tests {
+    use super::*;
+
+    /// A 1×1 transparent PNG, base64-encoded — decodes to a 4-byte RGBA8 buffer.
+    const TINY_PNG_B64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+
+    fn decode_count() -> u64 {
+        DECODE_COUNT.with(Cell::get)
+    }
+
+    #[test]
+    fn same_image_decodes_once_then_reuses_the_cache() {
+        // Rebuilding the tree (as every frame / interaction step does) must not
+        // re-run the decode: the second and later builds reuse the cached blob.
+        clear_image_cache();
+        let before = decode_count();
+        let json = format!(
+            r#"{{"schema":"fenestra/1","root":{{"image":{{"png":"{TINY_PNG_B64}","label":"pixel"}}}}}}"#
+        );
+        let desc: Description = serde_json::from_str(&json).unwrap();
+        let theme = Theme::light();
+        for _ in 0..5 {
+            let (_, errs) = to_element_lenient(&desc, &theme);
+            assert!(errs.is_empty(), "{errs:?}");
+        }
+        assert_eq!(
+            decode_count() - before,
+            1,
+            "the same image must decode once, then reuse the cache on later builds"
+        );
     }
 }

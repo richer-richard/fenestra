@@ -2,7 +2,11 @@
 //! JSON. Each subcommand reads a description from a path (or stdin with `-`),
 //! writes its result as JSON to stdout, any image to `--out`, and signals the
 //! outcome through the exit code: `0` ok, `1` a verification failed, `3` a parse
-//! or IO error (clap uses `2` for usage errors).
+//! or IO error (clap uses `2` for usage errors). Two exceptions: `preview`
+//! opens a live-reload window against a real file path — there's nothing to
+//! reload from stdin, so it doesn't follow the path-or-stdin convention —
+//! and `film` never exits `1`, since it composes a filmstrip rather than
+//! checking a pass/fail condition.
 
 use std::fs;
 use std::io::{self, Read};
@@ -11,15 +15,17 @@ use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use fenestra_core::Theme;
+use fenestra_describe::dto::Bounds;
 use fenestra_describe::format::{Description, description_schema};
 use fenestra_describe::inspect::{
     AriaMode, Selector, check_a11y, focus_order, layout_report, match_aria, query,
 };
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
-use fenestra_render::engine::{Step, interact, match_screenshot, render};
-use fenestra_render::resolve_theme;
+use fenestra_render::engine::{Step, film, interact, match_screenshot, render, validate_masks};
 use fenestra_render::scenario::{Scenario, bless, verify};
+use fenestra_render::{PreviewApp, resolve_theme};
+use fenestra_shell::{WindowOptions, run_app};
 use serde_json::json;
 
 #[derive(Parser)]
@@ -127,6 +133,10 @@ enum Command {
         /// Allowed differing-pixel fraction.
         #[arg(long, default_value_t = 0.0)]
         budget: f64,
+        /// Ignore this rectangle when comparing (repeatable): `x,y,w,h` in
+        /// logical pixels, e.g. `--mask 10,10,80,20`.
+        #[arg(long = "mask", value_name = "X,Y,W,H")]
+        masks: Vec<String>,
         #[arg(long, default_value = "800x600")]
         size: String,
         #[arg(long)]
@@ -154,6 +164,51 @@ enum Command {
         /// instead of verifying against it.
         #[arg(long)]
         bless: bool,
+    },
+    /// Open a live-reload preview window for a description file: edit and
+    /// save, and the window updates. A broken edit shows a themed error
+    /// panel over the last good view instead of crashing or going blank.
+    Preview {
+        /// Description path to preview (a real file, not stdin — there's
+        /// nothing to reload from a pipe).
+        desc: PathBuf,
+        /// Initial window size, `WxH`.
+        #[arg(long, default_value = "800x600")]
+        size: String,
+        /// Theme JSON path (`ThemeSpec` or `{"preset":"dark"}`).
+        #[arg(long)]
+        theme: Option<PathBuf>,
+    },
+    /// Render a filmstrip: drive optional steps (applied first — so a click
+    /// can trigger the transition about to be watched), then capture frames
+    /// with real motion on and compose them into one strip PNG. Unlike every
+    /// other subcommand, this turns reduced motion off — the point is
+    /// watching it play.
+    Film {
+        desc: Option<PathBuf>,
+        /// Steps JSON path: an array of interaction steps, applied before
+        /// capture starts.
+        #[arg(long)]
+        steps: Option<PathBuf>,
+        /// Frames to capture (clamped to a documented ceiling; hostile
+        /// values never panic).
+        #[arg(long, default_value_t = 8)]
+        frames: usize,
+        /// Milliseconds between captured frames (clamped to a documented
+        /// ceiling).
+        #[arg(long, default_value_t = 100)]
+        interval_ms: u64,
+        /// Per-cell strip scale (clamped to `0.05..=1.0`; non-finite clamps
+        /// to 1.0).
+        #[arg(long, default_value_t = 1.0)]
+        scale: f32,
+        #[arg(long, default_value = "800x600")]
+        size: String,
+        #[arg(long)]
+        theme: Option<PathBuf>,
+        /// Write the composed filmstrip PNG here.
+        #[arg(long)]
+        out: PathBuf,
     },
 }
 
@@ -201,10 +256,18 @@ fn main() -> ExitCode {
             baseline,
             tolerance,
             budget,
+            masks,
             size,
             theme,
             out,
-        } => cmd_match_png(desc, &baseline, tolerance, budget, &size, theme, out),
+        } => cmd_match_png(
+            desc,
+            &baseline,
+            (tolerance, budget, &masks),
+            &size,
+            theme,
+            out,
+        ),
         Command::Vocabulary => cmd_vocabulary(),
         Command::Schema => cmd_schema(),
         Command::Validate { desc } => cmd_validate(desc),
@@ -213,6 +276,24 @@ fn main() -> ExitCode {
             out,
             bless,
         } => cmd_verify(scenario, out.as_deref(), bless),
+        Command::Preview { desc, size, theme } => cmd_preview(desc, &size, theme),
+        Command::Film {
+            desc,
+            steps,
+            frames,
+            interval_ms,
+            scale,
+            size,
+            theme,
+            out,
+        } => cmd_film(
+            desc,
+            steps.as_deref(),
+            (frames, interval_ms, scale),
+            &size,
+            theme,
+            out,
+        ),
     }
 }
 
@@ -347,21 +428,27 @@ fn cmd_match_aria(
 fn cmd_match_png(
     desc: Option<PathBuf>,
     baseline: &Path,
-    tolerance: u8,
-    budget: f64,
+    // (tolerance, budget, `--mask` values) — bundled to stay under clippy's
+    // too-many-arguments limit.
+    shot: (u8, f64, &[String]),
     size: &str,
     theme: Option<PathBuf>,
     out: Option<PathBuf>,
 ) -> ExitCode {
+    let (tolerance, budget, masks) = shot;
     let (desc, theme, size) = match common(desc, size, theme) {
         Ok(v) => v,
+        Err(c) => return c,
+    };
+    let masks = match parse_masks(masks) {
+        Ok(m) => m,
         Err(c) => return c,
     };
     let baseline = match image::open(baseline) {
         Ok(img) => img.into_rgba8(),
         Err(e) => return err(&format!("error reading baseline: {e}")),
     };
-    match match_screenshot(&desc, &theme, size, &baseline, tolerance, budget, &[]) {
+    match match_screenshot(&desc, &theme, size, &baseline, tolerance, budget, &masks) {
         Ok(diff) => {
             print_json(&json!({
                 "ok": diff.ok,
@@ -470,6 +557,65 @@ fn cmd_verify(scenario: Option<PathBuf>, out: Option<&Path>, do_bless: bool) -> 
     }
 }
 
+/// Opens a live-reload preview window against `desc` (a real path — there's
+/// no stdin fallback, since there'd be nothing to reload). Blocks until the
+/// window closes.
+fn cmd_preview(desc: PathBuf, size: &str, theme: Option<PathBuf>) -> ExitCode {
+    let theme = match load_theme(theme.as_deref()) {
+        Ok(t) => t,
+        Err(c) => return c,
+    };
+    let (width, height) = match parse_size(size) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    let app = PreviewApp::new(desc, theme);
+    let options =
+        WindowOptions::titled(app.window_title()).with_size(f64::from(width), f64::from(height));
+    match run_app(app, options) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => err(&format!("error running preview: {e}")),
+    }
+}
+
+/// Renders a filmstrip: drives optional steps, then captures frames with
+/// real motion on, composing them into one strip PNG at `out`. No `1`
+/// (verification-failed) exit here — unlike `match-png`/`verify`, `film` is
+/// descriptive, not a pass/fail check.
+fn cmd_film(
+    desc: Option<PathBuf>,
+    steps: Option<&Path>,
+    // (frames, interval_ms, scale) — bundled to stay under clippy's
+    // too-many-arguments limit.
+    opts: (usize, u64, f32),
+    size: &str,
+    theme: Option<PathBuf>,
+    out: PathBuf,
+) -> ExitCode {
+    let (frames, interval_ms, scale) = opts;
+    let (desc, theme, size) = match common(desc, size, theme) {
+        Ok(v) => v,
+        Err(c) => return c,
+    };
+    let steps = match load_steps(steps) {
+        Ok(s) => s,
+        Err(c) => return c,
+    };
+    match film(&desc, &theme, size, &steps, frames, interval_ms, scale) {
+        Ok(out_data) => {
+            print_json(&json!({
+                "frames": out_data.frame_count,
+                "interval_ms": out_data.interval_ms,
+                "scale": out_data.scale,
+                "strip": { "width": out_data.strip.width(), "height": out_data.strip.height() },
+                "out": out.display().to_string(),
+            }));
+            save_png(&out_data.strip, &out)
+        }
+        Err(e) => fail(&e),
+    }
+}
+
 // ---------------------------------------------------------------- helpers
 
 /// Loads the description, theme, and size shared by most subcommands.
@@ -513,6 +659,16 @@ fn load_theme(path: Option<&Path>) -> Result<Theme, ExitCode> {
     resolve_theme(Some(&value)).map_err(|m| err(&format!("invalid theme: {m}")))
 }
 
+/// Loads an optional steps file: absent means no steps (`film`'s steps are
+/// optional, unlike `interact`'s, which always requires one).
+fn load_steps(path: Option<&Path>) -> Result<Vec<Step>, ExitCode> {
+    let Some(path) = path else {
+        return Ok(Vec::new());
+    };
+    let json = fs::read_to_string(path).map_err(|e| err(&format!("error reading steps: {e}")))?;
+    serde_json::from_str(&json).map_err(|e| err(&format!("invalid steps json: {e}")))
+}
+
 /// Reads from a path, or stdin when the path is `-` or absent.
 fn read_input(path: Option<&Path>) -> io::Result<String> {
     match path {
@@ -535,6 +691,39 @@ fn parse_size(s: &str) -> Result<(u32, u32), ExitCode> {
     Err(err(&format!(
         "invalid size {s:?}; expected WxH like 800x600"
     )))
+}
+
+/// Parses one `--mask` value (`x,y,w,h`, logical px) into a `Bounds`.
+fn parse_mask(s: &str) -> Result<Bounds, String> {
+    let parts: Vec<&str> = s.split(',').map(str::trim).collect();
+    let [x, y, w, h] = parts.as_slice() else {
+        return Err(format!(
+            "invalid --mask {s:?}; expected x,y,w,h, got {} field(s)",
+            parts.len()
+        ));
+    };
+    let field = |name: &str, v: &str| -> Result<f64, String> {
+        v.parse::<f64>()
+            .map_err(|e| format!("invalid --mask {s:?}: {name}={v:?} ({e})"))
+    };
+    Ok(Bounds {
+        x: field("x", x)?,
+        y: field("y", y)?,
+        w: field("w", w)?,
+        h: field("h", h)?,
+    })
+}
+
+/// Parses every `--mask` value and rejects hostile rectangles (non-finite
+/// coordinates, negative width/height) before they reach the engine.
+fn parse_masks(masks: &[String]) -> Result<Vec<Bounds>, ExitCode> {
+    let parsed: Vec<Bounds> = masks
+        .iter()
+        .map(|s| parse_mask(s))
+        .collect::<Result<_, _>>()
+        .map_err(|e| err(&e))?;
+    validate_masks(&parsed).map_err(|e| err(&e))?;
+    Ok(parsed)
 }
 
 /// Prints a value as pretty JSON to stdout.

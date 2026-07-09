@@ -43,7 +43,7 @@ pub use element_render::{
 #[cfg(not(target_arch = "wasm32"))]
 pub use embed::{Embedded, EventResponse};
 #[cfg(not(target_arch = "wasm32"))]
-pub use harness::Harness;
+pub use harness::{Harness, MAX_FILM_FRAMES, MAX_FILM_INTERVAL_MS};
 #[cfg(not(target_arch = "wasm32"))]
 pub use headless::Headless;
 #[cfg(not(target_arch = "wasm32"))]

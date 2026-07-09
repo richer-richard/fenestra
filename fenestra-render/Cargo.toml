@@ -16,6 +16,9 @@ workspace = true
 fenestra-core.workspace = true
 fenestra-describe.workspace = true
 fenestra-shell.workspace = true
+# fenestra-kit: only for `preview_app`'s error callout, so the live-reload
+# window reuses the kit's themed status styling instead of hand-rolling it.
+fenestra-kit.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 image.workspace = true
