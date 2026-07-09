@@ -353,12 +353,12 @@ fn apply_step(h: &mut Harness<DescribedApp>, step: &Step, index: usize) -> Resul
             h.wheel_xy(&q, *dx, *dy);
         }
         Step::Drag { from, to } => {
+            // Both endpoints resolve strictly (like every other target step) so
+            // a missing/ambiguous `to` returns a self-explaining EngineError::Step
+            // with the access tree — never a panic in `Frame::get` (which the bare
+            // `to.to_query()` used to reach via `h.drag` → `center`).
             let from_q = resolve(h, from, index)?;
-            let to_q = to.to_query().map_err(|message| EngineError::Step {
-                index,
-                message,
-                tree: h.frame().access_yaml(),
-            })?;
+            let to_q = resolve(h, to, index)?;
             h.drag(&from_q, &to_q);
         }
         Step::PumpMs(ms) => h.pump(*ms),

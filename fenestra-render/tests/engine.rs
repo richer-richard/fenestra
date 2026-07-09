@@ -77,6 +77,41 @@ fn interact_miss_is_self_explaining() {
 }
 
 #[test]
+fn interact_drag_to_missing_target_is_self_explaining() {
+    // Regression: `Step::Drag`'s `to` selector must resolve strictly like every
+    // other target — a miss returns a self-explaining `EngineError::Step` (with
+    // the access tree), never a panic in `Frame::get`. `from` resolves; only
+    // `to` misses.
+    let theme = resolve_theme(None).unwrap();
+    let steps = vec![Step::Drag {
+        from: Box::new(Selector {
+            role: Some("button".into()),
+            name: Some("Add".into()),
+            ..Default::default()
+        }),
+        to: Box::new(Selector {
+            role: Some("button".into()),
+            name: Some("DoesNotExist".into()),
+            ..Default::default()
+        }),
+    }];
+    let err = interact(&desc(FORM), &theme, (400, 300), &steps, false)
+        .err()
+        .expect("a Drag whose `to` matches nothing must be an error, not a panic");
+    match err {
+        EngineError::Step { index, tree, .. } => {
+            assert_eq!(index, 0);
+            assert!(
+                tree.contains("button"),
+                "the tree should be included: {tree}"
+            );
+        }
+        EngineError::Parse(e) => panic!("expected a Step error, got Parse: {e:?}"),
+        EngineError::Scenario(m) => panic!("expected a Step error, got Scenario: {m}"),
+    }
+}
+
+#[test]
 fn match_screenshot_identical_is_ok() {
     let theme = resolve_theme(None).unwrap();
     let baseline = render(&desc(FORM), &theme, (400, 300)).unwrap().png;
