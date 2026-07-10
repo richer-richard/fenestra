@@ -9,9 +9,10 @@
   "version": "0.40.1",
   "packages": [
     {
-      "registryType": "cargo",
-      "identifier": "fenestra-mcp",
+      "registryType": "mcpb",
+      "identifier": "https://github.com/richer-richard/fenestra/releases/download/fenestra-mcp-v0.40.1/fenestra-mcp-0.40.1-macos-arm64.mcpb",
       "version": "0.40.1",
+      "fileSha256": "53390771522b63fd7e4e73ee824ffa566d5e32703a20d6966729259890be95a1",
       "transport": {
         "type": "stdio"
       }
