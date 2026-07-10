@@ -1,5 +1,10 @@
 # fenestra
 
+[![CI](https://github.com/richer-richard/fenestra/actions/workflows/ci.yml/badge.svg)](https://github.com/richer-richard/fenestra/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/fenestra.svg)](https://crates.io/crates/fenestra)
+[![docs.rs](https://img.shields.io/docsrs/fenestra)](https://docs.rs/fenestra)
+[![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 A pure-Rust native GUI framework with web-grade aesthetics — and first-class
 headless rendering, so both humans and AI coding agents can *see* what they
 build.
@@ -92,6 +97,19 @@ Headless rendering is deterministic (embedded fonts, fixed scale, reduced
 motion), which makes pixel-exact golden tests practical — fenestra's own
 widget kit is tested this way, on CI, with no GPU display attached.
 
+The same pipeline backs a JSON authoring format, `fenestra/1`, for agents and
+tools that don't want to compile Rust: describe a UI — now including an
+`image` node and fourteen widgets that used to be code-only (data tables,
+trees, popovers, command palettes, the OKLCH color picker, and more) — and
+[`fenestra-describe`](fenestra-describe) parses it into the identical
+`Element` tree the builders above produce. `fenestra render` renders it,
+`fenestra preview <file>` opens a live-reload window that re-renders on
+every save, and the [`fenestra-mcp`](fenestra-mcp) server exposes the whole
+loop — render, query, interact, verify — as thirteen MCP tools. Motion is
+watchable too, not just single frames: `Harness::film` (or `fenestra film`,
+or the MCP `film_ui` tool) captures a sequence with real motion turned on and
+composes it into one captioned filmstrip.
+
 **The verification envelope, stated plainly.** A headless render is a
 deliberate *subset* of the live window — that subset is what makes it
 deterministic — so trust it accordingly. It uses the embedded fonts (Inter
@@ -124,7 +142,8 @@ autocomplete. Every widget routes every color through the theme; flip one
 
 ## The kit
 
-Button, IconButton, Checkbox, Switch, Radio, Slider, SegmentedControl,
+Button, IconButton, Checkbox, Switch, Radio, Slider, Color Picker (OKLCH
+lightness×chroma pad, hue/alpha strips, forgiving hex entry), SegmentedControl,
 TextInput (parley editing, clipboard, IME), TextArea (multiline,
 auto-growing), Select, Tooltip, Modal (focus trap + backdrop), Toasts, Tabs,
 Card, StatCard, Badge, Avatar, StatusIndicator (with a live pulse), Kbd
@@ -141,6 +160,23 @@ subset — every state, both themes:
 Regenerate this corpus any time with `cargo run --example gallery` — it
 renders headlessly.
 
+## Motion
+
+`fenestra-motion` renders frame-pure compositions headlessly — no live
+window, no screen recorder — and the same pipeline is what `fenestra film`
+and the MCP `film_ui` tool use to let an agent watch a transition play. A
+`fenestra-charts` bar chart, rebuilt every frame from rank-sorted,
+track-interpolated data:
+
+![chart race motion demo](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/chart_race_demo.gif)
+
+`cargo run -p fenestra-motion --example chart_race -- --mp4` renders this
+exact sequence — the lead changes hands partway through, verified
+structurally in the example itself, not just eyeballed. Two more shipped
+demos render the same way: a broadcast lower-third
+(`examples/lower_third.rs`) and a per-word title stagger
+(`examples/title_stagger.rs`).
+
 ## Workspace
 
 | Crate | Role |
@@ -149,7 +185,21 @@ renders headlessly.
 | `fenestra-core` | Element IR, theme/tokens, layout, text, paint, input, transitions |
 | `fenestra-shell` | winit + wgpu window runner and the headless renderer |
 | `fenestra-kit` | The themed widget kit, built only on core's public API |
+| `fenestra-charts` | Sparklines, line and bar charts — the reference third-party widget crate |
+| `fenestra-markdown` | CommonMark rendered as native `fenestra` elements |
+| `fenestra-looks` | Six ready-made design languages (product, editorial, terminal, console, warm-editorial, playful), applied in one call |
+| `fenestra-describe` | Parses `fenestra/1` JSON into the same `Element` tree the builders produce |
+| `fenestra-render` | The `fenestra` CLI: render, preview, film, query, verify, lint — from the command line |
+| `fenestra-mcp` | MCP server exposing render, query, interact, and verify as thirteen tools to AI agents |
 | `fenestra-motion` | Frame-pure motion graphics: timelines, headless frame/video rendering, temporal lints, the `motion` CLI |
+| `fenestra-anim` | Keyframe animation math — easing, springs, an exact rational timebase |
+
+`fenestra-anim` is versioned independently (0.1.x): a standalone leaf crate
+with zero dependency on any fenestra crate, wgpu, vello, parley, taffy, or
+winit, extracted from `fenestra-core` and `fenestra-motion` so any
+frame/tick-based sampler — inside this workspace or out — can depend on the
+animation math alone. `fenestra-mcp` is also versioned independently, so the
+MCP server can ship on its own release cadence.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md) for how the pipeline, widget
 identity, transitions, and overlays work — recorded decision-by-decision as
@@ -188,12 +238,22 @@ via `.rounded_full()`).
 
 ## Status
 
-0.2 covers the spec'd milestones M0–M7 — rendering, theme, text, layout
-and scrolling, interactivity and transitions, text input, overlays, the
-full kit, the dashboard — plus the M8 set: `Element::map`, the command
-proxy, images, multiline text areas, toasts, keyframe timelines, a Lucide
-icon subset, and the AccessKit tree. Out of scope so far: the
-screen-reader text-editing protocol, live regions, and rich text.
+fenestra is at 0.40.0, built and recorded decision-by-decision in
+[ARCHITECTURE.md](ARCHITECTURE.md). Shipped: the full interactive widget kit
+in light and dark themes; six ready-made design languages
+(`fenestra-looks`); a frosted-glass material system; reference third-party
+widget crates for charts and markdown; the `fenestra/1` JSON format
+authoring the entire kit, parsed by `fenestra-describe` and rendered/verified
+by the `fenestra` CLI and the `fenestra-mcp` server's thirteen tools; a
+live-reload `fenestra preview` window for authoring; and `fenestra-motion`
+for frame-pure motion graphics with its own temporal-lint verification and
+filmstrip capture. Every change goes through the same gate before it merges —
+`cargo fmt --check`, `clippy -D warnings`, the full test suite, and a
+headless golden-PNG comparison on macOS/Metal and Linux/lavapipe — plus a
+weekly `cargo audit` sweep in CI. Open work is tracked as a ranked list in
+ARCHITECTURE.md's "Deferred" notes; the two largest remaining gaps are a JSON
+authoring bridge for charts/markdown (they're Rust-only today) and hi-DPI
+headless rendering (every headless build site currently pins scale 1.0).
 
 ## License
 

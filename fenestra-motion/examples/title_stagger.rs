@@ -20,7 +20,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     for frame in [4u64, 12, 24, 60] {
         comp.render_frame_png(Frames(frame), dir.join(format!("f{frame:05}.png")))?;
     }
+    comp.render_png_sequence(0..comp.total_frames().0, dir.join("frames"))?;
 
-    println!("wrote entrance frames + sheet.png to {}", dir.display());
+    println!(
+        "wrote entrance frames + sheet.png + full sequence to {}",
+        dir.display()
+    );
     Ok(())
 }
