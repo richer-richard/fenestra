@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>fenestra 0.40: author in JSON, preview live, agents watch motion</title>
+  <meta name="description" content="What's new in fenestra 0.40: the fenestra/1 JSON grammar reaches the whole widget kit, a live-reload preview window, motion filmstrips, and an OKLCH color picker." />
+  <style>
+    html, body { margin: 0; background: #0b0d12; color: #e6e8ee;
+      font: 16px/1.65 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .wrap { max-width: 720px; margin: 0 auto; padding: 40px 20px 80px; box-sizing: border-box; }
+    nav { font-size: 14px; margin-bottom: 32px; }
+    nav a { color: #8ab4ff; text-decoration: none; }
+    nav a:hover { text-decoration: underline; }
+    h1 { font-size: 28px; line-height: 1.25; margin: 0 0 6px; }
+    .dateline { color: #9aa3b2; font-size: 14px; margin: 0 0 28px; }
+    h2 { font-size: 20px; margin: 40px 0 12px; color: #f2f4f8; }
+    p { margin: 0 0 16px; color: #cdd2dc; }
+    a { color: #8ab4ff; }
+    code { background: #161a22; padding: 1px 6px; border-radius: 6px; font-size: 0.9em; }
+    pre { background: #12151c; border: 1px solid #232838; border-radius: 8px;
+      padding: 14px 16px; overflow-x: auto; font-size: 14px; line-height: 1.55; }
+    pre code { background: none; padding: 0; }
+    footer { margin-top: 56px; padding-top: 20px; border-top: 1px solid #232838;
+      color: #9aa3b2; font-size: 14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <nav>
+      <a href="../">Live demo</a> &nbsp;·&nbsp;
+      <a href="../book/">Book</a> &nbsp;·&nbsp;
+      <a href="https://github.com/richer-richard/fenestra">GitHub</a> &nbsp;·&nbsp;
+      <a href="https://crates.io/crates/fenestra">crates.io</a>
+    </nav>
+
+    <h1>fenestra 0.40: author in JSON, preview live, agents watch motion</h1>
+    <p class="dateline">Released 2026-07-10</p>
+
+    <p>fenestra is a pure-Rust native GUI framework — winit windowing, wgpu GPU
+    access, vello vector rendering, parley text shaping, taffy layout, no
+    browser or webview anywhere in the stack — built around a second
+    commitment alongside the usual "looks good": rendering is a deterministic
+    pure function of <code>(element tree, theme, size, scale)</code>, so both a
+    human and an AI coding agent can render, inspect, and assert against a UI
+    with no display attached. <a href="../">Try the live demo</a> (WebGPU, no
+    DOM, no CSS — the same vello-on-wgpu code path as the native window) or
+    <a href="../book/">read the book</a> for the guided tour.</p>
+
+    <p>0.40 lands four things aimed squarely at that second commitment: the
+    JSON authoring grammar now covers the whole widget kit, a live-reload
+    preview window for authoring it, a way for an agent to <em>watch</em>
+    motion instead of only inspecting a still frame, and a new color picker
+    widget. Every change is additive — every prior golden render is
+    byte-identical.</p>
+
+    <h2>The fenestra/1 grammar now reaches the whole kit</h2>
+
+    <p>fenestra has shipped a JSON description format (<code>fenestra/1</code>)
+    since 0.29: author a UI tree as strict, schema-validated JSON, parse it to
+    the same <code>Element</code> the Rust builders produce, then verify it
+    headlessly — query the access tree, check accessibility, match against an
+    aria snapshot, diff a screenshot. 0.40 closes the coverage gap that made
+    that loop incomplete: 14 widgets that were previously code-only become
+    authorable — <code>field</code>, <code>split_pane</code>,
+    <code>combobox</code>, <code>multi_select</code>, <code>tag_input</code>,
+    <code>date_picker</code>, <code>tree</code>, <code>toast</code>,
+    <code>data_table</code>, <code>virtual_list</code>, <code>popover</code>,
+    <code>dropdown_menu</code>, <code>command_palette</code>,
+    <code>color_picker</code> — plus a new <code>image</code> node.</p>
+
+    <p><code>image</code> decodes a base64 PNG through a dependency-free RFC
+    4648 decoder (no new dependency for something this small), and — because
+    an agent is exactly the kind of consumer that will hand a framework a
+    hostile payload — the PNG's declared dimensions are checked against a
+    limit <em>before</em> any pixel buffer is allocated, closing the classic
+    decompression-bomb shape (a tiny payload with an enormous declared
+    width/height). Alt text is a required field, not a default, because an
+    unlabeled image is precisely the failure the accessibility gate exists to
+    catch.</p>
+
+    <p>The three widget capabilities that need a computed, per-event payload
+    instead of an inert intent string — <code>data_table</code> column
+    resize/reorder, combobox/command-palette keyboard-cursor state, and
+    <code>date_picker</code>'s calendar-grid keyboard navigation — are
+    deliberately left out of the JSON grammar, and say so in their own node
+    documentation, rather than being half-authorable and silently wrong.</p>
+
+    <h2><code>fenestra preview &lt;file&gt;</code>: a live-reload window for authoring JSON</h2>
+
+    <pre><code>fenestra preview my_ui.json</code></pre>
+
+    <p>opens a real window rendering that description, polls the file every
+    200ms, and re-renders on save — an edit/save/look loop for JSON the same
+    way <code>cargo watch</code> gives you one for Rust. A parse error never
+    blanks the window or crashes the process: the last description that
+    loaded cleanly keeps rendering underneath a themed, path-pointed error
+    panel (so you keep your place while you fix a typo), and a broken very
+    first load shows the panel alone. Runtime state carries across a reload
+    on a best-effort basis — a binding the new edit still declares keeps its
+    value, a new one seeds, a removed one drops.</p>
+
+    <h2><code>Harness::film</code> + <code>fenestra film</code> + <code>film_ui</code>: agents can watch motion play</h2>
+
+    <p>Every fenestra tool up to now gave an agent a single still frame —
+    accurate, but a transition is a sequence, and "did the drawer actually
+    slide in, or did it just snap to its end state" was not a question the
+    verification loop could answer. <code>Harness::film(frames,
+    interval_ms)</code> captures a render sequence across the test harness's
+    deterministic clock (call <code>set_reduced_motion(false)</code> first —
+    determinism here comes from controlling the clock, not from suppressing
+    animation), <code>testing::assert_filmstrip_snapshot</code> locks a
+    captioned strip as a golden through the same snapshot machinery as a
+    static render, and the public, non-panicking
+    <code>testing::filmstrip_image</code> composes a strip outside of
+    tests.</p>
+
+    <p>Both the CLI and the MCP surface drive any interaction steps
+    <em>first</em>, with motion already turned on, so a step-triggered
+    transition is still in flight when capture starts — the ordering that
+    makes "click, then watch it animate" actually observable:</p>
+
+    <pre><code>fenestra film my_ui.json --steps open_drawer.json \
+  --frames 12 --interval-ms 80 --out drawer.png</code></pre>
+
+    <p>Both report the actual frame count, interval, and scale used
+    <em>after</em> clamping (<code>MAX_FILM_FRAMES</code> 64,
+    <code>MAX_FILM_INTERVAL_MS</code> 60s) — never just the request — so a
+    hostile or mistaken input degrades to a smaller strip instead of hanging
+    or lying about what it captured. This brings the Model Context Protocol
+    server to <strong>thirteen tools</strong>: <code>render_ui</code>,
+    <code>query_ui</code>, <code>interact</code>, <code>check_a11y</code>,
+    <code>focus_order</code>, <code>check_layout</code>,
+    <code>match_aria_snapshot</code>, <code>match_screenshot</code>,
+    <code>describe_vocabulary</code>, <code>describe_schema</code>,
+    <code>validate</code>, <code>run_scenario</code>, and the new
+    <code>film_ui</code>.</p>
+
+    <h2>OKLCH color picker (<code>fenestra_kit::color_picker</code>)</h2>
+
+    <p>A generated lightness×chroma pad, hue and checkerboard-backed alpha
+    strips, a swatch, and a forgiving hex/<code>oklch()</code> text entry —
+    built only on core's existing <code>oklch()</code>/<code>oklch_of()</code>,
+    so the widget has no invalid state to represent: every construction path
+    runs through the same gamut-mapping core already uses, which reduces
+    chroma to stay in-gamut rather than producing an unrepresentable color.
+    When that happens, the picker shows an honest amber indicator reading "At
+    the sRGB gamut edge…" — not the common "showing the nearest displayable
+    color" framing, which implies a substitution happened when nothing was
+    actually swapped out.</p>
+
+    <p>Every channel is keyboard-operable, including the 2D pad, which
+    exposes independent Lightness/Chroma focus targets over the one
+    draggable field (the same two-thumb precedent the range slider already
+    established). A proptest sweep over the full <code>f32</code> domain —
+    not just the values the widget's own call sites happen to produce —
+    caught a <code>rem_euclid</code> hue-wrap boundary bug (a value a hair
+    below zero wrapping to exactly <code>360.0</code> instead of
+    <code>0.0</code>) before it shipped.</p>
+
+    <h2>A P0 closed by a second, adversarial review</h2>
+
+    <p>After this batch's initial review passed, a follow-up adversarial pass
+    (explicitly hunting for what the first review would have missed under
+    scale or hostile input) found that <code>virtual_list</code>'s per-row
+    render closure reset the aggregate image-decode budget on every row
+    instead of sharing one budget across the frame — so a
+    <code>virtual_list</code> of many large images, with a small enough row
+    height to collapse the virtualization window onto every row at once,
+    could decode the entire list simultaneously and defeat the very memory
+    cap this release introduced. It's fixed with a per-frame budget
+    (<code>fenestra_core::frame_epoch</code>) that all rows draw from;
+    over-budget rows now fail decode before allocation and degrade to
+    spacers instead of allocating. Two related P1s — images re-decoding on
+    every rebuild instead of being cached, and a drag-step target selector
+    that panicked on a miss instead of returning a structured error — were
+    fixed alongside it, each with a regression test written to fail
+    first.</p>
+
+    <p>The reason to mention this in a launch note rather than bury it in a
+    changelog: every one of these bugs was reachable from plain
+    <code>fenestra/1</code> JSON through the same MCP surface an agent
+    drives, which is the exact threat model fenestra's agent-facing surface
+    has to hold up under. Treating that surface as adversarial — including a
+    second pass specifically looking for what the first pass missed — is
+    part of the same trust story as the verification loop itself, not a
+    separate concern from it.</p>
+
+    <h2>Try it</h2>
+
+    <pre><code>cargo add fenestra</code></pre>
+
+    <p>or start from the template:</p>
+
+    <pre><code>cargo generate richer-richard/fenestra-template</code></pre>
+
+    <p>which includes a headless UI test and CI out of the box. To see the
+    render → verify loop this release deepens without installing anything,
+    open the <a href="../">live demo</a> — the same vello/wgpu code path
+    compiled to WebAssembly, running in your browser over WebGPU — or read
+    <a href="https://github.com/richer-richard/fenestra/blob/main/AGENTS.md">AGENTS.md</a>
+    for the build → render → look → verify workflow an AI coding agent
+    follows against a fenestra app. The full changelog for every release
+    since 0.29 is in
+    <a href="https://github.com/richer-richard/fenestra/blob/main/CHANGELOG.md">CHANGELOG.md</a>.</p>
+
+    <footer>
+      <a href="../">← Back to the live demo</a>
+    </footer>
+  </div>
+</body>
+</html>

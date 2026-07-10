@@ -48,6 +48,7 @@ jobs:
           set -euo pipefail
           mkdir -p site
           cp web/index.html site/index.html
+          cp -R web/updates site/updates
           cp -R book/book site/book
           wasm-bindgen --target web --no-typescript --out-dir site/demo \
             target/wasm32-unknown-unknown/release/examples/web_demo.wasm
