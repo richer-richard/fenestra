@@ -3426,3 +3426,24 @@ ranked menu; Richard picked all four. Decisions worth keeping:
   memory between unrelated documents. Also: `Step::Drag`'s `to` selector now
   resolves strictly (a miss/ambiguity returns `EngineError::Step` with the
   access tree, not a `Frame::get` panic), matching every other target step.
+
+## `fenestra-mcp` decouples from the workspace's lockstep version (2026-07-10)
+
+`fenestra-mcp` now carries its own `version` in `fenestra-mcp/Cargo.toml`
+(starting at `0.40.1`) instead of `version.workspace = true`, so the MCP
+server can publish on its own cadence — the same pattern `fenestra-anim`
+established, for a different reason. `fenestra-anim` is a leaf crate with an
+external consumer outside this workspace; `fenestra-mcp` decouples because
+listing it in the official MCP Registry (`registry.modelcontextprotocol.io`)
+requires a machine-readable ownership marker
+(`mcp-name: io.github.richer-richard/fenestra-mcp`) as *visible markdown
+text* in the published README — crates.io strips HTML comments before
+serving a README, so the `<!-- mcp-name: ... -->` form that works for
+npm/PyPI silently fails validation for a Cargo package. Adding that line is a
+metadata-only change with no code or API impact, and re-publishing the whole
+workspace at a new patch version solely to carry one README line would be
+disproportionate. Nothing else in the workspace depends on `fenestra-mcp`'s
+version (it isn't in `workspace.dependencies`), so decoupling it is isolated
+and doesn't ripple. Future workspace releases (core/kit/shell/describe/
+render/charts/facade, still lockstepped at `0.40.x` → `0.41.0` and beyond)
+do not need to touch `fenestra-mcp`'s version, and vice versa.

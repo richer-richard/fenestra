@@ -53,6 +53,10 @@ visual tools also attach a downscaled preview image and a `resource_link` to
 the full-resolution PNG (a `file://` temp path), so a large image never
 bloats the response yet stays one fetch away.
 
+## Registry
+
+- MCP Registry name: `mcp-name: io.github.richer-richard/fenestra-mcp`
+
 ## License
 
 Licensed under either of MIT or Apache-2.0 at your option.
