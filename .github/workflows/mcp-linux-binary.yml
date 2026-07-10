@@ -1,0 +1,51 @@
+name: fenestra-mcp Linux binary
+
+# One-off, manually triggered: builds a Linux x86_64 release binary of
+# fenestra-mcp and uploads it to an existing GitHub release. Not part of the
+# regular CD pipeline -- fenestra-mcp is versioned independently (see
+# ARCHITECTURE.md) and its from-source build is too heavy (wgpu + vello +
+# parley + taffy) to finish inside third-party CI sandboxes' build-time
+# budgets (e.g. the MCP Registry's automated Dockerfile check), so those
+# consumers fetch this prebuilt binary instead of compiling.
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: "GitHub release tag to upload the binary to"
+        required: true
+        default: "fenestra-mcp-v0.40.1"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    name: build + upload (linux x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable branch
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - name: Install font system deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libfontconfig1-dev pkg-config
+      - name: Build fenestra-mcp (release)
+        run: cargo build --release -p fenestra-mcp
+      - name: Package
+        run: |
+          set -euo pipefail
+          cp target/release/fenestra-mcp fenestra-mcp-linux-x86_64
+          chmod +x fenestra-mcp-linux-x86_64
+          sha256sum fenestra-mcp-linux-x86_64 | tee fenestra-mcp-linux-x86_64.sha256
+      - name: Upload to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "${{ inputs.release_tag }}" \
+            fenestra-mcp-linux-x86_64 fenestra-mcp-linux-x86_64.sha256 \
+            --clobber --repo "${{ github.repository }}"
