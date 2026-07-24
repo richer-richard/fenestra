@@ -86,10 +86,24 @@ where
     /// input, [`Self::pump`], or [`Self::update`]).
     ///
     /// # Panics
-    /// If no compute-capable GPU adapter exists.
-    pub fn new(mut app: A, theme: Theme, size: (u32, u32)) -> Self {
-        let size =
-            with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
+    /// If no compute-capable GPU adapter exists — use [`Self::try_new`] to
+    /// handle that as a value.
+    pub fn new(app: A, theme: Theme, size: (u32, u32)) -> Self {
+        Self::try_new(app, theme, size)
+            .unwrap_or_else(|e| panic!("headless test harness unavailable: {e}"))
+    }
+
+    /// Fallible twin of [`Self::new`]: a missing GPU adapter comes back as
+    /// a [`crate::ShellError`] with an actionable message instead of a
+    /// panic. Once construction succeeds, the shared headless renderer
+    /// exists for the process lifetime, so later harness operations cannot
+    /// hit the no-device case again.
+    ///
+    /// # Errors
+    /// [`crate::ShellError::NoDevice`] when no compute-capable wgpu adapter
+    /// exists.
+    pub fn try_new(mut app: A, theme: Theme, size: (u32, u32)) -> Result<Self, crate::ShellError> {
+        let size = with_headless(|h| h.clamp_size(size.0, size.1))?;
         let pending: Arc<Mutex<Vec<A::Msg>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&pending);
         app.init(Proxy::new(move |msg| {
@@ -113,7 +127,7 @@ where
             Self::new_slot(&harness.app, &harness.theme, MAIN_WINDOW, size, 0.0, true),
         );
         harness.rebuild();
-        harness
+        Ok(harness)
     }
 
     fn new_slot(

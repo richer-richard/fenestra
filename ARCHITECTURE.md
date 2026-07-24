@@ -3447,3 +3447,53 @@ version (it isn't in `workspace.dependencies`), so decoupling it is isolated
 and doesn't ripple. Future workspace releases (core/kit/shell/describe/
 render/charts/facade, still lockstepped at `0.40.x` → `0.41.0` and beyond)
 do not need to touch `fenestra-mcp`'s version, and vice versa.
+
+## Closing the two remaining crash classes (2026-07-24)
+
+The 2026-07-24 adversarial review left exactly two reproducible crash
+classes; both are now closed. Decisions of record:
+
+**Tree depth is a documented contract, not an accident of stack size.**
+`MAX_TREE_DEPTH = 48`, chosen from measurement, not estimation: with the
+worst realistic profile (opt-level 0, 2 MiB thread stack — the
+`std::thread` spawn and tokio blocking-pool default), the full
+build/layout/paint pipeline survives depth 60 and dies past it; 48 keeps
+≥1.25× margin there and ~4× on 8 MiB main threads. Real UIs measure ~30
+levels; serde_json's own 128-level recursion limit means a fenestra/1
+document can express ~63 nested nodes, so a pathological document parses
+and is then rejected by the same pointed panic. Enforcement is three-fold:
+an *iterative* pre-scan in `build_frame` (detection can never itself
+overflow), a `path.len()` check inside the recursive `build` for content
+generated mid-walk (virtual rows, container queries), and the same check
+in `Element::map` (which runs on view trees before `build_frame` sees
+them). `Element` child storage (`Children`, a `Vec` newtype) drops
+iteratively so the guard's own unwind — or a user dropping a 100k-deep
+tree they never rendered — cannot abort. A regression test builds an
+at-cap tree on an exactly-2-MiB thread in CI: if the build/layout frames
+ever fatten enough to break the contract, that test aborts loudly instead
+of a user's render thread. Alternative considered and rejected for now:
+rewriting build/layout/paint as explicit-stack traversals (large, touches
+the hottest code; the cap + pointed panic buys the same safety for a
+fraction of the risk — revisit only if a real ≥48-deep UI shows up).
+
+**The live window's error discipline now matches the rest of the shell.**
+`WindowShell` gains a `fatal: Option<ShellError>` slot and a `fail()` that
+records the first unrecoverable error and exits the event loop; the runner
+entry functions return it from `run_app`/`run_static`/`run_scene`. Every
+former `expect`/`panic!` in window.rs (window create, surface create,
+renderer create, `render_to_texture`, surface-texture `Validation`,
+`device.poll`) maps to typed `ShellError` variants whose Display text says
+how to fix the environment. Secondary-window failures funnel into the main
+shell's slot — device-level errors are app-fatal, not per-window. The web
+runner can't return (winit's `spawn_app`), so `fail()` logs to the browser
+console there (`web-sys/console`, a dependency the tree already carried
+transitively). The one surviving `expect` is a true internal invariant
+(renderer existence for an active surface, established by `activate`).
+The headless twins (`try_render_element*`, `Harness::try_new`) complete
+the channel; `fenestra-render` gained `EngineError::Render(ShellError)` so
+the MCP server reports "this machine can't render, here's the fix" as a
+typed internal error rather than relying on `spawn_blocking` panic-catch
+(which remains as defense in depth). The no-adapter path is regression
+tested for real: on macOS, `WGPU_BACKEND=gl` deterministically enumerates
+zero adapters (wgpu never compiles GL there), so a child-process test
+exercises the genuine `NoDevice` route end to end.

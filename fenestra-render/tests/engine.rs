@@ -73,6 +73,7 @@ fn interact_miss_is_self_explaining() {
         }
         EngineError::Parse(e) => panic!("expected a Step error, got Parse: {e:?}"),
         EngineError::Scenario(m) => panic!("expected a Step error, got Scenario: {m}"),
+        EngineError::Render(e) => panic!("expected a Step error, got Render: {e}"),
     }
 }
 
@@ -108,6 +109,7 @@ fn interact_drag_to_missing_target_is_self_explaining() {
         }
         EngineError::Parse(e) => panic!("expected a Step error, got Parse: {e:?}"),
         EngineError::Scenario(m) => panic!("expected a Step error, got Scenario: {m}"),
+        EngineError::Render(e) => panic!("expected a Step error, got Render: {e}"),
     }
 }
 

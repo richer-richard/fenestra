@@ -1,5 +1,44 @@
 # Changelog
 
+## Unreleased
+
+The two crash classes left open by the 2026-07-24 adversarial review are
+closed: runaway-deep element trees and GPU-environment failures now fail as
+pointed, catchable errors instead of process aborts and panics.
+
+### Fixed
+
+- **Deep element trees no longer abort the process.** Recursion in
+  build/layout/paint used to hit a raw stack overflow (an uncatchable abort)
+  a few hundred levels deep — data-dependent for any recursive component
+  (file trees, comment threads). The tree contract is now the documented
+  `MAX_TREE_DEPTH` (48): `build_frame` pre-scans iteratively (detection
+  works at any depth), content generated mid-walk (virtual rows, container
+  queries) is checked during the walk, `Element::map` enforces the same cap,
+  and the panic message points at the offending builder call site. Dropping
+  is depth-unlimited: `Element` child storage now drops iteratively, so even
+  a 100k-deep tree unwinds safely. The cap is measured, not estimated: an
+  at-cap tree builds within a 2 MiB thread stack (the `std::thread`/tokio
+  blocking default) in unoptimized debug builds, pinned by a regression test
+  on exactly that stack size.
+- **The live window reports GPU failures instead of panicking.** Window
+  creation, surface creation, vello renderer construction, mid-run render
+  errors, surface-texture validation, and device polls all funnel into new
+  `ShellError` variants with actionable messages (what to install in a
+  VM/CI); `run_app`/`run_static`/`run_scene` return them. The recoverable
+  surface states (lost/outdated/occluded/timeout) keep their in-place
+  recovery. On the web, where `run_app` has already returned, fatal shell
+  errors log to the browser console instead of throwing an opaque exception.
+- **The headless API promises — and now has — an error channel.**
+  `try_render_element`, `try_render_element_with`,
+  `try_render_element_with_state`, and `Harness::try_new` return
+  `ShellError` values; the panicking wrappers delegate to them and carry the
+  same actionable message ("install mesa-vulkan-drivers…"). The
+  render/verify engine (`fenestra-render`) and the MCP server surface
+  GPU-environment failures as typed errors by design, not by
+  `spawn_blocking` panic-catch. Regression-tested against a real
+  zero-adapter environment.
+
 ## 0.40.0 — 2026-07-10
 
 A hardening + correctness pass from an adversarial self-review — agent-reachable DoS

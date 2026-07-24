@@ -11,7 +11,7 @@ use fenestra_describe::inspect::{self, Selector};
 use fenestra_describe::parse::to_element;
 use fenestra_describe::state::{Action, StateMap};
 use fenestra_shell::testing::{clamp_strip_scale, filmstrip_image};
-use fenestra_shell::{Harness, MAX_FILM_INTERVAL_MS, render_element};
+use fenestra_shell::{Harness, MAX_FILM_INTERVAL_MS, ShellError, try_render_element};
 use image::{Rgba, RgbaImage};
 use serde::Deserialize;
 
@@ -38,6 +38,10 @@ pub enum EngineError {
     /// pattern. Distinct from a *verification failure* (a check that ran and did
     /// not pass), which is a normal verify report the caller reads.
     Scenario(String),
+    /// The headless renderer is unavailable or the render failed — most
+    /// commonly no GPU adapter on the machine (the carried [`ShellError`]
+    /// says how to fix that). The description itself was fine.
+    Render(ShellError),
 }
 
 impl std::fmt::Display for EngineError {
@@ -56,6 +60,7 @@ impl std::fmt::Display for EngineError {
                 tree,
             } => write!(f, "step {index}: {message}\naccessibility tree:\n{tree}"),
             Self::Scenario(message) => write!(f, "scenario error: {message}"),
+            Self::Render(e) => write!(f, "render failed: {e}"),
         }
     }
 }
@@ -76,7 +81,9 @@ pub struct RenderOut {
 /// automatic accessibility report.
 ///
 /// # Errors
-/// [`EngineError::Parse`] when the description does not parse cleanly.
+/// [`EngineError::Parse`] when the description does not parse cleanly;
+/// [`EngineError::Render`] when the headless renderer is unavailable (e.g.
+/// no GPU adapter) or the render fails.
 pub fn render(
     desc: &Description,
     theme: &Theme,
@@ -85,7 +92,7 @@ pub fn render(
     let tree = inspect::access_tree(desc, theme, size).map_err(EngineError::Parse)?;
     let warnings = inspect::check_a11y(desc, theme, size).map_err(EngineError::Parse)?;
     let el = to_element(desc, theme).map_err(EngineError::Parse)?;
-    let png = render_element(el, theme, size);
+    let png = try_render_element(el, theme, size).map_err(EngineError::Render)?;
     Ok(RenderOut {
         tree,
         png,
@@ -228,7 +235,7 @@ pub fn film(
 ) -> Result<FilmOut, EngineError> {
     to_element(desc, theme).map_err(EngineError::Parse)?;
     let app = DescribedApp::new(desc.clone(), theme.clone());
-    let mut h = Harness::new(app, theme.clone(), size);
+    let mut h = Harness::try_new(app, theme.clone(), size).map_err(EngineError::Render)?;
     h.set_reduced_motion(false);
     for (index, step) in steps.iter().enumerate() {
         apply_step(&mut h, step, index)?;
@@ -259,7 +266,7 @@ pub(crate) fn drive(
 ) -> Result<Harness<DescribedApp>, EngineError> {
     to_element(desc, theme).map_err(EngineError::Parse)?;
     let app = DescribedApp::new(desc.clone(), theme.clone());
-    let mut h = Harness::new(app, theme.clone(), size);
+    let mut h = Harness::try_new(app, theme.clone(), size).map_err(EngineError::Render)?;
     for (index, step) in steps.iter().enumerate() {
         apply_step(&mut h, step, index)?;
     }
@@ -439,7 +446,7 @@ pub fn match_screenshot(
     masks: &[Bounds],
 ) -> Result<ScreenshotDiff, EngineError> {
     let el = to_element(desc, theme).map_err(EngineError::Parse)?;
-    let actual = render_element(el, theme, size);
+    let actual = try_render_element(el, theme, size).map_err(EngineError::Render)?;
     Ok(diff_images(baseline, &actual, channel_tol, budget, masks))
 }
 

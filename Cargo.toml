@@ -61,6 +61,9 @@ wasm-bindgen-futures = "0.4.73"
 # wayland-scanner ships a quick-xml >=0.41 release.
 rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] }
 web-time = "1.1.0"
+# Already in the tree transitively (winit/wgpu); the direct dep only turns on
+# the `console` binding for surfacing fatal shell errors in the browser.
+web-sys = { version = "0.3.100", features = ["console"] }
 
 # vello and wgpu are unusably slow without optimization; keep our own crates
 # fast to compile but optimize dependencies even in dev builds.

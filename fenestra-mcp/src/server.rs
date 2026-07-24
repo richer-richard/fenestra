@@ -586,6 +586,10 @@ fn engine_err(e: EngineError) -> ErrorData {
         EngineError::Parse(_) | EngineError::Step { .. } | EngineError::Scenario(_) => {
             ErrorData::invalid_params(e.to_string(), None)
         }
+        // The description was fine; the server's environment can't render
+        // (usually no GPU adapter — the message says how to fix it). An
+        // internal error, not a caller mistake.
+        EngineError::Render(_) => ErrorData::internal_error(e.to_string(), None),
     }
 }
 

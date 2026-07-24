@@ -38,7 +38,8 @@ pub use blur::{apply_element_filter, box_blur_rgba8};
 #[cfg(not(target_arch = "wasm32"))]
 pub use element_render::{
     render_element, render_element_over, render_element_with, render_element_with_state,
-    with_fonts, with_headless,
+    try_render_element, try_render_element_with, try_render_element_with_state, with_fonts,
+    with_headless,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use embed::{Embedded, EventResponse};
@@ -75,15 +76,43 @@ pub enum ShellError {
     EventLoop(winit::error::EventLoopError),
     /// GPU readback of the rendered image failed.
     Readback,
+    /// The OS refused to create the application window.
+    WindowCreate(winit::error::OsError),
+    /// Creating the on-screen wgpu surface failed — usually no usable GPU
+    /// driver (VM, remote desktop, bare CI) or, on the web, no WebGPU.
+    Surface(vello::Error),
+    /// wgpu reported a validation error acquiring the surface texture.
+    SurfaceValidation,
+    /// Polling the wgpu device for queue progress failed.
+    Poll(vello::wgpu::PollError),
 }
 
 impl fmt::Display for ShellError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoDevice => write!(f, "no compute-capable wgpu adapter found"),
+            Self::NoDevice => write!(
+                f,
+                "no compute-capable wgpu adapter found — fenestra renders with the GPU \
+                 (Metal/Vulkan/DX12). On a headless Linux machine or in CI, install a \
+                 software rasterizer: `apt install mesa-vulkan-drivers` (lavapipe)"
+            ),
             Self::Vello(e) => write!(f, "vello renderer error: {e}"),
             Self::EventLoop(e) => write!(f, "winit event loop error: {e}"),
             Self::Readback => write!(f, "GPU readback failed"),
+            Self::WindowCreate(e) => write!(f, "failed to create the application window: {e}"),
+            Self::Surface(e) => write!(
+                f,
+                "failed to create a GPU surface: {e} — the live window needs a working \
+                 GPU driver (Metal/Vulkan/DX12); in a VM, remote session, or CI, install \
+                 a software driver (Mesa lavapipe) or render headlessly instead. On the \
+                 web this requires a WebGPU-enabled browser"
+            ),
+            Self::SurfaceValidation => write!(
+                f,
+                "wgpu validation error acquiring the surface texture (driver/runtime \
+                 bug or an invalid swapchain configuration)"
+            ),
+            Self::Poll(e) => write!(f, "wgpu device poll failed: {e}"),
         }
     }
 }
