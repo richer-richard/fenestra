@@ -107,6 +107,11 @@ pointed, catchable errors instead of process aborts and panics.
 
 ### Fixed
 
+- The web runner now installs a real clipboard: in-app copy/paste works
+  and copy-out reaches the system clipboard via `navigator.clipboard`
+  (paste-in from other apps remains the documented gap — see
+  ARCHITECTURE.md's web-parity entry, which also settles the AccessKit
+  and glass asterisks precisely).
 - Markdown task-list checkboxes rendered as tofu in deterministic headless
   output (the U+2610/U+2611 ballot boxes are outside embedded Inter's
   coverage); they now render as `[x]` / `[ ]`.

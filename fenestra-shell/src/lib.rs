@@ -31,6 +31,8 @@ mod scenario;
 mod synthetic;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
+#[cfg(target_arch = "wasm32")]
+mod web_clipboard;
 mod window;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -55,6 +57,8 @@ pub use os_clipboard::OsClipboard;
 pub use scenario::{ScenarioError, ScenarioReport, run_scenario};
 #[cfg(not(target_arch = "wasm32"))]
 pub use synthetic::{SyntheticEvent, render_app};
+#[cfg(target_arch = "wasm32")]
+pub use web_clipboard::WebClipboard;
 pub use window::{WindowOptions, run_app};
 
 // Re-exports for embedders: integration code must use the same wgpu and

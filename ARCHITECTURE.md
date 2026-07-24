@@ -3723,3 +3723,30 @@ Live-window behavior verified by building the `native_menu` example
 session without a human at the screen cannot click a native menu bar, so
 interactive dispatch is example-verified rather than harness-tested — the
 pure halves (spec fingerprint, id→message mapping) are unit-tested.
+
+## Web parity: what closed, what's blocked, what was already equal (2026-07-24)
+
+Timeboxed pass over the wasm asterisks, with each one resolved by
+category rather than left as a blanket disclaimer:
+
+- **Clipboard (closed for copy-out).** The new `WebClipboard` writes
+  through the async `navigator.clipboard` API fire-and-forget and mirrors
+  reads in-app: in-app copy/paste is fully functional, copy *out* to
+  other applications works, paste *in* from other applications remains
+  the documented gap (the browser only exposes it through async
+  permission flows a synchronous `Clipboard::get` cannot block on; a
+  paste-event bridge is the follow-up if it matters).
+- **AccessKit (ecosystem-blocked).** There is no production AccessKit
+  web adapter: browser accessibility is the DOM, and a canvas-rendered
+  app needs a parallel semantic DOM projection that upstream has not
+  shipped. fenestra's access tree exists on every target (it powers the
+  headless `check_a11y`/`focus_order` tooling everywhere, web included);
+  what's missing is only the OS-bridge layer, and that is upstream's
+  frontier, not a fenestra gap to paper over. Revisit when AccessKit
+  grows a web adapter.
+- **Glass (was already equal).** The web runner is the same single-pass
+  swapchain as the native live window: glass shows its translucent tint
+  without the CPU backdrop pass on *both*; the two-pass blur is the
+  headless golden path. The honest phrasing is "live windows show
+  tint-only glass; headless shows the full effect" — web is not a
+  special case and the docs now say so.

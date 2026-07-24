@@ -65,7 +65,7 @@ rfd = { version = "0.17.2", default-features = false, features = ["xdg-portal"] 
 web-time = "1.1.0"
 # Already in the tree transitively (winit/wgpu); the direct dep only turns on
 # the `console` binding for surfacing fatal shell errors in the browser.
-web-sys = { version = "0.3.100", features = ["console"] }
+web-sys = { version = "0.3.100", features = ["console", "Window", "Navigator", "Clipboard"] }
 # Native menu bar (macOS attach; see ARCHITECTURE.md for the platform story).
 muda = "0.19.3"
 

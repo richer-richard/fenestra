@@ -819,12 +819,13 @@ where
     for (role, data) in &options.fonts {
         fonts.register(*role, data.clone());
     }
-    #[cfg(target_arch = "wasm32")]
-    let state = live_state();
-    #[cfg(not(target_arch = "wasm32"))]
     let mut state = live_state();
     #[cfg(not(target_arch = "wasm32"))]
     state.set_clipboard(Box::new(crate::OsClipboard::default()));
+    // On the web, copy-out reaches the system clipboard; paste-in from
+    // other apps stays in-app (see `WebClipboard`).
+    #[cfg(target_arch = "wasm32")]
+    state.set_clipboard(Box::new(crate::WebClipboard::default()));
     let runner = AppRunner {
         shell: WindowShell::new(options, background),
         msg_proxy,
