@@ -12,8 +12,11 @@ use serde_json::Value;
 use crate::catalog::Component;
 
 /// One server→client message: a version tag plus exactly one payload.
+///
+/// Unknown payloads (message types from a newer protocol revision,
+/// transport metadata) land in [`Self::extra`] instead of failing the
+/// parse; the client skips them with a note on the surface they name.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct Envelope {
     /// The protocol version tag; v0.9 is what this crate implements.
     /// Missing tags are tolerated (some transports strip them).
@@ -31,6 +34,11 @@ pub struct Envelope {
     /// Removes a surface entirely.
     #[serde(default, rename = "deleteSurface")]
     pub delete_surface: Option<DeleteSurface>,
+    /// Everything else in the envelope: unknown message types and
+    /// transport metadata, kept for inspection rather than erroring the
+    /// stream.
+    #[serde(flatten)]
+    pub extra: serde_json::Map<String, Value>,
 }
 
 /// `createSurface`: a new surface with a catalog and optional theme hints.

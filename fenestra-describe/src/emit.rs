@@ -329,7 +329,20 @@ fn size_spec(
         Length::Pct(v) if (v - 100.0).abs() < f32::EPSILON => {
             Some(SizeSpec::Keyword("full".to_owned()))
         }
-        Length::Pct(v) => Some(SizeSpec::Keyword(format!("{v}%"))),
+        Length::Pct(v) => {
+            if !(0.0..=100.0).contains(&v) {
+                // The parser clamps to 0..=100, so this cannot re-render
+                // identically — report it (zero warnings must mean fidelity).
+                warn(
+                    warnings,
+                    path,
+                    format!(
+                        "{field}: percent size {v}% is outside 0..=100 and clamps at parse time"
+                    ),
+                );
+            }
+            Some(SizeSpec::Keyword(format!("{v}%")))
+        }
         Length::Ch(_) => {
             warn(
                 warnings,

@@ -121,14 +121,7 @@ where
         // The startup effect queues like any other; tests decide when it
         // runs (`run_effects`), keeping initial data loads deterministic.
         let init = app.init_cmd();
-        let mut queue = vec![init];
-        while let Some(cmd) = queue.pop() {
-            let mut immediate = Vec::new();
-            cmd.run(&mut |m| immediate.push(m), &mut |u| startup.push(u));
-            for m in immediate {
-                queue.push(app.update_with(m));
-            }
-        }
+        fenestra_core::apply_cmd(&mut app, init, &mut |u| startup.push(u));
         let mut harness = Self {
             app,
             theme,
@@ -176,18 +169,14 @@ where
     }
 
     /// Applies one message through [`App::update_with`], running immediate
-    /// follow-up messages to quiescence; deferred units come back for the
-    /// caller to queue on the harness.
+    /// follow-up messages to quiescence via the shared
+    /// [`fenestra_core::apply_cmd`] semantics (FIFO — identical to the live
+    /// runners by construction); deferred units come back for the caller to
+    /// queue on the harness.
     fn apply(app: &mut A, msg: A::Msg) -> Vec<fenestra_core::CmdUnit<A::Msg>> {
         let mut units = Vec::new();
-        let mut queue = vec![app.update_with(msg)];
-        while let Some(cmd) = queue.pop() {
-            let mut immediate = Vec::new();
-            cmd.run(&mut |m| immediate.push(m), &mut |u| units.push(u));
-            for m in immediate {
-                queue.push(app.update_with(m));
-            }
-        }
+        let cmd = app.update_with(msg);
+        fenestra_core::apply_cmd(app, cmd, &mut |u| units.push(u));
         units
     }
 

@@ -144,24 +144,17 @@ where
     }
 
     fn run_cmd(&mut self, cmd: fenestra_core::Cmd<A::Msg>) {
-        let mut queue = vec![cmd];
-        while let Some(cmd) = queue.pop() {
-            let mut immediate = Vec::new();
-            let proxy = &self.proxy;
-            cmd.run(&mut |m| immediate.push(m), &mut |unit| {
-                let proxy = proxy.clone();
-                if std::thread::Builder::new()
-                    .name("fenestra-cmd".into())
-                    .spawn(move || proxy.send(unit.block()))
-                    .is_err()
-                {
-                    eprintln!("fenestra: failed to spawn an effect worker thread");
-                }
-            });
-            for m in immediate {
-                queue.push(self.app.update_with(m));
+        let proxy = self.proxy.clone();
+        fenestra_core::apply_cmd(&mut self.app, cmd, &mut |unit| {
+            let proxy = proxy.clone();
+            if std::thread::Builder::new()
+                .name("fenestra-cmd".into())
+                .spawn(move || proxy.send(unit.block()))
+                .is_err()
+            {
+                eprintln!("fenestra: failed to spawn an effect worker thread");
             }
-        }
+        });
     }
 
     /// Reconciles subscription timers against [`App::subscriptions`] —

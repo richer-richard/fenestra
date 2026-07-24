@@ -161,6 +161,9 @@ enum Command {
         /// Window size, `WxH`.
         #[arg(long, default_value = "480x640")]
         size: String,
+        /// Theme JSON path (a `ThemeSpec` object, or `{"preset":"dark"}`).
+        #[arg(long)]
+        theme: Option<PathBuf>,
         /// Write the rendered PNG here.
         #[arg(long)]
         out: Option<PathBuf>,
@@ -286,7 +289,12 @@ fn main() -> ExitCode {
         ),
         Command::Vocabulary => cmd_vocabulary(),
         Command::Schema => cmd_schema(),
-        Command::A2ui { stream, size, out } => cmd_a2ui(stream, &size, out),
+        Command::A2ui {
+            stream,
+            size,
+            theme,
+            out,
+        } => cmd_a2ui(stream, &size, theme, out),
         Command::Validate { desc } => cmd_validate(desc),
         Command::Verify {
             scenario,
@@ -527,7 +535,12 @@ fn cmd_schema() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn cmd_a2ui(stream: Option<PathBuf>, size: &str, out: Option<PathBuf>) -> ExitCode {
+fn cmd_a2ui(
+    stream: Option<PathBuf>,
+    size: &str,
+    theme: Option<PathBuf>,
+    out: Option<PathBuf>,
+) -> ExitCode {
     let json = match read_input(stream.as_deref()) {
         Ok(j) => j,
         Err(e) => return err(&format!("error reading stream: {e}")),
@@ -536,7 +549,10 @@ fn cmd_a2ui(stream: Option<PathBuf>, size: &str, out: Option<PathBuf>) -> ExitCo
         Ok(s) => s,
         Err(code) => return code,
     };
-    let theme = Theme::light();
+    let theme = match load_theme(theme.as_deref()) {
+        Ok(t) => t,
+        Err(code) => return code,
+    };
     let result = match engine::render_a2ui(&json, &theme, size) {
         Ok(r) => r,
         Err(e) => return err(&e.to_string()),

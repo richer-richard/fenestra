@@ -7,19 +7,61 @@ use serde::Deserialize;
 use serde_json::Value;
 
 /// One component definition: identity, layout weight, and the typed body.
+///
+/// Deserialization never fails a whole message over one bad component: a
+/// definition whose body does not parse (a known component missing a
+/// required field, a mistyped value) degrades to [`Kind::Unknown`] carrying
+/// the raw JSON — rendered as a labeled placeholder with a note — while its
+/// id, weight, and accessibility attributes are still honored. This keeps
+/// the blast radius of malformed input to the one component that carried it
+/// (A2UI's progressive spirit).
 #[derive(Debug, Clone, Deserialize)]
+#[serde(from = "Value")]
 pub struct Component {
     /// Unique id within the surface; `root` anchors the tree.
     pub id: String,
     /// Relative flex weight within a Row/Column parent (CSS flex-grow).
-    #[serde(default)]
     pub weight: Option<f64>,
     /// Accessibility attributes (advisory).
-    #[serde(default)]
     pub accessibility: Option<Value>,
     /// The component body, discriminated by the `component` field.
-    #[serde(flatten)]
     pub kind: Kind,
+}
+
+/// The strict shape [`Component`] tries first; failures fall back to
+/// [`Kind::Unknown`] instead of erroring the message.
+#[derive(Deserialize)]
+struct TypedComponent {
+    id: String,
+    #[serde(default)]
+    weight: Option<f64>,
+    #[serde(default)]
+    accessibility: Option<Value>,
+    #[serde(flatten)]
+    kind: Kind,
+}
+
+impl From<Value> for Component {
+    fn from(v: Value) -> Self {
+        match serde_json::from_value::<TypedComponent>(v.clone()) {
+            Ok(t) => Self {
+                id: t.id,
+                weight: t.weight,
+                accessibility: t.accessibility,
+                kind: t.kind,
+            },
+            Err(_) => Self {
+                id: v
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_owned(),
+                weight: v.get("weight").and_then(Value::as_f64),
+                accessibility: v.get("accessibility").cloned(),
+                kind: Kind::Unknown(v),
+            },
+        }
+    }
 }
 
 /// The component body. Unknown component names land in [`Kind::Unknown`]
@@ -54,8 +96,9 @@ pub enum Kind {
     },
     /// A named icon (mapped onto the vendored Lucide set where possible).
     Icon {
-        /// The icon name.
-        name: Value,
+        /// The icon name (dynamic: a literal, a data binding, or a
+        /// function call).
+        name: Dyn<String>,
     },
     /// A remote video; rendered as a labeled placeholder (no network).
     Video {

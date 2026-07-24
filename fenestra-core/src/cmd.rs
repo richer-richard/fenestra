@@ -143,6 +143,36 @@ impl<Msg> Cmd<Msg> {
     }
 }
 
+/// Applies one effect against an app: immediate messages feed back through
+/// [`App::update_with`](crate::App::update_with) until none remain, and
+/// every deferred unit (task or future) is handed to `spawn` in encounter
+/// order. This is *the* effect-execution semantics — the live runners,
+/// [`Embedded`](../fenestra_shell/struct.Embedded.html) hosts, and the test
+/// harness all drive effects through here, so ordering can never fork
+/// between production and tests.
+///
+/// Ordering is FIFO: when several immediate messages apply (a batch of
+/// [`Cmd::msg`]), their follow-up commands run in the order the messages
+/// applied — message A's whole follow-up chain is queued before message
+/// B's. Deferred units are only *collected* here; when they run (worker
+/// threads live, [`run_effects`](../fenestra_shell/struct.Harness.html#method.run_effects)
+/// in tests) is the executor's business.
+pub fn apply_cmd<A: crate::App + ?Sized>(
+    app: &mut A,
+    cmd: Cmd<A::Msg>,
+    spawn: &mut impl FnMut(CmdUnit<A::Msg>),
+) {
+    let mut queue = std::collections::VecDeque::new();
+    queue.push_back(cmd);
+    while let Some(cmd) = queue.pop_front() {
+        let mut immediate = Vec::new();
+        cmd.run(&mut |m| immediate.push(m), spawn);
+        for m in immediate {
+            queue.push_back(app.update_with(m));
+        }
+    }
+}
+
 /// One deferred unit of work inside a [`Cmd`], produced by [`Cmd::run`].
 pub enum CmdUnit<Msg> {
     /// A blocking-allowed closure.
@@ -293,6 +323,54 @@ mod tests {
             panic!("expected a task");
         };
         assert_eq!(task(), 20, "the map must wrap the task's output");
+    }
+
+    #[test]
+    fn apply_cmd_runs_follow_ups_in_message_order() {
+        struct Logger {
+            log: Vec<u32>,
+        }
+        impl crate::App for Logger {
+            type Msg = u32;
+            fn update(&mut self, _: u32) {}
+            fn update_with(&mut self, msg: u32) -> Cmd<u32> {
+                self.log.push(msg);
+                match msg {
+                    // 1 and 2 each chain one follow-up; FIFO means both
+                    // first-generation messages apply before either chain.
+                    1 => Cmd::msg(11),
+                    2 => Cmd::msg(22),
+                    _ => Cmd::none(),
+                }
+            }
+            fn view(&self) -> crate::Element<u32> {
+                crate::text("logger")
+            }
+        }
+        let mut app = Logger { log: Vec::new() };
+        let cmd = Cmd::batch([Cmd::msg(1), Cmd::msg(2)]);
+        apply_cmd(&mut app, cmd, &mut |_| panic!("no deferred units here"));
+        assert_eq!(app.log, vec![1, 2, 11, 22], "FIFO across sibling chains");
+    }
+
+    #[test]
+    fn apply_cmd_collects_deferred_units_in_encounter_order() {
+        struct Noop;
+        impl crate::App for Noop {
+            type Msg = u32;
+            fn update(&mut self, _: u32) {}
+            fn view(&self) -> crate::Element<u32> {
+                crate::text("noop")
+            }
+        }
+        let mut units = Vec::new();
+        apply_cmd(
+            &mut Noop,
+            Cmd::batch([Cmd::task(|| 1), Cmd::task(|| 2)]),
+            &mut |u| units.push(u),
+        );
+        let outputs: Vec<u32> = units.into_iter().map(CmdUnit::block).collect();
+        assert_eq!(outputs, vec![1, 2]);
     }
 
     #[test]

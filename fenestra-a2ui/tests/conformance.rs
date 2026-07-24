@@ -137,12 +137,20 @@ fn actions_surface_as_signals_with_the_data_model() {
     let signal = surface.handle(A2uiMsg::Event {
         name: "login".into(),
         context: serde_json::Value::Null,
+        source_id: "submit_button".into(),
     });
     match signal {
         Some(A2uiSignal::Event {
-            name, data_model, ..
+            name,
+            data_model,
+            source_id,
+            ..
         }) => {
             assert_eq!(name, "login");
+            assert_eq!(
+                source_id, "submit_button",
+                "the firing component rides along"
+            );
             let model = data_model.expect("sendDataModel is true in the fixture");
             assert_eq!(model.pointer("/username").unwrap(), "ada");
         }

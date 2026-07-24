@@ -68,6 +68,10 @@ pub enum A2uiMsg {
         name: String,
         /// Resolved context payload.
         context: Value,
+        /// The id of the component that fired the action — what the
+        /// client→server action message's `sourceComponentId` requires
+        /// (see [`Surface::action_message`]).
+        source_id: String,
     },
     /// A local `openUrl` function action.
     OpenUrl(
@@ -98,7 +102,8 @@ pub enum A2uiMsg {
 #[derive(Clone, Debug)]
 pub enum A2uiSignal {
     /// Dispatch this action event to the agent (the client→server
-    /// `action` message; see [`Surface::action_message`]).
+    /// `action` message; see [`Surface::action_message`], which takes
+    /// `source_id` as its `sourceComponentId`).
     Event {
         /// The action name.
         name: String,
@@ -106,6 +111,8 @@ pub enum A2uiSignal {
         context: Value,
         /// The full data model, when the surface asked to send it.
         data_model: Option<Value>,
+        /// The id of the component that fired the action.
+        source_id: String,
     },
     /// Open a URL with the platform opener.
     OpenUrl(
@@ -194,10 +201,15 @@ impl Surface {
                 self.ui.local_edits.insert(id, value);
                 None
             }
-            A2uiMsg::Event { name, context } => Some(A2uiSignal::Event {
+            A2uiMsg::Event {
+                name,
+                context,
+                source_id,
+            } => Some(A2uiSignal::Event {
                 name,
                 context,
                 data_model: self.send_data_model.then(|| self.data.clone()),
+                source_id,
             }),
             A2uiMsg::OpenUrl(url) => Some(A2uiSignal::OpenUrl(url)),
             A2uiMsg::OpenModal(id) => {
@@ -239,14 +251,24 @@ impl Surface {
 
 // ── Dynamic-value resolution ──────────────────────────────────────────────
 
-fn lookup<'a>(surface: &'a Surface, path: &str, scope: Option<&str>) -> Option<&'a Value> {
-    if let Some(rest) = path.strip_prefix('/') {
-        let _ = rest;
-        return surface.data().pointer(path);
+/// The one canonical path joiner: absolute paths stand alone; relative
+/// paths resolve under the collection scope, or from the root without one.
+/// Reads ([`lookup`]), template item scopes ([`children_of`]), and binding
+/// *write* paths all go through here, so a value always reads back from
+/// exactly where its two-way binding writes.
+fn absolute(path: &str, scope: Option<&str>) -> String {
+    if path.starts_with('/') {
+        path.to_owned()
+    } else {
+        match scope {
+            Some(s) => format!("{s}/{path}"),
+            None => format!("/{path}"),
+        }
     }
-    // Collection scope: relative paths resolve under the current item.
-    let base = scope?;
-    surface.data().pointer(&format!("{base}/{path}"))
+}
+
+fn lookup<'a>(surface: &'a Surface, path: &str, scope: Option<&str>) -> Option<&'a Value> {
+    surface.data().pointer(&absolute(path, scope))
 }
 
 fn resolve_value(ctx: &Ctx, id: &str, d: &Dyn<String>, scope: Option<&str>) -> String {
@@ -263,12 +285,34 @@ fn resolve_value(ctx: &Ctx, id: &str, d: &Dyn<String>, scope: Option<&str>) -> S
     }
 }
 
+/// A bound boolean input value. Absent stays silently `false` — form
+/// values legitimately start unset — but a present non-boolean is always
+/// an authoring error and records a note.
+fn bound_bool(ctx: &Ctx, id: &str, path: &str, scope: Option<&str>) -> bool {
+    match lookup(ctx.surface, path, scope) {
+        None => false,
+        Some(v) => v.as_bool().unwrap_or_else(|| {
+            ctx.note(id, format!("binding {path:?} is not a boolean; false"));
+            false
+        }),
+    }
+}
+
+/// A bound numeric input value; same note policy as [`bound_bool`].
+fn bound_f64(ctx: &Ctx, id: &str, path: &str, scope: Option<&str>, fallback: f64) -> f64 {
+    match lookup(ctx.surface, path, scope) {
+        None => fallback,
+        Some(v) => v.as_f64().unwrap_or_else(|| {
+            ctx.note(id, format!("binding {path:?} is not a number; {fallback}"));
+            fallback
+        }),
+    }
+}
+
 fn resolve_bool(ctx: &Ctx, id: &str, d: &Dyn<bool>, scope: Option<&str>) -> bool {
     match d {
         Dyn::Lit(b) => *b,
-        Dyn::Binding { path } => lookup(ctx.surface, path, scope)
-            .and_then(Value::as_bool)
-            .unwrap_or(false),
+        Dyn::Binding { path } => bound_bool(ctx, id, path, scope),
         Dyn::Call(call) => {
             ctx.note(
                 id,
@@ -282,9 +326,7 @@ fn resolve_bool(ctx: &Ctx, id: &str, d: &Dyn<bool>, scope: Option<&str>) -> bool
 fn resolve_f64(ctx: &Ctx, id: &str, d: &Dyn<f64>, scope: Option<&str>) -> f64 {
     match d {
         Dyn::Lit(n) => *n,
-        Dyn::Binding { path } => lookup(ctx.surface, path, scope)
-            .and_then(Value::as_f64)
-            .unwrap_or(0.0),
+        Dyn::Binding { path } => bound_f64(ctx, id, path, scope, 0.0),
         Dyn::Call(call) => {
             ctx.note(id, format!("function {:?} in a numeric slot; 0", call.call));
             0.0
@@ -490,10 +532,10 @@ fn children_of(
                     ),
                 );
             }
-            let base = match scope {
-                Some(s) => format!("{s}/{path}"),
-                None => path.clone(),
-            };
+            // The canonical join: an absolute template path stays absolute
+            // even inside a collection scope (a naive `{scope}/{path}` join
+            // used to corrupt it into a `//` pointer).
+            let base = absolute(path, scope);
             (0..items.len().min(MAX_TEMPLATE_CHILDREN))
                 .map(|i| {
                     let item_scope = format!("{base}/{i}");
@@ -609,7 +651,7 @@ fn render_component(
             el.label(desc)
         }
         Kind::Icon { name } => {
-            let name = functions::display(name);
+            let name = resolve_value(ctx, id, name, scope);
             match fenestra_kit::icons::lucide::by_name(&name) {
                 Some(icon) => icon.label(name),
                 None => {
@@ -818,12 +860,22 @@ fn render_component(
             let label = resolve_value(ctx, id, label, scope);
             let (checked, path) = match value {
                 Dyn::Binding { path } => (
-                    lookup(ctx.surface, path, scope)
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
+                    bound_bool(ctx, id, path, scope),
                     Some(absolute(path, scope)),
                 ),
-                other => (resolve_bool(ctx, id, other, scope), None),
+                other => {
+                    // Literal-valued inputs stay interactive: the toggle
+                    // stores a local edit, and the render reads it back.
+                    let base = resolve_bool(ctx, id, other, scope);
+                    let checked = ctx
+                        .surface
+                        .ui
+                        .local_edits
+                        .get(id)
+                        .and_then(Value::as_bool)
+                        .unwrap_or(base);
+                    (checked, None)
+                }
             };
             let mut cb = checkbox(checked).label(label);
             cb = match path {
@@ -862,21 +914,38 @@ fn render_component(
             let min = min.unwrap_or(0.0);
             let (current, path) = match value {
                 Dyn::Binding { path } => (
-                    lookup(ctx.surface, path, scope)
-                        .and_then(Value::as_f64)
-                        .unwrap_or(min),
+                    bound_f64(ctx, id, path, scope, min),
                     Some(absolute(path, scope)),
                 ),
-                other => (resolve_f64(ctx, id, other, scope), None),
+                other => {
+                    // Literal-valued sliders stay interactive through
+                    // local edits, like every other input control.
+                    let base = resolve_f64(ctx, id, other, scope);
+                    let current = ctx
+                        .surface
+                        .ui
+                        .local_edits
+                        .get(id)
+                        .and_then(Value::as_f64)
+                        .unwrap_or(base);
+                    (current, None)
+                }
             };
             #[expect(clippy::cast_possible_truncation, reason = "UI ranges fit in f32")]
             let mut s = slider(current as f32).range(min as f32, *max as f32);
-            if let Some(path) = path {
-                s = s.on_change(move |v| A2uiMsg::SetNumber {
+            s = match path {
+                Some(path) => s.on_change(move |v| A2uiMsg::SetNumber {
                     path: path.clone(),
                     value: f64::from(v),
-                });
-            }
+                }),
+                None => {
+                    let id = id.to_owned();
+                    s.on_change(move |v| A2uiMsg::LocalEdit {
+                        id: id.clone(),
+                        value: serde_json::json!(f64::from(v)),
+                    })
+                }
+            };
             match label {
                 Some(l) => field(resolve_value(ctx, id, l, scope)).child(s).into(),
                 None => s.into(),
@@ -907,7 +976,10 @@ fn render_component(
                 .unwrap_or("unknown");
             ctx.note(
                 id,
-                format!("component {name:?} is not in the basic catalog"),
+                format!(
+                    "component {name:?} did not map onto the basic catalog (unknown name or \
+                     malformed fields); rendering a placeholder"
+                ),
             );
             placeholder(format!("[{name}]"), theme)
         }
@@ -952,17 +1024,6 @@ fn input_state(
     }
 }
 
-fn absolute(path: &str, scope: Option<&str>) -> String {
-    if path.starts_with('/') {
-        path.to_owned()
-    } else {
-        match scope {
-            Some(s) => format!("{s}/{path}"),
-            None => format!("/{path}"),
-        }
-    }
-}
-
 fn action_msg(ctx: &Ctx, id: &str, action: &Action, scope: Option<&str>) -> A2uiMsg {
     match action {
         Action::Event { event } => {
@@ -974,6 +1035,7 @@ fn action_msg(ctx: &Ctx, id: &str, action: &Action, scope: Option<&str>) -> A2ui
             A2uiMsg::Event {
                 name: event.name.clone(),
                 context,
+                source_id: id.to_owned(),
             }
         }
         Action::FunctionCall { function_call } if function_call.call == "openUrl" => {
@@ -1000,6 +1062,7 @@ fn action_msg(ctx: &Ctx, id: &str, action: &Action, scope: Option<&str>) -> A2ui
             A2uiMsg::Event {
                 name: format!("unimplemented:{}", function_call.call),
                 context: Value::Null,
+                source_id: id.to_owned(),
             }
         }
     }
@@ -1046,30 +1109,71 @@ fn render_choice_picker(
         .map(|o| resolve_value(ctx, id, &o.label, scope))
         .collect();
     let values: Vec<String> = options.iter().map(|o| o.value.clone()).collect();
-    // The bound selection list (or a literal one).
-    let (selected_values, path): (Vec<String>, Option<String>) = match value {
+    /// A selection as a string list: an array of values, or one string (a
+    /// valid mutually-exclusive selection) — accepted identically whether
+    /// it arrives literal or through a binding.
+    fn selection_of(v: &Value) -> Option<Vec<String>> {
+        match v {
+            Value::Array(items) => Some(items.iter().map(functions::display).collect()),
+            Value::String(s) => Some(vec![s.clone()]),
+            _ => None,
+        }
+    }
+    let (mut selected_values, path): (Vec<String>, Option<String>) = match value {
         Value::Object(o) if o.contains_key("path") => {
             let p = o["path"].as_str().unwrap_or_default();
-            let selected = lookup(ctx.surface, p, scope)
-                .and_then(Value::as_array)
-                .map(|items| items.iter().map(functions::display).collect())
-                .unwrap_or_default();
+            let selected = match lookup(ctx.surface, p, scope) {
+                Some(v) => selection_of(v).unwrap_or_else(|| {
+                    ctx.note(
+                        id,
+                        format!("selection binding {p:?} is neither a list nor a string"),
+                    );
+                    Vec::new()
+                }),
+                None => Vec::new(),
+            };
             (selected, Some(absolute(p, scope)))
         }
-        Value::Array(items) => (items.iter().map(functions::display).collect(), None),
-        Value::String(s) => (vec![s.clone()], None),
-        _ => (Vec::new(), None),
+        other => (selection_of(other).unwrap_or_default(), None),
     };
+    if path.is_none() {
+        // Literal-valued pickers stay interactive through local edits.
+        if let Some(edited) = ctx
+            .surface
+            .ui
+            .local_edits
+            .get(id)
+            .and_then(selection_of)
+        {
+            selected_values = edited;
+        }
+    }
     let selected_idx: Vec<usize> = values
         .iter()
         .enumerate()
         .filter(|(_, v)| selected_values.contains(v))
         .map(|(i, _)| i)
         .collect();
+    // Selection changes write through the binding, or store a local edit
+    // for literal-valued pickers — either way the picker stays live.
+    let make_msg = {
+        let path = path.clone();
+        let id = id.to_owned();
+        move |values: Vec<String>| match &path {
+            Some(p) => A2uiMsg::SetList {
+                path: p.clone(),
+                values,
+            },
+            None => A2uiMsg::LocalEdit {
+                id: id.clone(),
+                value: Value::Array(values.into_iter().map(Value::String).collect()),
+            },
+        }
+    };
     let multiple = variant == Some("multipleSelection");
     let control: Element<A2uiMsg> = if multiple {
         let mut ms = multi_select(selected_idx.clone(), labels);
-        if let Some(path) = path {
+        {
             let values = values.clone();
             let current = selected_idx;
             ms = ms.on_toggle(move |i| {
@@ -1080,24 +1184,19 @@ fn render_choice_picker(
                     next.push(i);
                     next.sort_unstable();
                 }
-                A2uiMsg::SetList {
-                    path: path.clone(),
-                    values: next
-                        .iter()
+                make_msg(
+                    next.iter()
                         .filter_map(|&x| values.get(x).cloned())
                         .collect(),
-                }
+                )
             });
         }
         ms.into()
     } else {
         let mut sel = select(selected_idx.first().copied().unwrap_or(0), labels);
-        if let Some(path) = path {
+        {
             let values = values.clone();
-            sel = sel.on_change(move |i| A2uiMsg::SetList {
-                path: path.clone(),
-                values: values.get(i).cloned().into_iter().collect(),
-            });
+            sel = sel.on_change(move |i| make_msg(values.get(i).cloned().into_iter().collect()));
         }
         sel.into()
     };

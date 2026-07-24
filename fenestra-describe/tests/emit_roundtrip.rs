@@ -138,3 +138,18 @@ fn intents_round_trip() {
         other => panic!("expected a text node, got {other:?}"),
     }
 }
+
+/// Out-of-range percent sizes clamp at parse time, so emitting one
+/// warning-free would break the zero-warnings ⇒ identical-re-render
+/// contract (2026-07-24 review): the emitter must report it.
+#[test]
+fn out_of_range_percent_sizes_warn_on_emit() {
+    let el: fenestra_core::Element<fenestra_describe::state::Action> = div()
+        .w(fenestra_core::Length::Pct(150.0))
+        .child(text("wide"));
+    let (_, warnings) = emit_description(&el);
+    assert!(
+        warnings.iter().any(|w| w.message.contains("0..=100")),
+        "a >100% width cannot re-render identically and must warn, got: {warnings:?}"
+    );
+}

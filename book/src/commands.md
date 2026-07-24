@@ -39,8 +39,13 @@ The vocabulary:
 - `Cmd::future(fut)` — drive a *runtime-agnostic* future off the UI
   thread. Futures that need a specific reactor (tokio IO types) should
   keep their own runtime and report back through the `Proxy` instead.
-- `Cmd::msg(m)` — a follow-up message on the next loop turn.
-- `Cmd::batch([...])` — several effects, delivered by completion.
+- `Cmd::msg(m)` — a follow-up message on the next loop turn. Immediate
+  messages and their follow-up commands apply FIFO: a batch delivering
+  `A` then `B` runs `A`'s whole follow-up chain before `B`'s, and the
+  runner and the harness share one executor (`apply_cmd`), so the order
+  is identical in production and tests by construction.
+- `Cmd::batch([...])` — several effects; deferred work (tasks, futures)
+  is delivered by completion, not position.
 - `cmd.map(f)` — lift a child component's `Cmd<ChildMsg>` into the
   parent's message space, mirroring `Element::map`.
 - `App::init_cmd()` — the startup effect (initial data loads).

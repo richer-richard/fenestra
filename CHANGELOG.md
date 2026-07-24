@@ -6,6 +6,34 @@ The two crash classes left open by the 2026-07-24 adversarial review are
 closed: runaway-deep element trees and GPU-environment failures now fail as
 pointed, catchable errors instead of process aborts and panics.
 
+A follow-up solo ultra-review of this branch hardened the new surfaces
+further (all regression-tested):
+
+- **A2UI correctness:** `Icon.name` is dynamic (bindings resolve — the
+  official task-card example now resolves `/priorityIcon` instead of
+  stringifying the binding); one canonical path joiner backs reads,
+  template item scopes, and write paths (absolute template paths inside a
+  collection scope no longer corrupt into `//` pointers, and values always
+  read back from where their two-way binding writes); action messages
+  carry `source_id` so hosts can populate the client→server
+  `sourceComponentId`; every literal-valued input control (CheckBox,
+  Slider, ChoicePicker) stays interactive through local edits; a
+  ChoicePicker selection accepts a bound string as well as a list.
+- **A2UI robustness:** unknown message types skip with a per-surface note
+  instead of hard-failing the stream (the envelope no longer denies
+  unknown fields); a known component with malformed fields degrades to a
+  placeholder + note while its siblings render; data-model writes support
+  RFC 6901 `-` append, and a write that cannot apply records a note;
+  present-but-mistyped bool/number bindings note the type error.
+- **Effect layer:** one shared `fenestra_core::apply_cmd` now executes
+  effects for the runner, `Embedded`, and the harness — semantics can no
+  longer fork — and follow-up commands run FIFO (sibling message chains
+  no longer invert).
+- **Emitter/CLI:** out-of-range percent sizes warn on emit (they clamp at
+  parse time, so silence would break the zero-warnings ⇒ identical
+  re-render contract); `fenestra a2ui` gained `--theme`; `render_a2ui`
+  maps the catalog once instead of twice.
+
 ### Added
 
 - **`agent_dashboard`: the dogfood flagship example.** A live dashboard

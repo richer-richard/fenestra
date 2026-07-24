@@ -1103,47 +1103,40 @@ impl<A: App> AppRunner<A> {
         self.run_cmd(cmd);
     }
 
-    /// Executes an effect: immediate messages re-enter the update cycle
-    /// iteratively (no recursion — a message loop spins rather than
-    /// overflowing), deferred units run on worker threads (native) or the
+    /// Executes an effect through the shared [`fenestra_core::apply_cmd`]
+    /// semantics (immediate messages re-enter `update_with` FIFO, no
+    /// recursion); deferred units run on worker threads (native) or the
     /// microtask queue (web), delivering results through the proxy.
     fn run_cmd(&mut self, cmd: fenestra_core::Cmd<A::Msg>) {
-        let mut queue = vec![cmd];
-        while let Some(cmd) = queue.pop() {
-            let mut immediate = Vec::new();
-            let proxy = &self.msg_proxy;
-            cmd.run(&mut |m| immediate.push(m), &mut |unit| {
-                #[cfg(not(target_arch = "wasm32"))]
+        let proxy = self.msg_proxy.clone();
+        fenestra_core::apply_cmd(&mut self.app, cmd, &mut |unit| {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let proxy = proxy.clone();
+                if std::thread::Builder::new()
+                    .name("fenestra-cmd".into())
+                    .spawn(move || proxy.send(unit.block()))
+                    .is_err()
                 {
-                    let proxy = proxy.clone();
-                    if std::thread::Builder::new()
-                        .name("fenestra-cmd".into())
-                        .spawn(move || proxy.send(unit.block()))
-                        .is_err()
-                    {
-                        eprintln!("fenestra: failed to spawn an effect worker thread");
-                    }
+                    eprintln!("fenestra: failed to spawn an effect worker thread");
                 }
-                #[cfg(target_arch = "wasm32")]
-                {
-                    match unit {
-                        // No threads on the web: blocking tasks run inline
-                        // (keep them light there) …
-                        fenestra_core::CmdUnit::Task(f) => proxy.send(f()),
-                        // … while futures ride the browser's microtask queue.
-                        fenestra_core::CmdUnit::Future(fut) => {
-                            let proxy = proxy.clone();
-                            wasm_bindgen_futures::spawn_local(async move {
-                                proxy.send(fut.await);
-                            });
-                        }
-                    }
-                }
-            });
-            for m in immediate {
-                queue.push(self.app.update_with(m));
             }
-        }
+            #[cfg(target_arch = "wasm32")]
+            {
+                match unit {
+                    // No threads on the web: blocking tasks run inline
+                    // (keep them light there) …
+                    fenestra_core::CmdUnit::Task(f) => proxy.send(f()),
+                    // … while futures ride the browser's microtask queue.
+                    fenestra_core::CmdUnit::Future(fut) => {
+                        let proxy = proxy.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            proxy.send(fut.await);
+                        });
+                    }
+                }
+            }
+        });
     }
 
     /// Reconciles running subscription timers against

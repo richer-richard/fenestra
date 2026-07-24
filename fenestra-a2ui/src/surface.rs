@@ -119,33 +119,44 @@ impl Surface {
     }
 
     /// Writes `value` at the JSON Pointer `path` (creating intermediate
-    /// objects), or removes the key when `value` is `None`.
+    /// objects), or removes the key when `value` is `None`. A write that
+    /// cannot apply (bad array index, missing parent) records a
+    /// path-pointed note — silence means the model is exactly what the
+    /// stream said.
     pub(crate) fn write(&mut self, path: &str, value: Option<Value>) {
         if path.is_empty() || path == "/" {
             self.data = value.unwrap_or(Value::Object(serde_json::Map::new()));
             return;
         }
-        pointer_write(&mut self.data, path, value);
+        if !pointer_write(&mut self.data, path, value) {
+            self.notes.push(format!(
+                "{path}: data-model write did not apply (out-of-range or non-numeric array \
+                 index); the model keeps its previous value"
+            ));
+        }
     }
 }
 
 /// Sets or removes a value at a JSON Pointer, creating intermediate
-/// objects along the way (arrays index numerically; appending uses the
-/// next index).
-fn pointer_write(root: &mut Value, pointer: &str, value: Option<Value>) {
+/// objects along the way. Arrays index numerically; `-` appends (RFC
+/// 6901's append token), as does the next index. Returns whether the
+/// write applied — the caller records a note when it did not.
+fn pointer_write(root: &mut Value, pointer: &str, value: Option<Value>) -> bool {
     let mut parts: Vec<String> = pointer
         .split('/')
         .skip(1)
         .map(|p| p.replace("~1", "/").replace("~0", "~"))
         .collect();
-    let Some(last) = parts.pop() else { return };
+    let Some(last) = parts.pop() else {
+        return false;
+    };
     let mut cur = root;
     for part in &parts {
         // Descend, converting non-containers into objects as needed.
         let next = match cur {
             Value::Array(items) => match part.parse::<usize>() {
                 Ok(i) if i < items.len() => &mut items[i],
-                _ => return,
+                _ => return false,
             },
             Value::Object(map) => map
                 .entry(part.clone())
@@ -164,32 +175,47 @@ fn pointer_write(root: &mut Value, pointer: &str, value: Option<Value>) {
     }
     match cur {
         Value::Array(items) => {
-            if let Ok(i) = last.parse::<usize>() {
-                match value {
-                    Some(v) if i < items.len() => items[i] = v,
-                    Some(v) if i == items.len() => items.push(v),
-                    Some(_) => {}
-                    None if i < items.len() => {
-                        items.remove(i);
-                    }
-                    None => {}
+            let index = if last == "-" {
+                Some(items.len())
+            } else {
+                last.parse::<usize>().ok()
+            };
+            let Some(i) = index else { return false };
+            match value {
+                Some(v) if i < items.len() => {
+                    items[i] = v;
+                    true
                 }
+                Some(v) if i == items.len() => {
+                    items.push(v);
+                    true
+                }
+                Some(_) => false,
+                None if i < items.len() => {
+                    items.remove(i);
+                    true
+                }
+                None => false,
             }
         }
-        Value::Object(map) => match value {
-            Some(v) => {
-                map.insert(last, v);
+        Value::Object(map) => {
+            match value {
+                Some(v) => {
+                    map.insert(last, v);
+                }
+                None => {
+                    map.remove(&last);
+                }
             }
-            None => {
-                map.remove(&last);
-            }
-        },
+            true
+        }
         other => {
             let mut map = serde_json::Map::new();
             if let Some(v) = value {
                 map.insert(last, v);
             }
             *other = Value::Object(map);
+            true
         }
     }
 }
@@ -247,6 +273,20 @@ impl Client {
                 .ok_or_else(|| A2uiError::UnknownSurface(delete.surface_id.clone()))?;
             return Ok(());
         }
+        // Unknown message types (a newer protocol revision) skip with a
+        // note on the surface they name — never a hard failure.
+        if !msg.extra.is_empty() {
+            for (kind, payload) in &msg.extra {
+                if let Some(id) = payload.get("surfaceId").and_then(Value::as_str)
+                    && let Some(surface) = self.surfaces.get_mut(id)
+                {
+                    surface.notes.push(format!(
+                        "{kind}: unknown message type skipped (newer protocol revision?)"
+                    ));
+                }
+            }
+            return Ok(());
+        }
         Err(A2uiError::EmptyMessage)
     }
 
@@ -296,18 +336,48 @@ mod tests {
     #[test]
     fn pointer_write_creates_intermediates() {
         let mut root = Value::Object(serde_json::Map::new());
-        pointer_write(&mut root, "/user/name", Some(Value::String("Ada".into())));
+        assert!(pointer_write(
+            &mut root,
+            "/user/name",
+            Some(Value::String("Ada".into()))
+        ));
         assert_eq!(root.pointer("/user/name").unwrap(), "Ada");
-        pointer_write(&mut root, "/user/name", None);
+        assert!(pointer_write(&mut root, "/user/name", None));
         assert!(root.pointer("/user/name").is_none());
     }
 
     #[test]
     fn pointer_write_indexes_arrays() {
         let mut root = serde_json::json!({"items": [1, 2, 3]});
-        pointer_write(&mut root, "/items/1", Some(Value::from(9)));
+        assert!(pointer_write(&mut root, "/items/1", Some(Value::from(9))));
         assert_eq!(root.pointer("/items/1").unwrap(), 9);
-        pointer_write(&mut root, "/items/3", Some(Value::from(4)));
+        assert!(pointer_write(&mut root, "/items/3", Some(Value::from(4))));
         assert_eq!(root.pointer("/items/3").unwrap(), 4);
+    }
+
+    #[test]
+    fn pointer_write_appends_with_the_rfc_dash() {
+        let mut root = serde_json::json!({"items": [1]});
+        assert!(pointer_write(&mut root, "/items/-", Some(Value::from(2))));
+        assert_eq!(root.pointer("/items").unwrap(), &serde_json::json!([1, 2]));
+    }
+
+    #[test]
+    fn pointer_write_reports_undeliverable_array_writes() {
+        let mut root = serde_json::json!({"items": [1]});
+        assert!(!pointer_write(&mut root, "/items/9", Some(Value::from(3))));
+        assert!(!pointer_write(&mut root, "/items/x", Some(Value::from(3))));
+        assert!(!pointer_write(&mut root, "/items/9", None));
+        assert_eq!(root.pointer("/items").unwrap(), &serde_json::json!([1]));
+    }
+
+    #[test]
+    fn pointer_write_unescapes_in_rfc_order() {
+        // "~1" → "/" before "~0" → "~", so "~01" decodes to the literal "~1".
+        let mut root = Value::Object(serde_json::Map::new());
+        assert!(pointer_write(&mut root, "/a~1b", Some(Value::from(1))));
+        assert_eq!(root.pointer("/a~1b").unwrap(), 1);
+        assert!(pointer_write(&mut root, "/x~01", Some(Value::from(2))));
+        assert_eq!(root.get("x~1").unwrap(), 2);
     }
 }

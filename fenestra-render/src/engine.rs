@@ -592,7 +592,8 @@ pub fn render_a2ui(
         .next()
         .ok_or_else(|| EngineError::Scenario("the stream created no surface".into()))?;
     let rendered = surface.render(theme);
-    // One render for the tree, one for the pixels (`Surface::render` is pure).
+    // One catalog mapping serves both outputs: the tree reads the element
+    // by reference, then the same element renders to pixels.
     let mut fonts = fenestra_core::Fonts::embedded();
     let mut state = fenestra_core::FrameState::new();
     state.reduced_motion = true;
@@ -606,8 +607,8 @@ pub fn render_a2ui(
         1.0,
     );
     let tree = inspect::frame_access_tree(&frame);
-    let pixels = surface.render(theme);
-    let png = try_render_element(pixels.element, theme, size).map_err(EngineError::Render)?;
+    drop(frame);
+    let png = try_render_element(rendered.element, theme, size).map_err(EngineError::Render)?;
     let mut notes = surface.notes().to_vec();
     notes.extend(rendered.notes);
     Ok(A2uiRenderOut {

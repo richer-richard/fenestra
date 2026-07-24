@@ -43,7 +43,7 @@ pub use breakpoints::{Breakpoint, Breakpoints};
 pub use children::{FromIter, FromTuple, IntoChildren};
 pub use chrome::{ChromeElevation, ChromeText};
 pub use clipboard::{Clipboard, MemoryClipboard};
-pub use cmd::{Cmd, CmdFuture, CmdUnit, Sub};
+pub use cmd::{Cmd, CmdFuture, CmdUnit, Sub, apply_cmd};
 pub use element::{
     Cursor, DrawerSide, Element, ExitAnim, ImageData, InputData, Kind, MAX_TREE_DEPTH,
     OpticalCorrection, Overlay, OverlayMode, OverlayPlacement, PathData, Semantics, Span, SwipeDir,

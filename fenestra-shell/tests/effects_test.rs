@@ -134,6 +134,56 @@ fn subscription_ticks_follow_the_pump_clock() {
     assert!(h.query(&by::label("ticks: 4")).is_some());
 }
 
+/// Follow-up commands run in the order their messages applied (FIFO):
+/// a batch delivering A then B runs A's follow-up chain before B's.
+/// This pins the ordering contract shared by the live runners and the
+/// harness (2026-07-24 review, finding: LIFO queue inverted sibling
+/// follow-ups).
+#[test]
+fn follow_up_commands_run_in_message_order() {
+    #[derive(Default)]
+    struct Order {
+        log: String,
+    }
+    #[derive(Clone)]
+    enum OMsg {
+        Kick,
+        A,
+        B,
+        A2,
+        B2,
+    }
+    impl App for Order {
+        type Msg = OMsg;
+        fn update(&mut self, _: OMsg) {}
+        fn update_with(&mut self, msg: OMsg) -> Cmd<OMsg> {
+            let (name, cmd) = match msg {
+                OMsg::Kick => ("", Cmd::batch([Cmd::msg(OMsg::A), Cmd::msg(OMsg::B)])),
+                OMsg::A => ("A", Cmd::msg(OMsg::A2)),
+                OMsg::B => ("B", Cmd::msg(OMsg::B2)),
+                OMsg::A2 => ("A2", Cmd::none()),
+                OMsg::B2 => ("B2", Cmd::none()),
+            };
+            if !name.is_empty() {
+                if !self.log.is_empty() {
+                    self.log.push(',');
+                }
+                self.log.push_str(name);
+            }
+            cmd
+        }
+        fn view(&self) -> Element<OMsg> {
+            text(format!("order: {}", self.log))
+        }
+    }
+    let mut h = Harness::new(Order::default(), fenestra_core::Theme::light(), (300, 100));
+    h.update(OMsg::Kick);
+    assert!(
+        h.query(&by::label("order: A,B,A2,B2")).is_some(),
+        "follow-ups must run in message order (A's chain before B's)"
+    );
+}
+
 /// `Cmd::map` lifts a child component's effect into the parent message
 /// space, task output included.
 #[test]
