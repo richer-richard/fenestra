@@ -3608,3 +3608,36 @@ the clock at declaration time, so `subscribe; pump(1000)` with a 300ms
 period is exactly three ticks. No other Rust GUI framework's async layer
 is CI-deterministic; this extends the verification wedge from pixels to
 effects.
+
+## Hi-DPI headless rendering; CJK subsets deferred with evidence (2026-07-24)
+
+**Hi-DPI (shipped).** `render_plan` is now scale-aware: paint still
+produces logical-space scenes, and the plan scales them onto the physical
+texture (`at_scale` returns the scene untouched at 1.0, so every existing
+golden stays byte-identical — verified by running the full suite against
+unchanged goldens). `process_specs` already mapped spec rects
+logical→physical, and injected images are physical-resolution cuts drawn
+into logical rects, so the two-pass glass pipeline is consistent at any
+scale. Public API: `render_element_scaled` / `try_render_element_scaled`
+(hostile scales sanitize to 1.0); `render_element_over`'s scaled path now
+routes through the same plan, upgrading fenestra-motion's scaled sampling
+from tint-only glass to the real backdrop blur. A 2× golden
+(`hidpi_2x.png`) pins the retina rendering. This closes the "agents can't
+see retina-only regressions" blind spot.
+
+**Markdown task markers.** The GFM ballot-box glyphs (U+2610/U+2611) are
+outside embedded Inter's coverage and rendered as tofu in every
+deterministic headless capture — discovered by looking at the new
+chart/markdown golden. Task lists now render `[x]` / `[ ]`.
+
+**CJK/emoji subsets (deferred, with the plan).** Shipping deterministic
+CJK headlessly means embedding a subset font (full Noto Sans CJK is tens
+of MB). Generating a reproducible subset needs fontTools/pyftsubset,
+which this environment does not have — and an asset CI cannot reproduce
+is a liability, not a feature. What exists today and is documented:
+`Fonts::register` accepts any TTF/OTF, so users who need deterministic
+CJK/emoji headless output register their own face (the same mechanism
+fenestra-looks uses for its design languages). The follow-up, when
+tooling is available: a `cjk` feature in fenestra-core embedding an
+OFL-licensed Noto Sans SC subset over a pinned codepoint list, generated
+by a committed script, plus a CJK/RTL golden row.

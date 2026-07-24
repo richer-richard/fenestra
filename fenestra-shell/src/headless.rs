@@ -201,15 +201,33 @@ impl Headless {
         height: u32,
         base_color: Color,
     ) -> Result<RgbaImage, ShellError> {
+        // Paint produces logical-space scenes; a hi-DPI frame (scale != 1)
+        // scales them onto the physical texture here. `process_specs`
+        // already maps spec rects logical→physical via the same factor, and
+        // the injected images are physical-resolution cuts drawn back into
+        // logical rects — so the two passes stay consistent at any scale.
+        let scale = frame.scale();
         let (backdrop_scene, specs) = frame.paint_backdrop(fonts, state);
+        let backdrop_scene = Self::at_scale(backdrop_scene, scale);
         if specs.is_empty() {
             // Fast path: one pass, identical to `render`.
             return self.render(&backdrop_scene, width, height, base_color);
         }
         let backdrop = self.render(&backdrop_scene, width, height, base_color)?;
-        let injected = crate::multi_pass::process_specs(&backdrop, &specs, frame.scale());
-        let final_scene = frame.paint_final(fonts, state, &injected);
+        let injected = crate::multi_pass::process_specs(&backdrop, &specs, scale);
+        let final_scene = Self::at_scale(frame.paint_final(fonts, state, &injected), scale);
         self.render(&final_scene, width, height, base_color)
+    }
+
+    /// Wraps a logical-space scene for a physical target. Returns the scene
+    /// untouched at scale 1.0 so the reference goldens stay byte-identical.
+    fn at_scale(scene: Scene, scale: f64) -> Scene {
+        if (scale - 1.0).abs() < f64::EPSILON {
+            return scene;
+        }
+        let mut scaled = Scene::new();
+        scaled.append(&scene, Some(vello::kurbo::Affine::scale(scale)));
+        scaled
     }
 }
 

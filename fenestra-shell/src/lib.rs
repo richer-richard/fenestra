@@ -37,9 +37,9 @@ mod window;
 pub use blur::{apply_element_filter, box_blur_rgba8};
 #[cfg(not(target_arch = "wasm32"))]
 pub use element_render::{
-    render_element, render_element_over, render_element_with, render_element_with_state,
-    try_render_element, try_render_element_with, try_render_element_with_state, with_fonts,
-    with_headless,
+    render_element, render_element_over, render_element_scaled, render_element_with,
+    render_element_with_state, try_render_element, try_render_element_scaled,
+    try_render_element_with, try_render_element_with_state, with_fonts, with_headless,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use embed::{Embedded, EventResponse};

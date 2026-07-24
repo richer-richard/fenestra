@@ -8,6 +8,14 @@ pointed, catchable errors instead of process aborts and panics.
 
 ### Added
 
+- **Hi-DPI headless rendering.** `render_element_scaled` /
+  `try_render_element_scaled` render at a device scale factor through the
+  same two-pass pipeline — text rasterizes at physical resolution and
+  frosted glass keeps its real backdrop blur (scaled renders used to fall
+  back to the flat tint; `render_element_over` and fenestra-motion's
+  sampling inherit the upgrade). Scale-1.0 output stays byte-identical to
+  every existing golden; a 2× golden pins retina rendering. Agents can now
+  see retina-only regressions headlessly.
 - **The effect layer: fenestra finally has an async story.**
   `App::update_with` optionally returns a `Cmd<Msg>` — `Cmd::task`
   (blocking work on a worker thread), `Cmd::future` (runtime-agnostic
@@ -68,6 +76,10 @@ pointed, catchable errors instead of process aborts and panics.
   flag.)
 
 ### Fixed
+
+- Markdown task-list checkboxes rendered as tofu in deterministic headless
+  output (the U+2610/U+2611 ballot boxes are outside embedded Inter's
+  coverage); they now render as `[x]` / `[ ]`.
 
 - **Deep element trees no longer abort the process.** Recursion in
   build/layout/paint used to hit a raw stack overflow (an uncatchable abort)
