@@ -551,3 +551,69 @@ pub fn diff_images(
         diff_png: if ok { None } else { Some(diff) },
     }
 }
+
+/// What [`render_a2ui`] produced.
+pub struct A2uiRenderOut {
+    /// The rendered surface's id.
+    pub surface_id: String,
+    /// The typed access tree — same shape as [`render`]'s.
+    pub tree: AccessNodeDto,
+    /// The rendered pixels.
+    pub png: RgbaImage,
+    /// Fidelity notes from the catalog mapping (empty means every
+    /// component and binding mapped cleanly).
+    pub notes: Vec<String>,
+}
+
+/// Renders an A2UI v0.9 message stream (the open Agent-to-UI standard,
+/// <https://a2ui.org>) through the `fenestra-a2ui` catalog mapping: fold
+/// the stream, render the surface, and return the typed access tree, the
+/// pixels, and the mapping's fidelity notes.
+///
+/// Multi-surface streams render their first surface (sorted by id);
+/// agents drive one surface per stream in practice.
+///
+/// # Errors
+/// [`EngineError::Scenario`] when the stream does not parse or apply;
+/// [`EngineError::Render`] when the headless renderer is unavailable.
+pub fn render_a2ui(
+    stream_json: &str,
+    theme: &Theme,
+    size: (u32, u32),
+) -> Result<A2uiRenderOut, EngineError> {
+    let msgs = fenestra_a2ui::parse_stream(stream_json)
+        .map_err(|e| EngineError::Scenario(format!("A2UI stream did not parse: {e}")))?;
+    let mut client = fenestra_a2ui::Client::new();
+    client
+        .apply_all(&msgs)
+        .map_err(|e| EngineError::Scenario(format!("A2UI stream did not apply: {e}")))?;
+    let surface = client
+        .surfaces()
+        .next()
+        .ok_or_else(|| EngineError::Scenario("the stream created no surface".into()))?;
+    let rendered = surface.render(theme);
+    // One render for the tree, one for the pixels (`Surface::render` is pure).
+    let mut fonts = fenestra_core::Fonts::embedded();
+    let mut state = fenestra_core::FrameState::new();
+    state.reduced_motion = true;
+    #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
+    let frame = fenestra_core::build_frame(
+        &rendered.element,
+        theme,
+        &mut fonts,
+        &mut state,
+        (size.0 as f32, size.1 as f32),
+        1.0,
+    );
+    let tree = inspect::frame_access_tree(&frame);
+    let pixels = surface.render(theme);
+    let png = try_render_element(pixels.element, theme, size).map_err(EngineError::Render)?;
+    let mut notes = surface.notes().to_vec();
+    notes.extend(rendered.notes);
+    Ok(A2uiRenderOut {
+        surface_id: surface.id().to_owned(),
+        tree,
+        png,
+        notes,
+    })
+}

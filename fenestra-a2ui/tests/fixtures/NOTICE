@@ -1,0 +1,6 @@
+The *.json files in this directory are the official A2UI v0.9 basic-catalog
+gallery examples, copied unmodified from
+https://github.com/google/A2UI (specification/v0_9/catalogs/basic/examples/),
+Copyright the A2UI Project authors, licensed under the Apache License 2.0
+(https://github.com/google/A2UI/blob/main/LICENSE). They are used here as
+conformance fixtures for the fenestra-a2ui renderer.

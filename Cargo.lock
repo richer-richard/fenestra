@@ -1076,6 +1076,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "fenestra-a2ui"
+version = "0.40.0"
+dependencies = [
+ "fenestra-core",
+ "fenestra-kit",
+ "fenestra-markdown",
+ "fenestra-shell",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "fenestra-anim"
 version = "0.1.0"
 dependencies = [
@@ -1199,6 +1211,7 @@ name = "fenestra-render"
 version = "0.40.0"
 dependencies = [
  "clap",
+ "fenestra-a2ui",
  "fenestra-core",
  "fenestra-describe",
  "fenestra-kit",

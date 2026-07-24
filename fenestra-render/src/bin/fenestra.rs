@@ -22,7 +22,9 @@ use fenestra_describe::inspect::{
 };
 use fenestra_describe::parse::validate;
 use fenestra_describe::vocabulary::describe_vocabulary;
-use fenestra_render::engine::{Step, film, interact, match_screenshot, render, validate_masks};
+use fenestra_render::engine::{
+    self, Step, film, interact, match_screenshot, render, validate_masks,
+};
 use fenestra_render::scenario::{Scenario, bless, verify};
 use fenestra_render::{PreviewApp, resolve_theme};
 use fenestra_shell::{WindowOptions, run_app};
@@ -149,6 +151,20 @@ enum Command {
     Vocabulary,
     /// Print the JSON Schema for the fenestra/1 description format.
     Schema,
+    /// Render an A2UI v0.9 message stream (the open Agent-to-UI standard,
+    /// a2ui.org) to pixels and an access tree via the fenestra-a2ui
+    /// catalog mapping.
+    A2ui {
+        /// Message-stream path (a JSON array or {"messages": [...]}), or
+        /// `-`/omitted for stdin.
+        stream: Option<PathBuf>,
+        /// Window size, `WxH`.
+        #[arg(long, default_value = "480x640")]
+        size: String,
+        /// Write the rendered PNG here.
+        #[arg(long)]
+        out: Option<PathBuf>,
+    },
     /// Validate a description without rendering.
     Validate { desc: Option<PathBuf> },
     /// Run a scenario: drive its steps, assert every expectation, one verdict.
@@ -270,6 +286,7 @@ fn main() -> ExitCode {
         ),
         Command::Vocabulary => cmd_vocabulary(),
         Command::Schema => cmd_schema(),
+        Command::A2ui { stream, size, out } => cmd_a2ui(stream, &size, out),
         Command::Validate { desc } => cmd_validate(desc),
         Command::Verify {
             scenario,
@@ -507,6 +524,33 @@ fn cmd_vocabulary() -> ExitCode {
 
 fn cmd_schema() -> ExitCode {
     print_json(&description_schema());
+    ExitCode::SUCCESS
+}
+
+fn cmd_a2ui(stream: Option<PathBuf>, size: &str, out: Option<PathBuf>) -> ExitCode {
+    let json = match read_input(stream.as_deref()) {
+        Ok(j) => j,
+        Err(e) => return err(&format!("error reading stream: {e}")),
+    };
+    let size = match parse_size(size) {
+        Ok(s) => s,
+        Err(code) => return code,
+    };
+    let theme = Theme::light();
+    let result = match engine::render_a2ui(&json, &theme, size) {
+        Ok(r) => r,
+        Err(e) => return err(&e.to_string()),
+    };
+    if let Some(path) = out
+        && let Err(e) = result.png.save(&path)
+    {
+        return err(&format!("error writing {}: {e}", path.display()));
+    }
+    print_json(&serde_json::json!({
+        "surfaceId": result.surface_id,
+        "tree": result.tree,
+        "notes": result.notes,
+    }));
     ExitCode::SUCCESS
 }
 

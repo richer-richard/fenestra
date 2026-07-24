@@ -3641,3 +3641,48 @@ fenestra-looks uses for its design languages). The follow-up, when
 tooling is available: a `cjk` feature in fenestra-core embedding an
 OFL-licensed Noto Sans SC subset over a pinned codepoint list, generated
 by a committed script, plus a CJK/RTL golden row.
+
+## fenestra-a2ui: the native Rust renderer for A2UI v0.9 (2026-07-24)
+
+The strategic bet from the adversarial review: Google's A2UI
+(<https://a2ui.org>, Apache-2.0) standardizes exactly fenestra/1's shape —
+agents send declarative JSON surfaces, clients render them with their own
+component library — with official Flutter/Lit/Angular/React renderers and
+a designated slot for community ones. No native Rust renderer existed.
+`fenestra-a2ui` is one, and the differentiator is the rest of this
+repository: it is the A2UI client whose output an agent can verify
+headlessly, deterministically, in CI.
+
+Decisions of record:
+
+- **Coverage**: the whole v0.9 basic catalog (18 components), the four
+  server→client messages folded through a `Client`/`Surface` state
+  machine, JSON Pointer data bindings (absolute + template-relative
+  collection scopes), templated children (capped at 1000 with a note),
+  two-way input binding (bound inputs write the data model; literal ones
+  keep local edits), actions with context resolution, and the
+  `formatString`/`formatNumber`/`formatCurrency`/`formatDate`/`pluralize`
+  function library (deterministic, no locale data — documented as
+  approximate; `formatDate` implements a CLDR-ish token subset over a
+  hand-rolled ISO parse with Zeller's weekday, keeping the crate
+  dependency-free beyond serde).
+- **Fidelity-or-report**: same contract as the emitter. Remote
+  images/video/audio render as labeled placeholders (deterministic
+  renders never fetch the network), unknown components and icons degrade
+  to placeholders, `DateTimeInput` is an ISO text field for now, obscured
+  text renders unmasked, `checks` parse but don't yet gate — every one of
+  these records a note on the render; empty notes mean full fidelity.
+- **Hostile input**: id-linked trees can express reference cycles; the
+  renderer keeps an explicit render-path stack, so `a → b → a` trips on
+  re-entry as a note + placeholder (the naive depth-counter version
+  overflowed the stack in debug — caught by the conformance test before
+  it ever shipped). Non-cycle nesting caps at 16 components, keeping the
+  lowered element tree inside core's MAX_TREE_DEPTH.
+- **Conformance corpus**: eleven official gallery examples vendored
+  (Apache-2.0, NOTICE file) — all parse, fold, and render; the login form
+  and product card are pinned as goldens; bindings/templates/actions/
+  updateDataModel each have behavioral tests.
+- **Integration**: `fenestra a2ui <stream>` in the CLI (typed access tree
+  + notes JSON, `--out` PNG) and a `render_a2ui` MCP tool with the same
+  typed tree shape as `render_ui` (via `inspect::frame_access_tree`), so
+  agents get one uniform verification loop across both formats.

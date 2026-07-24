@@ -8,6 +8,20 @@ pointed, catchable errors instead of process aborts and panics.
 
 ### Added
 
+- **`fenestra-a2ui`: a native Rust renderer for A2UI v0.9** — the open
+  Agent-to-UI standard (a2ui.org) where agents send declarative JSON
+  surfaces and clients render them natively. Full basic-catalog coverage
+  (18 components), the protocol's message fold, JSON Pointer bindings with
+  template scopes, two-way input binding, action events (with
+  `sendDataModel`), and the client-side function library — with a
+  fidelity-or-report contract (placeholders + notes for network media,
+  unknown components, and the documented gaps) and hostile-input
+  hardening (exact reference-cycle detection, template caps). Verified
+  against eleven vendored official gallery examples, two pinned goldens,
+  and behavioral tests. Integrated end to end: `fenestra a2ui <stream>`
+  in the CLI and a `render_a2ui` MCP tool returning the same typed access
+  tree as `render_ui` — fenestra is the A2UI client whose output an agent
+  can verify headlessly, deterministically, in CI.
 - **Hi-DPI headless rendering.** `render_element_scaled` /
   `try_render_element_scaled` render at a device scale factor through the
   same two-pass pipeline — text rasterizes at physical resolution and
