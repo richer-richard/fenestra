@@ -1,5 +1,6 @@
 //! The Elm-shaped application contract.
 
+use crate::cmd::{Cmd, Sub};
 use crate::element::Element;
 use crate::proxy::Proxy;
 use crate::theme::Theme;
@@ -82,6 +83,63 @@ pub trait App {
 
     /// Applies one message to the state.
     fn update(&mut self, msg: Self::Msg);
+
+    /// Applies one message and returns the effect to run — the runner (and
+    /// the test harness) call *this*, which by default delegates to
+    /// [`Self::update`] with no effect. Effectful apps override
+    /// `update_with` and leave `update` as an empty body:
+    ///
+    /// ```
+    /// use fenestra_core::*;
+    ///
+    /// struct Fetcher {
+    ///     status: String,
+    /// }
+    ///
+    /// #[derive(Clone)]
+    /// enum Msg {
+    ///     Fetch,
+    ///     Got(String),
+    /// }
+    ///
+    /// impl App for Fetcher {
+    ///     type Msg = Msg;
+    ///     fn update(&mut self, _: Msg) {}
+    ///     fn update_with(&mut self, msg: Msg) -> Cmd<Msg> {
+    ///         match msg {
+    ///             Msg::Fetch => {
+    ///                 self.status = "loading".into();
+    ///                 Cmd::task(|| Msg::Got("done".into()))
+    ///             }
+    ///             Msg::Got(s) => {
+    ///                 self.status = s;
+    ///                 Cmd::none()
+    ///             }
+    ///         }
+    ///     }
+    ///     fn view(&self) -> Element<Msg> {
+    ///         text(&self.status)
+    ///     }
+    /// }
+    /// ```
+    fn update_with(&mut self, msg: Self::Msg) -> Cmd<Self::Msg> {
+        self.update(msg);
+        Cmd::none()
+    }
+
+    /// The effect to run once at startup, after [`Self::init`] (initial
+    /// data loads). The default is none.
+    fn init_cmd(&mut self) -> Cmd<Self::Msg> {
+        Cmd::none()
+    }
+
+    /// Recurring effects the app wants while its state says so (timer
+    /// ticks), reconciled by key after every update exactly like
+    /// [`Self::windows`]: new keys start, missing keys stop. The default is
+    /// none. (Native only; the web runner ignores subscriptions.)
+    fn subscriptions(&self) -> Vec<Sub<Self::Msg>> {
+        Vec::new()
+    }
 
     /// Builds the view. Pure and cheap: called on every redraw, the whole
     /// tree is rebuilt, laid out, and repainted (no diffing).

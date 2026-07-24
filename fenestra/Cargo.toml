@@ -33,6 +33,9 @@ fenestra-looks = { path = "../fenestra-looks", version = "0.40.0" }
 [target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
 rfd.workspace = true
 pollster.workspace = true
+# The `http_fetch` example's blocking HTTP client (run from a `Cmd::task`
+# worker thread). Dev-only + native-only.
+ureq = "3.3.0"
 # The `verify` example authors a UI as `fenestra/1` JSON and verifies it headlessly
 # (GPU), reaching past the facade to describe (windowless inspection) and render
 # (headless pixels). Dev-only + native-only, so neither is a runtime dependency of

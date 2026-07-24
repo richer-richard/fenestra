@@ -1,5 +1,8 @@
-//! Background-thread commands: `App::init` hands the app a `Proxy`, a
-//! spawned thread ticks once a second, and each tick repaints the window.
+//! Recurring effects: `App::subscriptions` declares a once-a-second tick
+//! and the runner keeps it firing while the declaration stands — no
+//! hand-rolled threads. (For work the framework can't schedule — your own
+//! runtime, a device callback — `App::init`'s `Proxy` remains the escape
+//! hatch.)
 //!
 //! `cargo run --example clock`
 
@@ -19,19 +22,14 @@ enum Msg {
 impl App for Clock {
     type Msg = Msg;
 
-    fn init(&mut self, proxy: Proxy<Msg>) {
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(Duration::from_secs(1));
-                proxy.send(Msg::Tick);
-            }
-        });
-    }
-
     fn update(&mut self, msg: Msg) {
         match msg {
             Msg::Tick => self.seconds += 1,
         }
+    }
+
+    fn subscriptions(&self) -> Vec<Sub<Msg>> {
+        vec![Sub::every("uptime", Duration::from_secs(1), || Msg::Tick)]
     }
 
     fn view(&self) -> Element<Msg> {
@@ -51,7 +49,7 @@ impl App for Clock {
                     .size(TextSize::Xl2)
                     .mono()
                     .weight(Weight::Semibold),
-                text("uptime, sent from a background thread")
+                text("uptime, delivered by a subscription")
                     .size(TextSize::Sm)
                     .themed(|t: &Theme, s| s.color(t.text_muted)),
             ])

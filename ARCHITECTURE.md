@@ -3567,3 +3567,44 @@ traversal that can still blow the stack), and `Element` gained read-only
 accessors rather than exposing fields. Library-only by design: there is
 nothing for the CLI/MCP to emit — the input is a live Rust tree, which
 only library callers have.
+
+## The effect layer: Cmd/Sub with a deterministic harness story (2026-07-24)
+
+The single largest adoption blocker in the API was the missing async story
+("spawn a thread and clone a proxy"). Decisions of record:
+
+**Effects are values in core; execution lives in the runners.** `Cmd<Msg>`
+(none/msg/task/future/batch/map) and `Sub<Msg>` (every) are plain
+descriptions in fenestra-core with zero runtime dependencies — core stays
+windowless and async-runtime-free. Runners execute them: `Cmd::run` is a
+visitor handing immediate messages and deferred units (`CmdUnit`) to the
+caller; the windowed runner moves units onto named worker threads
+(`CmdUnit::block` drives futures with a ~15-line park-based waker — no
+tokio, no pollster in core), the web runner rides
+`wasm_bindgen_futures::spawn_local` for futures and runs tasks inline
+(no threads there — documented), and `Embedded` shares the same shape with
+results surfacing at the host's next `pump()`. Futures must therefore be
+runtime-agnostic; tokio-bound IO keeps using its own runtime + `Proxy` —
+documented on `Cmd::future` rather than smuggling a runtime dependency
+into every fenestra app.
+
+**Trait evolution is non-breaking.** `update_with` defaults to
+`update + Cmd::none()`; `init_cmd` and `subscriptions` default empty.
+Every runner and the harness call `update_with` exclusively, so overriding
+either method works. The cost is that effectful apps carry an empty
+`fn update` body — accepted over a breaking signature change at 0.x
+because the entire existing example/test corpus stays valid.
+
+**Subscriptions reconcile like windows.** Keyed declarations, diffed after
+every update: new keys spawn a timer thread, missing keys cancel (their
+flag checks after each sleep, so within one period), a changed period
+restarts. The same `reconcile_subs_into` serves the runner and `Embedded`.
+
+**Determinism is the product feature.** The harness queues deferred units
+instead of spawning them: `run_effects()` resolves them FIFO on the test
+thread (a task whose message queues a future resolves in one call), and
+subscription ticks fire from the explicit `pump` clock — scheduled from
+the clock at declaration time, so `subscribe; pump(1000)` with a 300ms
+period is exactly three ticks. No other Rust GUI framework's async layer
+is CI-deterministic; this extends the verification wedge from pixels to
+effects.

@@ -806,10 +806,11 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     let access_proxy = event_loop.create_proxy();
     let proxy = event_loop.create_proxy();
-    app.init(fenestra_core::Proxy::new(move |msg: A::Msg| {
-        // Dropped silently once the loop is gone (window closed).
+    // Dropped silently once the loop is gone (window closed).
+    let msg_proxy = fenestra_core::Proxy::new(move |msg: A::Msg| {
         let _ = proxy.send_event(RunnerEvent::App(Box::new(msg)));
-    }));
+    });
+    app.init(msg_proxy.clone());
     let background = app.theme().bg;
     let mut fonts = Fonts::with_system();
     for (role, data) in &options.fonts {
@@ -823,6 +824,9 @@ where
     state.set_clipboard(Box::new(crate::OsClipboard::default()));
     let runner = AppRunner {
         shell: WindowShell::new(options, background),
+        msg_proxy,
+        #[cfg(not(target_arch = "wasm32"))]
+        subs: std::collections::HashMap::new(),
         app,
         fonts,
         state,
@@ -842,6 +846,11 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     {
         let mut runner = runner;
+        // Startup effect + initial subscriptions: results arrive as user
+        // events once the loop is running.
+        let cmd = runner.app.init_cmd();
+        runner.run_cmd(cmd);
+        runner.reconcile_subs();
         let run = event_loop
             .run_app(&mut runner)
             .map_err(ShellError::EventLoop);
@@ -853,6 +862,9 @@ where
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
+        let mut runner = runner;
+        let cmd = runner.app.init_cmd();
+        runner.run_cmd(cmd);
         // Non-blocking on the web: the loop keeps running after main returns.
         event_loop.spawn_app(runner);
         Ok(())
@@ -864,6 +876,13 @@ struct AppRunner<A: App> {
     app: A,
     fonts: Fonts,
     state: FrameState,
+    /// Message proxy shared with [`App::init`]: effect results and
+    /// subscription ticks are delivered through it, waking the loop.
+    msg_proxy: fenestra_core::Proxy<A::Msg>,
+    /// Running subscription timers, reconciled against
+    /// [`App::subscriptions`] after every update (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    subs: std::collections::HashMap<String, SubHandle>,
     cursor: Point,
     started: Instant,
     /// View and frame from the last redraw, for input routing.
@@ -900,7 +919,126 @@ struct SecondaryWindow<A: App> {
     adapter: Option<accesskit_winit::Adapter>,
 }
 
+/// A running subscription timer: its period (part of its identity — a
+/// changed period restarts the sub) and the cancel flag its thread checks
+/// after each sleep. Dropping the handle cancels within one period.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct SubHandle {
+    period: std::time::Duration,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for SubHandle {
+    fn drop(&mut self) {
+        self.cancel
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Reconciles running subscription timers against a desired set: new keys
+/// start a timer thread delivering ticks through `proxy`, missing keys
+/// cancel theirs (within one period), a changed period restarts. Shared by
+/// the app runner and [`crate::Embedded`].
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn reconcile_subs_into<Msg: 'static>(
+    subs: &mut std::collections::HashMap<String, SubHandle>,
+    desired: Vec<fenestra_core::Sub<Msg>>,
+    proxy: &fenestra_core::Proxy<Msg>,
+) {
+    subs.retain(|key, handle| {
+        desired
+            .iter()
+            .any(|s| s.key() == key && s.period() == handle.period)
+    });
+    for sub in desired {
+        if subs.contains_key(sub.key()) {
+            continue;
+        }
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = SubHandle {
+            period: sub.period(),
+            cancel: std::sync::Arc::clone(&cancel),
+        };
+        let key = sub.key().to_owned();
+        let proxy = proxy.clone();
+        let spawned = std::thread::Builder::new()
+            .name(format!("fenestra-sub-{key}"))
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(sub.period());
+                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    proxy.send(sub.tick());
+                }
+            });
+        if spawned.is_err() {
+            eprintln!("fenestra: failed to spawn subscription timer {key:?}");
+            continue;
+        }
+        subs.insert(key, handle);
+    }
+}
+
 impl<A: App> AppRunner<A> {
+    /// Applies one message through [`App::update_with`] and executes the
+    /// returned effect.
+    fn apply(&mut self, msg: A::Msg) {
+        let cmd = self.app.update_with(msg);
+        self.run_cmd(cmd);
+    }
+
+    /// Executes an effect: immediate messages re-enter the update cycle
+    /// iteratively (no recursion — a message loop spins rather than
+    /// overflowing), deferred units run on worker threads (native) or the
+    /// microtask queue (web), delivering results through the proxy.
+    fn run_cmd(&mut self, cmd: fenestra_core::Cmd<A::Msg>) {
+        let mut queue = vec![cmd];
+        while let Some(cmd) = queue.pop() {
+            let mut immediate = Vec::new();
+            let proxy = &self.msg_proxy;
+            cmd.run(&mut |m| immediate.push(m), &mut |unit| {
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let proxy = proxy.clone();
+                    if std::thread::Builder::new()
+                        .name("fenestra-cmd".into())
+                        .spawn(move || proxy.send(unit.block()))
+                        .is_err()
+                    {
+                        eprintln!("fenestra: failed to spawn an effect worker thread");
+                    }
+                }
+                #[cfg(target_arch = "wasm32")]
+                {
+                    match unit {
+                        // No threads on the web: blocking tasks run inline
+                        // (keep them light there) …
+                        fenestra_core::CmdUnit::Task(f) => proxy.send(f()),
+                        // … while futures ride the browser's microtask queue.
+                        fenestra_core::CmdUnit::Future(fut) => {
+                            let proxy = proxy.clone();
+                            wasm_bindgen_futures::spawn_local(async move {
+                                proxy.send(fut.await);
+                            });
+                        }
+                    }
+                }
+            });
+            for m in immediate {
+                queue.push(self.app.update_with(m));
+            }
+        }
+    }
+
+    /// Reconciles running subscription timers against
+    /// [`App::subscriptions`] — see [`reconcile_subs_into`].
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reconcile_subs(&mut self) {
+        reconcile_subs_into(&mut self.subs, self.app.subscriptions(), &self.msg_proxy);
+    }
+
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(e) = self.shell.pump() {
             self.shell.fail(event_loop, e);
@@ -1014,7 +1152,7 @@ impl<A: App> AppRunner<A> {
         }
         let had_msgs = !result.msgs.is_empty();
         for msg in result.msgs {
-            self.app.update(msg);
+            self.apply(msg);
         }
         if result.redraw || had_msgs {
             self.dirty = true;
@@ -1046,6 +1184,8 @@ impl<A: App> AppRunner<A> {
     /// every window for a repaint — called whenever messages were applied.
     fn after_update(&mut self, event_loop: &ActiveEventLoop) {
         self.dirty = true;
+        #[cfg(not(target_arch = "wasm32"))]
+        self.reconcile_subs();
         #[cfg(not(target_arch = "wasm32"))]
         self.reconcile_windows(event_loop);
         #[cfg(target_arch = "wasm32")]
@@ -1203,7 +1343,7 @@ impl<A: App> AppRunner<A> {
         match event {
             WindowEvent::CloseRequested => {
                 if let Some(msg) = self.secondary.get(key).map(|b| b.on_close.clone()) {
-                    self.app.update(msg);
+                    self.apply(msg);
                     self.after_update(event_loop);
                 }
             }
@@ -1352,7 +1492,7 @@ impl<A: App> AppRunner<A> {
         }
         let msgs = result.msgs;
         for msg in msgs {
-            self.app.update(msg);
+            self.apply(msg);
         }
         had_msgs
     }
@@ -1456,7 +1596,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         match event {
             RunnerEvent::App(msg) => {
                 if let Ok(msg) = msg.downcast::<A::Msg>() {
-                    self.app.update(*msg);
+                    self.apply(*msg);
                     self.after_update(event_loop);
                 }
             }
@@ -1521,7 +1661,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                                     }),
                                 };
                                 if let Some(msg) = msg {
-                                    self.app.update(msg);
+                                    self.apply(msg);
                                     self.after_update(event_loop);
                                 }
                             }

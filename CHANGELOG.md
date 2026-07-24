@@ -8,6 +8,24 @@ pointed, catchable errors instead of process aborts and panics.
 
 ### Added
 
+- **The effect layer: fenestra finally has an async story.**
+  `App::update_with` optionally returns a `Cmd<Msg>` — `Cmd::task`
+  (blocking work on a worker thread), `Cmd::future` (runtime-agnostic
+  futures), `Cmd::msg`, `Cmd::batch`, and `Cmd::map` for Elm-style
+  component composition — executed by every runner (windowed, web,
+  `Embedded`) and delivered back as messages. `App::subscriptions`
+  declares recurring effects (`Sub::every` timers) reconciled by key after
+  every update, exactly like secondary windows; `App::init_cmd` covers
+  startup loads. Fully non-breaking: existing apps implement `update` and
+  never see any of it. The differentiated half: **effects are
+  deterministic under the test harness** — `Harness::run_effects()`
+  resolves queued tasks/futures synchronously in FIFO order, and
+  `Sub::every` ticks fire on the harness's explicit clock
+  (`pump(1000ms)` with a 300ms timer delivers exactly the ticks at
+  300/600/900), so effectful apps stay pixel- and message-verifiable in
+  CI with no races and no wall clock. New `http_fetch` example shows the
+  blessed pattern (blocking `ureq` GET inside `Cmd::task`); the `clock`
+  example now uses a subscription instead of a hand-rolled thread.
 - **Charts and markdown are now authorable in fenestra/1.** Four new nodes:
   `sparkline` (inline trend line), `line_chart` (single- or multi-series
   with optional axes, markers, labels, titles), `bar_chart` (optional axes
