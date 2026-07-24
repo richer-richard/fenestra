@@ -8,6 +8,14 @@ pointed, catchable errors instead of process aborts and panics.
 
 ### Added
 
+- **`agent_dashboard`: the dogfood flagship example.** A live dashboard
+  over a Claude Code session log: the agent's tool-call feed
+  (virtualized), output-token sparkline, per-tool bar chart, and summary
+  stats, tailing the newest session every two seconds while it runs. One
+  app exercises the new effect layer (`Cmd::task` parse off-thread,
+  `Sub::every` live tail, `init_cmd`), the native menu bar, fenestra-charts,
+  and virtualization — and `-- shot` renders both themes headlessly from a
+  bundled fixture (the README hero pipeline).
 - **Declarative native menus.** `App::menu()` returns a `MenuSpec` —
   message-emitting items, accelerators, separators, nested submenus,
   enabled flags — reconciled after every update by structural fingerprint

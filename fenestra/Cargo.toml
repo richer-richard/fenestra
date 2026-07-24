@@ -42,3 +42,5 @@ ureq = "3.3.0"
 # the facade nor part of the wasm build.
 fenestra-describe.workspace = true
 fenestra-render.workspace = true
+# The agent_dashboard example's charts.
+fenestra-charts.workspace = true
