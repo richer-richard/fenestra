@@ -2,6 +2,7 @@
 
 use crate::cmd::{Cmd, Sub};
 use crate::element::Element;
+use crate::menu::MenuSpec;
 use crate::proxy::Proxy;
 use crate::theme::Theme;
 
@@ -141,6 +142,15 @@ pub trait App {
         Vec::new()
     }
 
+    /// The native menu bar, declared from state and reconciled after every
+    /// update (rebuilt only when its structure changes); chosen items come
+    /// back as messages. `None` (the default) leaves the platform menu
+    /// untouched. Attaches on macOS; other platforms keep the kit's
+    /// in-window `menubar` (see [`MenuSpec`]'s platform notes).
+    fn menu(&self) -> Option<MenuSpec<Self::Msg>> {
+        None
+    }
+
     /// Builds the view. Pure and cheap: called on every redraw, the whole
     /// tree is rebuilt, laid out, and repainted (no diffing).
     fn view(&self) -> Element<Self::Msg>;
@@ -199,6 +209,22 @@ impl<A: App> App for &mut A {
 
     fn update(&mut self, msg: Self::Msg) {
         (**self).update(msg);
+    }
+
+    fn update_with(&mut self, msg: Self::Msg) -> Cmd<Self::Msg> {
+        (**self).update_with(msg)
+    }
+
+    fn init_cmd(&mut self) -> Cmd<Self::Msg> {
+        (**self).init_cmd()
+    }
+
+    fn subscriptions(&self) -> Vec<Sub<Self::Msg>> {
+        (**self).subscriptions()
+    }
+
+    fn menu(&self) -> Option<MenuSpec<Self::Msg>> {
+        (**self).menu()
     }
 
     fn view(&self) -> Element<Self::Msg> {

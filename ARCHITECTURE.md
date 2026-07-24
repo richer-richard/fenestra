@@ -3686,3 +3686,40 @@ Decisions of record:
   + notes JSON, `--out` PNG) and a `render_a2ui` MCP tool with the same
   typed tree shape as `render_ui` (via `inspect::frame_access_tree`), so
   agents get one uniform verification loop across both formats.
+
+## Declarative native menus, macOS-attached (2026-07-24)
+
+`App::menu()` describes the menu bar from state — `MenuSpec` /
+`MenuDesc` / `MenuItemDesc` in core, message-emitting items, accelerators
+in muda's grammar, nesting, enabled flags — and the runner reconciles it
+after every update by *structural fingerprint* (titles/separators/
+enabled/accelerators; messages excluded), rebuilding the native menu only
+on real change. Chosen items arrive as a `RunnerEvent::Menu(id)` and
+dispatch through the ordinary `update_with` path.
+
+The platform story, recorded honestly: **macOS attaches** via muda's safe
+`init_for_nsapp` (the runner prepends the app menu with Quit). **Windows
+does not yet** — muda's `init_for_hwnd` is an `unsafe fn` and the
+workspace forbids `unsafe`; attaching there is a deliberate decision to
+revisit (a scoped `#[expect]`-style exception or an out-of-workspace
+shim), not an oversight. **Linux cannot** — muda's menubar is GTK-hosted
+and a winit window has no GTK container; the kit's in-window `menubar`
+widget remains the answer there (and works everywhere). muda is therefore
+a macOS-only target dependency, keeping Linux CI free of GTK.
+
+Accelerator caveat documented on the type: macOS menus consume their
+chords before the window sees them — desired for app commands, wrong for
+text-editing chords; don't shadow those.
+
+**Tray icons: deferred with the design.** `tray-icon` (same tauri family)
+follows the identical shape — declarative spec, reconcile-by-fingerprint,
+`TrayIconEvent` → message — plus one new concern: icon pixel plumbing
+(RGBA assets, template-icon treatment on macOS). Same platform reality as
+menus (GTK on Linux). It slots in next to `App::menu` as `App::tray`
+when picked up; nothing in today's design blocks it.
+
+Live-window behavior verified by building the `native_menu` example
+(menu reconciliation on state change: Save greys out when clean); a
+session without a human at the screen cannot click a native menu bar, so
+interactive dispatch is example-verified rather than harness-tested — the
+pure halves (spec fingerprint, id→message mapping) are unit-tested.

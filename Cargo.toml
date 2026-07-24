@@ -66,6 +66,8 @@ web-time = "1.1.0"
 # Already in the tree transitively (winit/wgpu); the direct dep only turns on
 # the `console` binding for surfacing fatal shell errors in the browser.
 web-sys = { version = "0.3.100", features = ["console"] }
+# Native menu bar (macOS attach; see ARCHITECTURE.md for the platform story).
+muda = "0.19.3"
 
 # vello and wgpu are unusably slow without optimization; keep our own crates
 # fast to compile but optimize dependencies even in dev builds.

@@ -8,6 +8,14 @@ pointed, catchable errors instead of process aborts and panics.
 
 ### Added
 
+- **Declarative native menus.** `App::menu()` returns a `MenuSpec` —
+  message-emitting items, accelerators, separators, nested submenus,
+  enabled flags — reconciled after every update by structural fingerprint
+  and dispatched through the ordinary update path. Attaches natively on
+  macOS (muda's safe path, app menu + Quit provided); Windows/Linux keep
+  the kit's in-window `menubar` (the honest platform story is in
+  ARCHITECTURE.md). New `native_menu` example. Tray icons are designed
+  and deferred (same reconcile pattern; see ARCHITECTURE.md).
 - **`fenestra-a2ui`: a native Rust renderer for A2UI v0.9** — the open
   Agent-to-UI standard (a2ui.org) where agents send declarative JSON
   surfaces and clients render them natively. Full basic-catalog coverage

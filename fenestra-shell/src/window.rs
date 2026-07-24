@@ -782,6 +782,9 @@ enum RunnerEvent {
     App(Box<dyn std::any::Any + Send>),
     #[cfg(not(target_arch = "wasm32"))]
     Access(accesskit_winit::Event),
+    /// A native menu item was chosen (the muda item id).
+    #[cfg(target_os = "macos")]
+    Menu(String),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -827,6 +830,8 @@ where
         msg_proxy,
         #[cfg(not(target_arch = "wasm32"))]
         subs: std::collections::HashMap::new(),
+        #[cfg(target_os = "macos")]
+        menu: None,
         app,
         fonts,
         state,
@@ -851,6 +856,14 @@ where
         let cmd = runner.app.init_cmd();
         runner.run_cmd(cmd);
         runner.reconcile_subs();
+        #[cfg(target_os = "macos")]
+        {
+            let menu_proxy = event_loop.create_proxy();
+            muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
+                let _ = menu_proxy.send_event(RunnerEvent::Menu(event.id.0.clone()));
+            }));
+            runner.reconcile_menu();
+        }
         let run = event_loop
             .run_app(&mut runner)
             .map_err(ShellError::EventLoop);
@@ -883,6 +896,10 @@ struct AppRunner<A: App> {
     /// [`App::subscriptions`] after every update (native only).
     #[cfg(not(target_arch = "wasm32"))]
     subs: std::collections::HashMap<String, SubHandle>,
+    /// The attached native menu, reconciled against [`App::menu`] by
+    /// structural fingerprint (macOS only).
+    #[cfg(target_os = "macos")]
+    menu: Option<MenuHandle<A::Msg>>,
     cursor: Point,
     started: Instant,
     /// View and frame from the last redraw, for input routing.
@@ -981,7 +998,103 @@ pub(crate) fn reconcile_subs_into<Msg: 'static>(
     }
 }
 
+/// The attached native menu: its structural fingerprint, the live muda
+/// menu (kept alive for the app's lifetime), and item-id → message map.
+#[cfg(target_os = "macos")]
+struct MenuHandle<Msg> {
+    fingerprint: String,
+    _menu: muda::Menu,
+    actions: std::collections::HashMap<String, Msg>,
+}
+
+/// Builds a muda menu from the declarative spec: the platform app menu
+/// (with Quit) first, then the declared menus. Returns the id → message
+/// map alongside.
+#[cfg(target_os = "macos")]
+fn build_menu<Msg: Clone>(
+    spec: &fenestra_core::MenuSpec<Msg>,
+) -> Result<(muda::Menu, std::collections::HashMap<String, Msg>), muda::Error> {
+    fn append_items<Msg: Clone>(
+        submenu: &muda::Submenu,
+        items: &[fenestra_core::MenuItemDesc<Msg>],
+        actions: &mut std::collections::HashMap<String, Msg>,
+    ) -> Result<(), muda::Error> {
+        for item in items {
+            match item {
+                fenestra_core::MenuItemDesc::Item {
+                    title,
+                    msg,
+                    accelerator,
+                    enabled,
+                } => {
+                    let accel = accelerator.as_ref().and_then(|a| {
+                        a.parse::<muda::accelerator::Accelerator>()
+                            .map_err(|e| {
+                                eprintln!("fenestra: menu accelerator {a:?} did not parse: {e}");
+                            })
+                            .ok()
+                    });
+                    let mi = muda::MenuItem::new(title, *enabled, accel);
+                    actions.insert(mi.id().0.clone(), msg.clone());
+                    submenu.append(&mi)?;
+                }
+                fenestra_core::MenuItemDesc::Separator => {
+                    submenu.append(&muda::PredefinedMenuItem::separator())?;
+                }
+                fenestra_core::MenuItemDesc::Submenu { title, items } => {
+                    let nested = muda::Submenu::new(title, true);
+                    append_items(&nested, items, actions)?;
+                    submenu.append(&nested)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    let menu = muda::Menu::new();
+    let mut actions = std::collections::HashMap::new();
+    // macOS: the first submenu becomes the application menu.
+    let app_menu = muda::Submenu::new("App", true);
+    app_menu.append(&muda::PredefinedMenuItem::quit(None))?;
+    menu.append(&app_menu)?;
+    for desc in &spec.menus {
+        let submenu = muda::Submenu::new(&desc.title, true);
+        append_items(&submenu, &desc.items, &mut actions)?;
+        menu.append(&submenu)?;
+    }
+    Ok((menu, actions))
+}
+
 impl<A: App> AppRunner<A> {
+    /// Reconciles the native menu bar against [`App::menu`]: rebuilt only
+    /// when the structural fingerprint changes; `None` after a menu was
+    /// attached leaves the last menu in place (macOS keeps an app menu
+    /// regardless).
+    #[cfg(target_os = "macos")]
+    fn reconcile_menu(&mut self) {
+        let Some(spec) = self.app.menu() else {
+            return;
+        };
+        let fingerprint = spec.fingerprint();
+        if self
+            .menu
+            .as_ref()
+            .is_some_and(|m| m.fingerprint == fingerprint)
+        {
+            return;
+        }
+        match build_menu(&spec) {
+            Ok((menu, actions)) => {
+                menu.init_for_nsapp();
+                self.menu = Some(MenuHandle {
+                    fingerprint,
+                    _menu: menu,
+                    actions,
+                });
+            }
+            Err(e) => eprintln!("fenestra: building the native menu failed: {e}"),
+        }
+    }
+
     /// Applies one message through [`App::update_with`] and executes the
     /// returned effect.
     fn apply(&mut self, msg: A::Msg) {
@@ -1186,6 +1299,8 @@ impl<A: App> AppRunner<A> {
         self.dirty = true;
         #[cfg(not(target_arch = "wasm32"))]
         self.reconcile_subs();
+        #[cfg(target_os = "macos")]
+        self.reconcile_menu();
         #[cfg(not(target_arch = "wasm32"))]
         self.reconcile_windows(event_loop);
         #[cfg(target_arch = "wasm32")]
@@ -1597,6 +1712,13 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
             RunnerEvent::App(msg) => {
                 if let Ok(msg) = msg.downcast::<A::Msg>() {
                     self.apply(*msg);
+                    self.after_update(event_loop);
+                }
+            }
+            #[cfg(target_os = "macos")]
+            RunnerEvent::Menu(id) => {
+                if let Some(msg) = self.menu.as_ref().and_then(|m| m.actions.get(&id)).cloned() {
+                    self.apply(msg);
                     self.after_update(event_loop);
                 }
             }

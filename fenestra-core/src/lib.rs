@@ -24,6 +24,7 @@ mod i18n;
 mod id;
 mod input;
 mod layout;
+mod menu;
 mod nav;
 pub mod optical;
 mod paint_plan;
@@ -54,6 +55,7 @@ pub use frame::{AccessNode, Frame, TextLegibility, build_frame, build_scene, fra
 pub use frame_state::FrameState;
 pub use i18n::{Catalog, Locale};
 pub use id::WidgetId;
+pub use menu::{MenuDesc, MenuItemDesc, MenuSpec};
 pub use nav::Nav;
 pub use paint_plan::{MultiPassSpec, PassKind};
 pub use proxy::Proxy;
