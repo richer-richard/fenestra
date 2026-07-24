@@ -94,9 +94,16 @@ jobs:
     # GPU-less Windows runners only have DX12 WARP, whose software
     # rasterizer crashes nondeterministically (STATUS_ACCESS_VIOLATION)
     # under vello's compute workloads. Windows therefore verifies the full
-    # compile (every target) plus the GPU-free core suites; rendering is
-    # covered by Metal (reference) and lavapipe. Real-GPU Windows machines
-    # run the full suite fine.
+    # compile (every target) plus the GPU-free core suites as the required
+    # gate; rendering is covered by Metal (reference) and lavapipe.
+    # Real-GPU Windows machines run the full suite fine.
+    #
+    # The informational step below is the path off that compromise:
+    # FENESTRA_CPU=1 runs vello's compute stages as native Rust, leaving
+    # WARP only upload/copy work — sidestepping exactly the crash class
+    # above. On macOS the CPU pipeline reproduces the Metal goldens within
+    # the default 0.2% budget; if it proves stable here, Windows pixels
+    # become a required gate and the comment above gets rewritten.
     name: build + core tests (Windows)
     runs-on: windows-latest
     steps:
@@ -107,6 +114,14 @@ jobs:
       - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
       - run: cargo build --workspace --all-targets
       - run: cargo test -p fenestra-core
+      - name: render tests (CPU compute over WARP — informational)
+        continue-on-error: true
+        env:
+          FENESTRA_CPU: "1"
+          WGPU_BACKEND: dx12
+          # Same software-rasterizer budget as the lavapipe job.
+          FENESTRA_SNAPSHOT_BUDGET: "0.010"
+        run: cargo test --workspace
 
   audit:
     # Vulnerabilities in the dependency tree fail the job; unmaintained-crate

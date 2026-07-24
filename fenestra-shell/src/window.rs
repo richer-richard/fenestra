@@ -154,16 +154,23 @@ struct WindowShell {
     scene: Scene,
     options: WindowOptions,
     background: Color,
+    /// The first unrecoverable failure (GPU/surface/renderer). Recorded by
+    /// [`Self::fail`], which also stops the event loop; the runner entry
+    /// function returns it once `run_app` unwinds. Runners with secondary
+    /// windows funnel those failures into the main shell's slot too.
+    fatal: Option<ShellError>,
     /// Completed async surface setup, parked until the next [`Self::pump`]
     /// (web only; the web is single-threaded so `Rc<RefCell>` suffices).
     #[cfg(target_arch = "wasm32")]
     ready: WasmReady,
 }
 
-/// The handoff slot for the web's async surface creation.
+/// The handoff slot for the web's async surface creation: the setup result,
+/// carrying the error when WebGPU is unavailable.
 #[cfg(target_arch = "wasm32")]
-type WasmReady =
-    std::rc::Rc<std::cell::RefCell<Option<(RenderContext, Box<RenderSurface<'static>>)>>>;
+type WasmReady = std::rc::Rc<
+    std::cell::RefCell<Option<Result<(RenderContext, Box<RenderSurface<'static>>), ShellError>>>,
+>;
 
 impl WindowShell {
     fn new(options: WindowOptions, background: Color) -> Self {
@@ -174,13 +181,30 @@ impl WindowShell {
             scene: Scene::new(),
             options,
             background,
+            fatal: None,
             #[cfg(target_arch = "wasm32")]
             ready: WasmReady::default(),
         }
     }
 
-    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.resumed_with(event_loop, |_, _| {});
+    /// Records the first unrecoverable failure and stops the event loop; the
+    /// runner entry function surfaces it as its `Err` return. Adversarial
+    /// review 2026-07 (finding B): these paths used to be `expect`s — a VM
+    /// without GPU drivers or a mid-run device loss took the process down
+    /// instead of returning an actionable error.
+    fn fail(&mut self, event_loop: &ActiveEventLoop, err: ShellError) {
+        // The web loop cannot return an error (`run_app` already returned):
+        // surface the failure in the browser console before stopping.
+        #[cfg(target_arch = "wasm32")]
+        web_sys::console::error_1(&format!("fenestra: {err}").into());
+        if self.fatal.is_none() {
+            self.fatal = Some(err);
+        }
+        event_loop.exit();
+    }
+
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) -> Result<(), ShellError> {
+        self.resumed_with(event_loop, |_, _| {})
     }
 
     /// Like [`Self::resumed`], but runs `before_visible` between window
@@ -190,62 +214,67 @@ impl WindowShell {
         &mut self,
         event_loop: &ActiveEventLoop,
         before_visible: impl FnOnce(&ActiveEventLoop, &Arc<Window>),
-    ) {
-        let RenderState::Suspended(cached_window) = &mut self.state else {
-            return;
+    ) -> Result<(), ShellError> {
+        let cached = match &mut self.state {
+            RenderState::Suspended(cached_window) => cached_window.take(),
+            _ => return Ok(()),
         };
-        let window = cached_window.take().unwrap_or_else(|| {
-            let attrs = Window::default_attributes()
-                .with_title(self.options.title.clone())
-                .with_inner_size(LogicalSize::new(
-                    self.options.inner_size.0,
-                    self.options.inner_size.1,
-                ))
-                .with_resizable(self.options.resizable)
-                .with_maximized(self.options.maximized)
-                .with_visible(false);
-            let attrs = match self.options.min_size {
-                Some((w, h)) => attrs.with_min_inner_size(LogicalSize::new(w, h)),
-                None => attrs,
-            };
-            let attrs = if self.options.fullscreen {
-                attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
-            } else {
-                attrs
-            };
-            #[cfg(not(target_arch = "wasm32"))]
-            let attrs = match self.options.icon.clone() {
-                Some((w, h, rgba)) => match winit::window::Icon::from_rgba(rgba, w, h) {
-                    Ok(icon) => attrs.with_window_icon(Some(icon)),
-                    // Malformed icon data: open without one, never panic.
-                    Err(_) => attrs,
-                },
-                None => attrs,
-            };
-            #[cfg(target_arch = "wasm32")]
-            let attrs = {
-                use winit::platform::web::WindowAttributesExtWebSys;
-                // winit creates the canvas; have it inserted into the page.
-                attrs.with_append(true)
-            };
-            Arc::new(
-                event_loop
-                    .create_window(attrs)
-                    .expect("failed to create window"),
-            )
-        });
+        let window = match cached {
+            Some(window) => window,
+            None => {
+                let attrs = Window::default_attributes()
+                    .with_title(self.options.title.clone())
+                    .with_inner_size(LogicalSize::new(
+                        self.options.inner_size.0,
+                        self.options.inner_size.1,
+                    ))
+                    .with_resizable(self.options.resizable)
+                    .with_maximized(self.options.maximized)
+                    .with_visible(false);
+                let attrs = match self.options.min_size {
+                    Some((w, h)) => attrs.with_min_inner_size(LogicalSize::new(w, h)),
+                    None => attrs,
+                };
+                let attrs = if self.options.fullscreen {
+                    attrs.with_fullscreen(Some(winit::window::Fullscreen::Borderless(None)))
+                } else {
+                    attrs
+                };
+                #[cfg(not(target_arch = "wasm32"))]
+                let attrs = match self.options.icon.clone() {
+                    Some((w, h, rgba)) => match winit::window::Icon::from_rgba(rgba, w, h) {
+                        Ok(icon) => attrs.with_window_icon(Some(icon)),
+                        // Malformed icon data: open without one, never panic.
+                        Err(_) => attrs,
+                    },
+                    None => attrs,
+                };
+                #[cfg(target_arch = "wasm32")]
+                let attrs = {
+                    use winit::platform::web::WindowAttributesExtWebSys;
+                    // winit creates the canvas; have it inserted into the page.
+                    attrs.with_append(true)
+                };
+                Arc::new(
+                    event_loop
+                        .create_window(attrs)
+                        .map_err(ShellError::WindowCreate)?,
+                )
+            }
+        };
         before_visible(event_loop, &window);
         let was_hidden = window.is_visible() == Some(false);
-        self.activate(window.clone());
+        self.activate(window.clone())?;
         if was_hidden {
             window.set_visible(true);
         }
+        Ok(())
     }
 
     /// Builds (or rebuilds, after a lost surface) the swapchain for `window`
     /// and enters the active state.
     #[cfg(not(target_arch = "wasm32"))]
-    fn activate(&mut self, window: Arc<Window>) {
+    fn activate(&mut self, window: Arc<Window>) -> Result<(), ShellError> {
         let size = window.inner_size();
         let surface = pollster::block_on(self.context.create_surface(
             window.clone(),
@@ -253,33 +282,41 @@ impl WindowShell {
             size.height.max(1),
             wgpu::PresentMode::AutoVsync,
         ))
-        .expect("failed to create wgpu surface");
+        .map_err(ShellError::Surface)?;
 
         self.renderers
             .resize_with(self.context.devices.len(), || None);
-        self.renderers[surface.dev_id].get_or_insert_with(|| {
-            Renderer::new(
-                &self.context.devices[surface.dev_id].device,
-                RendererOptions {
-                    use_cpu: false,
-                    antialiasing_support: AaSupport::area_only(),
-                    ..Default::default()
-                },
-            )
-            .expect("failed to create vello renderer")
-        });
+        if self.renderers[surface.dev_id].is_none() {
+            self.renderers[surface.dev_id] = Some(
+                Renderer::new(
+                    &self.context.devices[surface.dev_id].device,
+                    RendererOptions {
+                        // `FENESTRA_CPU` runs vello's compute stages on the
+                        // CPU — the live-window switch for software adapters
+                        // (see `CPU_ENV`).
+                        use_cpu: crate::headless::cpu_compute_requested(),
+                        antialiasing_support: AaSupport::area_only(),
+                        ..Default::default()
+                    },
+                )
+                .map_err(ShellError::Vello)?,
+            );
+        }
 
         self.state = RenderState::Active {
             surface: Box::new(surface),
             valid_surface: size.width != 0 && size.height != 0,
             window,
         };
+        Ok(())
     }
 
     /// Web: surface/device setup is async — kick it off and park in
     /// `Pending`; [`Self::pump`] finishes the activation when it lands.
+    /// Setup failure (no WebGPU) travels through the `ready` slot and
+    /// surfaces on the next pump. Always `Ok` here.
     #[cfg(target_arch = "wasm32")]
-    fn activate(&mut self, window: Arc<Window>) {
+    fn activate(&mut self, window: Arc<Window>) -> Result<(), ShellError> {
         let size = window.inner_size();
         let ready = std::rc::Rc::clone(&self.ready);
         let win = window.clone();
@@ -293,36 +330,43 @@ impl WindowShell {
                     wgpu::PresentMode::AutoVsync,
                 )
                 .await
-                .expect("failed to create wgpu surface");
-            *ready.borrow_mut() = Some((context, Box::new(surface)));
+                .map(|surface| (context, Box::new(surface)))
+                .map_err(ShellError::Surface);
+            *ready.borrow_mut() = Some(surface);
             win.request_redraw();
         });
         self.state = RenderState::Pending(window);
+        Ok(())
     }
 
     /// Completes a pending web activation once the async setup finished.
     /// No-op on native and while nothing is pending.
-    fn pump(&mut self) {
+    fn pump(&mut self) -> Result<(), ShellError> {
         #[cfg(target_arch = "wasm32")]
         if let RenderState::Pending(window) = &self.state
-            && let Some((context, surface)) = self.ready.borrow_mut().take()
+            && let Some(setup) = self.ready.borrow_mut().take()
         {
+            let (context, surface) = setup?;
             let window = window.clone();
             self.context = context;
             self.renderers.clear();
             self.renderers
                 .resize_with(self.context.devices.len(), || None);
-            self.renderers[surface.dev_id].get_or_insert_with(|| {
-                Renderer::new(
-                    &self.context.devices[surface.dev_id].device,
-                    RendererOptions {
-                        use_cpu: false,
-                        antialiasing_support: AaSupport::area_only(),
-                        ..Default::default()
-                    },
-                )
-                .expect("failed to create vello renderer")
-            });
+            if self.renderers[surface.dev_id].is_none() {
+                self.renderers[surface.dev_id] = Some(
+                    Renderer::new(
+                        &self.context.devices[surface.dev_id].device,
+                        RendererOptions {
+                            // No env vars on the web; WebGPU implies a real
+                            // adapter, so the CPU pipeline has no use here.
+                            use_cpu: false,
+                            antialiasing_support: AaSupport::area_only(),
+                            ..Default::default()
+                        },
+                    )
+                    .map_err(ShellError::Vello)?,
+                );
+            }
             let size = window.inner_size();
             self.state = RenderState::Active {
                 surface,
@@ -330,6 +374,7 @@ impl WindowShell {
                 window,
             };
         }
+        Ok(())
     }
 
     fn suspended(&mut self) {
@@ -381,17 +426,19 @@ impl WindowShell {
     }
 
     /// Scales the logical fragment to physical pixels and presents it.
-    fn present(&mut self, fragment: &Scene) {
+    /// Recoverable surface states (lost/outdated/occluded/timeout) are
+    /// handled in place; anything else is an error for [`Self::fail`].
+    fn present(&mut self, fragment: &Scene) -> Result<(), ShellError> {
         let RenderState::Active {
             surface,
             valid_surface,
             window,
         } = &mut self.state
         else {
-            return;
+            return Ok(());
         };
         if !*valid_surface {
-            return;
+            return Ok(());
         }
         let width = surface.config.width;
         let height = surface.config.height;
@@ -417,35 +464,32 @@ impl WindowShell {
                     antialiasing_method: AaConfig::Area,
                 },
             )
-            .expect("vello render failed");
+            .map_err(ShellError::Vello)?;
 
         let surface_texture = match surface.surface.get_current_texture() {
             CurrentSurfaceTexture::Success(texture) => texture,
             CurrentSurfaceTexture::Outdated | CurrentSurfaceTexture::Suboptimal(_) => {
                 self.context.configure_surface(surface);
                 window.request_redraw();
-                return;
+                return Ok(());
             }
             CurrentSurfaceTexture::Occluded => {
                 // Hidden window: skip the frame; WindowEvent::Occluded(false)
                 // requests the next redraw when it becomes visible again.
-                return;
+                return Ok(());
             }
             CurrentSurfaceTexture::Timeout => {
                 window.request_redraw();
-                return;
+                return Ok(());
             }
             CurrentSurfaceTexture::Lost => {
                 // Recoverable (GPU reset, driver update, display change):
                 // rebuild the swapchain on the same window and repaint.
                 let window = window.clone();
                 window.request_redraw();
-                self.activate(window);
-                return;
+                return self.activate(window);
             }
-            CurrentSurfaceTexture::Validation => {
-                panic!("validation error acquiring wgpu surface texture")
-            }
+            CurrentSurfaceTexture::Validation => return Err(ShellError::SurfaceValidation),
         };
 
         let mut encoder = handle
@@ -463,7 +507,11 @@ impl WindowShell {
         );
         handle.queue.submit([encoder.finish()]);
         surface_texture.present();
-        handle.device.poll(wgpu::PollType::Poll).unwrap();
+        handle
+            .device
+            .poll(wgpu::PollType::Poll)
+            .map_err(ShellError::Poll)?;
+        Ok(())
     }
 }
 
@@ -484,7 +532,11 @@ pub fn run_scene(
         fragment: Scene::new(),
         paint: Box::new(paint),
     };
-    event_loop.run_app(&mut app).map_err(ShellError::EventLoop)
+    let run = event_loop.run_app(&mut app).map_err(ShellError::EventLoop);
+    match app.shell.fatal.take() {
+        Some(err) => Err(err),
+        None => run,
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -497,7 +549,9 @@ struct SceneApp {
 #[cfg(not(target_arch = "wasm32"))]
 impl ApplicationHandler for SceneApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.shell.resumed(event_loop);
+        if let Err(e) = self.shell.resumed(event_loop) {
+            self.shell.fail(event_loop, e);
+        }
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
@@ -534,7 +588,9 @@ impl ApplicationHandler for SceneApp {
                 let bg = self.shell.background;
                 (self.paint)(&mut self.fragment, lw, lh, bg);
                 let fragment = std::mem::replace(&mut self.fragment, Scene::new());
-                self.shell.present(&fragment);
+                if let Err(e) = self.shell.present(&fragment) {
+                    self.shell.fail(event_loop, e);
+                }
                 self.fragment = fragment;
             }
             _ => {}
@@ -585,7 +641,11 @@ pub fn run_static(
         started: Instant::now(),
         last_frame: None,
     };
-    event_loop.run_app(&mut app).map_err(ShellError::EventLoop)
+    let run = event_loop.run_app(&mut app).map_err(ShellError::EventLoop);
+    match app.shell.fatal.take() {
+        Some(err) => Err(err),
+        None => run,
+    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -625,7 +685,10 @@ impl StaticApp {
         // of truth — uses the two-pass `render_plan`. See ARCHITECTURE.md
         // ("Real frosted-glass backdrop blur").
         let scene = frame.paint(&mut self.fonts, &mut self.state);
-        self.shell.present(&scene);
+        if let Err(e) = self.shell.present(&scene) {
+            self.shell.fail(event_loop, e);
+            return;
+        }
         if frame.animating {
             event_loop.set_control_flow(ControlFlow::WaitUntil(
                 Instant::now() + Duration::from_millis(16),
@@ -640,7 +703,9 @@ impl StaticApp {
 #[cfg(not(target_arch = "wasm32"))]
 impl ApplicationHandler for StaticApp {
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
-        self.shell.resumed(event_loop);
+        if let Err(e) = self.shell.resumed(event_loop) {
+            self.shell.fail(event_loop, e);
+        }
     }
 
     fn suspended(&mut self, _event_loop: &ActiveEventLoop) {
@@ -717,6 +782,9 @@ enum RunnerEvent {
     App(Box<dyn std::any::Any + Send>),
     #[cfg(not(target_arch = "wasm32"))]
     Access(accesskit_winit::Event),
+    /// A native menu item was chosen (the muda item id).
+    #[cfg(target_os = "macos")]
+    Menu(String),
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -741,23 +809,30 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     let access_proxy = event_loop.create_proxy();
     let proxy = event_loop.create_proxy();
-    app.init(fenestra_core::Proxy::new(move |msg: A::Msg| {
-        // Dropped silently once the loop is gone (window closed).
+    // Dropped silently once the loop is gone (window closed).
+    let msg_proxy = fenestra_core::Proxy::new(move |msg: A::Msg| {
         let _ = proxy.send_event(RunnerEvent::App(Box::new(msg)));
-    }));
+    });
+    app.init(msg_proxy.clone());
     let background = app.theme().bg;
     let mut fonts = Fonts::with_system();
     for (role, data) in &options.fonts {
         fonts.register(*role, data.clone());
     }
-    #[cfg(target_arch = "wasm32")]
-    let state = live_state();
-    #[cfg(not(target_arch = "wasm32"))]
     let mut state = live_state();
     #[cfg(not(target_arch = "wasm32"))]
     state.set_clipboard(Box::new(crate::OsClipboard::default()));
+    // On the web, copy-out reaches the system clipboard; paste-in from
+    // other apps stays in-app (see `WebClipboard`).
+    #[cfg(target_arch = "wasm32")]
+    state.set_clipboard(Box::new(crate::WebClipboard::default()));
     let runner = AppRunner {
         shell: WindowShell::new(options, background),
+        msg_proxy,
+        #[cfg(not(target_arch = "wasm32"))]
+        subs: std::collections::HashMap::new(),
+        #[cfg(target_os = "macos")]
+        menu: None,
         app,
         fonts,
         state,
@@ -777,13 +852,33 @@ where
     #[cfg(not(target_arch = "wasm32"))]
     {
         let mut runner = runner;
-        event_loop
+        // Startup effect + initial subscriptions: results arrive as user
+        // events once the loop is running.
+        let cmd = runner.app.init_cmd();
+        runner.run_cmd(cmd);
+        runner.reconcile_subs();
+        #[cfg(target_os = "macos")]
+        {
+            let menu_proxy = event_loop.create_proxy();
+            muda::MenuEvent::set_event_handler(Some(move |event: muda::MenuEvent| {
+                let _ = menu_proxy.send_event(RunnerEvent::Menu(event.id.0.clone()));
+            }));
+            runner.reconcile_menu();
+        }
+        let run = event_loop
             .run_app(&mut runner)
-            .map_err(ShellError::EventLoop)
+            .map_err(ShellError::EventLoop);
+        match runner.shell.fatal.take() {
+            Some(err) => Err(err),
+            None => run,
+        }
     }
     #[cfg(target_arch = "wasm32")]
     {
         use winit::platform::web::EventLoopExtWebSys;
+        let mut runner = runner;
+        let cmd = runner.app.init_cmd();
+        runner.run_cmd(cmd);
         // Non-blocking on the web: the loop keeps running after main returns.
         event_loop.spawn_app(runner);
         Ok(())
@@ -795,6 +890,17 @@ struct AppRunner<A: App> {
     app: A,
     fonts: Fonts,
     state: FrameState,
+    /// Message proxy shared with [`App::init`]: effect results and
+    /// subscription ticks are delivered through it, waking the loop.
+    msg_proxy: fenestra_core::Proxy<A::Msg>,
+    /// Running subscription timers, reconciled against
+    /// [`App::subscriptions`] after every update (native only).
+    #[cfg(not(target_arch = "wasm32"))]
+    subs: std::collections::HashMap<String, SubHandle>,
+    /// The attached native menu, reconciled against [`App::menu`] by
+    /// structural fingerprint (macOS only).
+    #[cfg(target_os = "macos")]
+    menu: Option<MenuHandle<A::Msg>>,
     cursor: Point,
     started: Instant,
     /// View and frame from the last redraw, for input routing.
@@ -831,9 +937,220 @@ struct SecondaryWindow<A: App> {
     adapter: Option<accesskit_winit::Adapter>,
 }
 
+/// A running subscription timer: its period (part of its identity — a
+/// changed period restarts the sub) and the cancel flag its thread checks
+/// after each sleep. Dropping the handle cancels within one period.
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) struct SubHandle {
+    period: std::time::Duration,
+    cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for SubHandle {
+    fn drop(&mut self) {
+        self.cancel
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Reconciles running subscription timers against a desired set: new keys
+/// start a timer thread delivering ticks through `proxy`, missing keys
+/// cancel theirs (within one period), a changed period restarts. Shared by
+/// the app runner and [`crate::Embedded`].
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn reconcile_subs_into<Msg: 'static>(
+    subs: &mut std::collections::HashMap<String, SubHandle>,
+    desired: Vec<fenestra_core::Sub<Msg>>,
+    proxy: &fenestra_core::Proxy<Msg>,
+) {
+    subs.retain(|key, handle| {
+        desired
+            .iter()
+            .any(|s| s.key() == key && s.period() == handle.period)
+    });
+    for sub in desired {
+        if subs.contains_key(sub.key()) {
+            continue;
+        }
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let handle = SubHandle {
+            period: sub.period(),
+            cancel: std::sync::Arc::clone(&cancel),
+        };
+        let key = sub.key().to_owned();
+        let proxy = proxy.clone();
+        let spawned = std::thread::Builder::new()
+            .name(format!("fenestra-sub-{key}"))
+            .spawn(move || {
+                loop {
+                    std::thread::sleep(sub.period());
+                    if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+                        break;
+                    }
+                    proxy.send(sub.tick());
+                }
+            });
+        if spawned.is_err() {
+            eprintln!("fenestra: failed to spawn subscription timer {key:?}");
+            continue;
+        }
+        subs.insert(key, handle);
+    }
+}
+
+/// The attached native menu: its structural fingerprint, the live muda
+/// menu (kept alive for the app's lifetime), and item-id → message map.
+#[cfg(target_os = "macos")]
+struct MenuHandle<Msg> {
+    fingerprint: String,
+    _menu: muda::Menu,
+    actions: std::collections::HashMap<String, Msg>,
+}
+
+/// Builds a muda menu from the declarative spec: the platform app menu
+/// (with Quit) first, then the declared menus. Returns the id → message
+/// map alongside.
+#[cfg(target_os = "macos")]
+fn build_menu<Msg: Clone>(
+    spec: &fenestra_core::MenuSpec<Msg>,
+) -> Result<(muda::Menu, std::collections::HashMap<String, Msg>), muda::Error> {
+    fn append_items<Msg: Clone>(
+        submenu: &muda::Submenu,
+        items: &[fenestra_core::MenuItemDesc<Msg>],
+        actions: &mut std::collections::HashMap<String, Msg>,
+    ) -> Result<(), muda::Error> {
+        for item in items {
+            match item {
+                fenestra_core::MenuItemDesc::Item {
+                    title,
+                    msg,
+                    accelerator,
+                    enabled,
+                } => {
+                    let accel = accelerator.as_ref().and_then(|a| {
+                        a.parse::<muda::accelerator::Accelerator>()
+                            .map_err(|e| {
+                                eprintln!("fenestra: menu accelerator {a:?} did not parse: {e}");
+                            })
+                            .ok()
+                    });
+                    let mi = muda::MenuItem::new(title, *enabled, accel);
+                    actions.insert(mi.id().0.clone(), msg.clone());
+                    submenu.append(&mi)?;
+                }
+                fenestra_core::MenuItemDesc::Separator => {
+                    submenu.append(&muda::PredefinedMenuItem::separator())?;
+                }
+                fenestra_core::MenuItemDesc::Submenu { title, items } => {
+                    let nested = muda::Submenu::new(title, true);
+                    append_items(&nested, items, actions)?;
+                    submenu.append(&nested)?;
+                }
+            }
+        }
+        Ok(())
+    }
+    let menu = muda::Menu::new();
+    let mut actions = std::collections::HashMap::new();
+    // macOS: the first submenu becomes the application menu.
+    let app_menu = muda::Submenu::new("App", true);
+    app_menu.append(&muda::PredefinedMenuItem::quit(None))?;
+    menu.append(&app_menu)?;
+    for desc in &spec.menus {
+        let submenu = muda::Submenu::new(&desc.title, true);
+        append_items(&submenu, &desc.items, &mut actions)?;
+        menu.append(&submenu)?;
+    }
+    Ok((menu, actions))
+}
+
 impl<A: App> AppRunner<A> {
+    /// Reconciles the native menu bar against [`App::menu`]: rebuilt only
+    /// when the structural fingerprint changes; `None` after a menu was
+    /// attached leaves the last menu in place (macOS keeps an app menu
+    /// regardless).
+    #[cfg(target_os = "macos")]
+    fn reconcile_menu(&mut self) {
+        let Some(spec) = self.app.menu() else {
+            return;
+        };
+        let fingerprint = spec.fingerprint();
+        if self
+            .menu
+            .as_ref()
+            .is_some_and(|m| m.fingerprint == fingerprint)
+        {
+            return;
+        }
+        match build_menu(&spec) {
+            Ok((menu, actions)) => {
+                menu.init_for_nsapp();
+                self.menu = Some(MenuHandle {
+                    fingerprint,
+                    _menu: menu,
+                    actions,
+                });
+            }
+            Err(e) => eprintln!("fenestra: building the native menu failed: {e}"),
+        }
+    }
+
+    /// Applies one message through [`App::update_with`] and executes the
+    /// returned effect.
+    fn apply(&mut self, msg: A::Msg) {
+        let cmd = self.app.update_with(msg);
+        self.run_cmd(cmd);
+    }
+
+    /// Executes an effect through the shared [`fenestra_core::apply_cmd`]
+    /// semantics (immediate messages re-enter `update_with` FIFO, no
+    /// recursion); deferred units run on worker threads (native) or the
+    /// microtask queue (web), delivering results through the proxy.
+    fn run_cmd(&mut self, cmd: fenestra_core::Cmd<A::Msg>) {
+        let proxy = self.msg_proxy.clone();
+        fenestra_core::apply_cmd(&mut self.app, cmd, &mut |unit| {
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                let proxy = proxy.clone();
+                if std::thread::Builder::new()
+                    .name("fenestra-cmd".into())
+                    .spawn(move || proxy.send(unit.block()))
+                    .is_err()
+                {
+                    eprintln!("fenestra: failed to spawn an effect worker thread");
+                }
+            }
+            #[cfg(target_arch = "wasm32")]
+            {
+                match unit {
+                    // No threads on the web: blocking tasks run inline
+                    // (keep them light there) …
+                    fenestra_core::CmdUnit::Task(f) => proxy.send(f()),
+                    // … while futures ride the browser's microtask queue.
+                    fenestra_core::CmdUnit::Future(fut) => {
+                        let proxy = proxy.clone();
+                        wasm_bindgen_futures::spawn_local(async move {
+                            proxy.send(fut.await);
+                        });
+                    }
+                }
+            }
+        });
+    }
+
+    /// Reconciles running subscription timers against
+    /// [`App::subscriptions`] — see [`reconcile_subs_into`].
+    #[cfg(not(target_arch = "wasm32"))]
+    fn reconcile_subs(&mut self) {
+        reconcile_subs_into(&mut self.subs, self.app.subscriptions(), &self.msg_proxy);
+    }
+
     fn redraw(&mut self, event_loop: &ActiveEventLoop) {
-        self.shell.pump();
+        if let Err(e) = self.shell.pump() {
+            self.shell.fail(event_loop, e);
+            return;
+        }
         let Some((lw, lh, scale)) = self.shell.logical_size() else {
             return;
         };
@@ -843,7 +1160,9 @@ impl<A: App> AppRunner<A> {
             && let Some((scene, key)) = &self.cached_scene
             && *key == (lw, lh, scale)
         {
-            self.shell.present(scene);
+            if let Err(e) = self.shell.present(scene) {
+                self.shell.fail(event_loop, e);
+            }
             return;
         }
         let theme = self.app.theme();
@@ -863,7 +1182,10 @@ impl<A: App> AppRunner<A> {
         // Single-pass live window: glass is tint-only here (see the `run_app`
         // redraw note); two-pass blur is the headless golden path.
         let scene = frame.paint(&mut self.fonts, &mut self.state);
-        self.shell.present(&scene);
+        if let Err(e) = self.shell.present(&scene) {
+            self.shell.fail(event_loop, e);
+            return;
+        }
         // The frame is clean until something changes it; animation and
         // hover refresh keep it dirty so the pipeline runs again.
         self.cached_scene = Some((scene, (lw, lh, scale)));
@@ -937,7 +1259,7 @@ impl<A: App> AppRunner<A> {
         }
         let had_msgs = !result.msgs.is_empty();
         for msg in result.msgs {
-            self.app.update(msg);
+            self.apply(msg);
         }
         if result.redraw || had_msgs {
             self.dirty = true;
@@ -969,6 +1291,10 @@ impl<A: App> AppRunner<A> {
     /// every window for a repaint — called whenever messages were applied.
     fn after_update(&mut self, event_loop: &ActiveEventLoop) {
         self.dirty = true;
+        #[cfg(not(target_arch = "wasm32"))]
+        self.reconcile_subs();
+        #[cfg(target_os = "macos")]
+        self.reconcile_menu();
         #[cfg(not(target_arch = "wasm32"))]
         self.reconcile_windows(event_loop);
         #[cfg(target_arch = "wasm32")]
@@ -1010,11 +1336,16 @@ impl<A: App> AppRunner<A> {
                     );
                     let proxy = self.proxy.clone();
                     let mut adapter = None;
-                    shell.resumed_with(event_loop, |el, window| {
+                    if let Err(e) = shell.resumed_with(event_loop, |el, window| {
                         adapter = Some(accesskit_winit::Adapter::with_event_loop_proxy(
                             el, window, proxy,
                         ));
-                    });
+                    }) {
+                        // Failing to open a declared window is app-fatal: the
+                        // GPU/window stack is broken, not just this window.
+                        self.shell.fail(event_loop, e);
+                        return;
+                    }
                     if let Some(w) = shell.window() {
                         w.set_ime_allowed(true);
                         w.request_redraw();
@@ -1047,7 +1378,10 @@ impl<A: App> AppRunner<A> {
         let Some(bundle) = self.secondary.get_mut(key) else {
             return;
         };
-        bundle.shell.pump();
+        if let Err(e) = bundle.shell.pump() {
+            self.shell.fail(event_loop, e);
+            return;
+        }
         let Some((lw, lh, scale)) = bundle.shell.logical_size() else {
             return;
         };
@@ -1067,7 +1401,12 @@ impl<A: App> AppRunner<A> {
         // Single-pass live window: glass is tint-only here (see the `run_app`
         // redraw note); two-pass blur is the headless golden path.
         let scene = frame.paint(&mut self.fonts, &mut bundle.state);
-        bundle.shell.present(&scene);
+        if let Err(e) = bundle.shell.present(&scene) {
+            // Secondary failures stop the app through the main shell's
+            // channel: device-level errors are app-fatal, not per-window.
+            self.shell.fail(event_loop, e);
+            return;
+        }
         if refresh_hover(&view, &frame, &mut bundle.state)
             && let Some(w) = bundle.shell.window()
         {
@@ -1113,7 +1452,7 @@ impl<A: App> AppRunner<A> {
         match event {
             WindowEvent::CloseRequested => {
                 if let Some(msg) = self.secondary.get(key).map(|b| b.on_close.clone()) {
-                    self.app.update(msg);
+                    self.apply(msg);
                     self.after_update(event_loop);
                 }
             }
@@ -1262,7 +1601,7 @@ impl<A: App> AppRunner<A> {
         }
         let msgs = result.msgs;
         for msg in msgs {
-            self.app.update(msg);
+            self.apply(msg);
         }
         had_msgs
     }
@@ -1327,19 +1666,25 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         self.dirty = true;
         let adapter = &mut self.adapter;
         let proxy = self.proxy.clone();
-        self.shell.resumed_with(event_loop, |el, window| {
+        if let Err(e) = self.shell.resumed_with(event_loop, |el, window| {
             // The adapter must attach while the window is still hidden.
             if adapter.is_none() {
                 *adapter = Some(accesskit_winit::Adapter::with_event_loop_proxy(
                     el, window, proxy,
                 ));
             }
-        });
+        }) {
+            self.shell.fail(event_loop, e);
+            return;
+        }
         if let Some(w) = self.shell.window() {
             w.set_ime_allowed(true);
         }
         for bundle in self.secondary.values_mut() {
-            bundle.shell.resumed(event_loop);
+            if let Err(e) = bundle.shell.resumed(event_loop) {
+                self.shell.fail(event_loop, e);
+                return;
+            }
         }
         self.reconcile_windows(event_loop);
     }
@@ -1347,7 +1692,10 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
     #[cfg(target_arch = "wasm32")]
     fn resumed(&mut self, event_loop: &ActiveEventLoop) {
         self.dirty = true;
-        self.shell.resumed(event_loop);
+        if let Err(e) = self.shell.resumed(event_loop) {
+            self.shell.fail(event_loop, e);
+            return;
+        }
         if let Some(w) = self.shell.window() {
             w.set_ime_allowed(true);
         }
@@ -1357,7 +1705,14 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
         match event {
             RunnerEvent::App(msg) => {
                 if let Ok(msg) = msg.downcast::<A::Msg>() {
-                    self.app.update(*msg);
+                    self.apply(*msg);
+                    self.after_update(event_loop);
+                }
+            }
+            #[cfg(target_os = "macos")]
+            RunnerEvent::Menu(id) => {
+                if let Some(msg) = self.menu.as_ref().and_then(|m| m.actions.get(&id)).cloned() {
+                    self.apply(msg);
                     self.after_update(event_loop);
                 }
             }
@@ -1422,7 +1777,7 @@ impl<A: App> ApplicationHandler<RunnerEvent> for AppRunner<A> {
                                     }),
                                 };
                                 if let Some(msg) = msg {
-                                    self.app.update(msg);
+                                    self.apply(msg);
                                     self.after_update(event_loop);
                                 }
                             }

@@ -31,21 +31,24 @@ mod scenario;
 mod synthetic;
 #[cfg(not(target_arch = "wasm32"))]
 pub mod testing;
+#[cfg(target_arch = "wasm32")]
+mod web_clipboard;
 mod window;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub use blur::{apply_element_filter, box_blur_rgba8};
 #[cfg(not(target_arch = "wasm32"))]
 pub use element_render::{
-    render_element, render_element_over, render_element_with, render_element_with_state,
-    with_fonts, with_headless,
+    render_element, render_element_over, render_element_scaled, render_element_with,
+    render_element_with_state, try_render_element, try_render_element_scaled,
+    try_render_element_with, try_render_element_with_state, with_fonts, with_headless,
 };
 #[cfg(not(target_arch = "wasm32"))]
 pub use embed::{Embedded, EventResponse};
 #[cfg(not(target_arch = "wasm32"))]
 pub use harness::{Harness, MAX_FILM_FRAMES, MAX_FILM_INTERVAL_MS};
 #[cfg(not(target_arch = "wasm32"))]
-pub use headless::Headless;
+pub use headless::{CPU_ENV, Headless};
 #[cfg(not(target_arch = "wasm32"))]
 pub use multi_pass::process_specs;
 #[cfg(not(target_arch = "wasm32"))]
@@ -54,6 +57,8 @@ pub use os_clipboard::OsClipboard;
 pub use scenario::{ScenarioError, ScenarioReport, run_scenario};
 #[cfg(not(target_arch = "wasm32"))]
 pub use synthetic::{SyntheticEvent, render_app};
+#[cfg(target_arch = "wasm32")]
+pub use web_clipboard::WebClipboard;
 pub use window::{WindowOptions, run_app};
 
 // Re-exports for embedders: integration code must use the same wgpu and
@@ -75,15 +80,43 @@ pub enum ShellError {
     EventLoop(winit::error::EventLoopError),
     /// GPU readback of the rendered image failed.
     Readback,
+    /// The OS refused to create the application window.
+    WindowCreate(winit::error::OsError),
+    /// Creating the on-screen wgpu surface failed — usually no usable GPU
+    /// driver (VM, remote desktop, bare CI) or, on the web, no WebGPU.
+    Surface(vello::Error),
+    /// wgpu reported a validation error acquiring the surface texture.
+    SurfaceValidation,
+    /// Polling the wgpu device for queue progress failed.
+    Poll(vello::wgpu::PollError),
 }
 
 impl fmt::Display for ShellError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::NoDevice => write!(f, "no compute-capable wgpu adapter found"),
+            Self::NoDevice => write!(
+                f,
+                "no compute-capable wgpu adapter found — fenestra renders with the GPU \
+                 (Metal/Vulkan/DX12). On a headless Linux machine or in CI, install a \
+                 software rasterizer: `apt install mesa-vulkan-drivers` (lavapipe)"
+            ),
             Self::Vello(e) => write!(f, "vello renderer error: {e}"),
             Self::EventLoop(e) => write!(f, "winit event loop error: {e}"),
             Self::Readback => write!(f, "GPU readback failed"),
+            Self::WindowCreate(e) => write!(f, "failed to create the application window: {e}"),
+            Self::Surface(e) => write!(
+                f,
+                "failed to create a GPU surface: {e} — the live window needs a working \
+                 GPU driver (Metal/Vulkan/DX12); in a VM, remote session, or CI, install \
+                 a software driver (Mesa lavapipe) or render headlessly instead. On the \
+                 web this requires a WebGPU-enabled browser"
+            ),
+            Self::SurfaceValidation => write!(
+                f,
+                "wgpu validation error acquiring the surface texture (driver/runtime \
+                 bug or an invalid swapchain configuration)"
+            ),
+            Self::Poll(e) => write!(f, "wgpu device poll failed: {e}"),
         }
     }
 }

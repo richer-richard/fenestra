@@ -71,6 +71,41 @@ impl FenestraServer {
     }
 
     #[tool(
+        name = "render_a2ui",
+        description = "Render an A2UI v0.9 message stream (the open Agent-to-UI standard, a2ui.org) to a typed accessibility tree, a preview image, and fidelity notes, using fenestra's native widget catalog. Accepts the official gallery shape ({\"messages\": [...]}) or a raw message array. Deterministic pixels: what renders here is what any fenestra A2UI client shows. Read the notes — an empty list means every component and binding mapped cleanly."
+    )]
+    async fn render_a2ui(
+        &self,
+        Parameters(p): Parameters<A2uiParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let theme = theme_of(p.theme.as_ref())?;
+        let size = parse_size(p.size.as_deref())?;
+        let stream = serde_json::to_string(&p.stream)
+            .map_err(|e| ErrorData::invalid_params(format!("stream is not JSON: {e}"), None))?;
+        let out = blocking(move || engine::render_a2ui(&stream, &theme, size))
+            .await?
+            .map_err(engine_err)?;
+        let structured = json!({
+            "surfaceId": out.surface_id,
+            "tree": out.tree,
+            "notes": out.notes,
+        });
+        let text = format!(
+            "{}
+
+surface: {} · fidelity notes: {}",
+            serde_json::to_string_pretty(&out.tree).unwrap_or_default(),
+            out.surface_id,
+            if out.notes.is_empty() {
+                "none (full fidelity)".to_owned()
+            } else {
+                out.notes.join("; ")
+            },
+        );
+        Ok(content::ok(text, structured, Some(&out.png)))
+    }
+
+    #[tool(
         name = "query_ui",
         description = "Find nodes in a UI by a semantic selector (role, name, value, or id). Returns matches with stable refs; on a miss, returns the nearest candidates to guide a retry."
     )]
@@ -398,6 +433,19 @@ struct RenderParams {
 }
 
 #[derive(Debug, Deserialize, JsonSchema, Default)]
+struct A2uiParams {
+    /// The A2UI v0.9 message stream: a JSON array of messages, or the
+    /// gallery wrapper `{"messages": [...]}`.
+    stream: Value,
+    /// Window size as `WxH` (default `800x600`).
+    #[serde(default)]
+    size: Option<String>,
+    /// Optional theme: a `ThemeSpec` object, or `{"preset":"dark"}`.
+    #[serde(default)]
+    theme: Option<Value>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema, Default)]
 struct QueryParams {
     /// The UI description: a `fenestra/1` JSON object.
     description: Value,
@@ -586,6 +634,10 @@ fn engine_err(e: EngineError) -> ErrorData {
         EngineError::Parse(_) | EngineError::Step { .. } | EngineError::Scenario(_) => {
             ErrorData::invalid_params(e.to_string(), None)
         }
+        // The description was fine; the server's environment can't render
+        // (usually no GPU adapter — the message says how to fix it). An
+        // internal error, not a caller mistake.
+        EngineError::Render(_) => ErrorData::internal_error(e.to_string(), None),
     }
 }
 
@@ -637,6 +689,7 @@ mod tests {
             "validate",
             "run_scenario",
             "film_ui",
+            "render_a2ui",
         ];
         for expected in expected_names {
             assert!(

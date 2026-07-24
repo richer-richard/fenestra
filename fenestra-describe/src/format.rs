@@ -173,6 +173,23 @@ pub enum Node {
     /// A fixed-row-height virtualized list of literal child nodes (never a
     /// code closure — a bounded, authored array of rows).
     VirtualList(VirtualListNode),
+    /// A tiny inline trend line (96×24): the values stroked in the accent,
+    /// with an automatic accessible description. Non-finite values are
+    /// dropped; fewer than two points renders an empty placeholder.
+    Sparkline(SparklineNode),
+    /// A line chart panel — single-series `values` or multi-series `series`
+    /// (shared normalized range, categorical palette colors, legend). Axis
+    /// decorations (ticks, gridlines, labels, titles, markers) turn on with
+    /// `axes: true` or any axis field.
+    LineChart(LineChartNode),
+    /// A labeled bar chart: accent bars with labels underneath. Axis
+    /// decorations turn on with `axes: true` or any axis field.
+    BarChart(BarChartNode),
+    /// CommonMark + GFM rendered as native elements (headings, lists,
+    /// tables, code blocks, task lists; inline emphasis/code as rich-text
+    /// spans). Nested structure is flattened, so hostile sources cannot
+    /// drive tree depth.
+    Markdown(MarkdownNode),
     // ── Overlays ──────────────────────────────────────────────────────────
     /// A centered modal dialog with title, children, and optional `on_close` intent.
     Modal(ModalNode),
@@ -866,6 +883,27 @@ pub struct GradientSpec {
     pub stops: Vec<ColorSpec>,
 }
 
+/// A size value: logical pixels as a number, or a string — `"NN%"` of the
+/// parent, or `"full"` (100%).
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum SizeSpec {
+    /// Logical pixels.
+    Px(f32),
+    /// `"full"` or a percent like `"62%"`.
+    Keyword(String),
+}
+
+/// A flex-grow request: `true` for factor 1, or an explicit numeric factor.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(untagged)]
+pub enum GrowSpec {
+    /// `true` grows with factor 1; `false` is a no-op.
+    Flag(bool),
+    /// An explicit flex-grow factor.
+    Factor(f32),
+}
+
 /// Layout and appearance props shared by containers, text, and leaves. Every
 /// field is optional; spacing is in logical pixels. `color`/`size_px`/`weight`
 /// apply only to text nodes.
@@ -917,24 +955,39 @@ pub struct Style {
     /// Gap between children.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub gap: Option<f32>,
-    /// Fixed width.
+    /// Fixed width: logical px (number), `"NN%"` of the parent, or `"full"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub w: Option<f32>,
-    /// Fixed height.
+    pub w: Option<SizeSpec>,
+    /// Fixed height: logical px (number), `"NN%"` of the parent, or `"full"`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub h: Option<f32>,
-    /// Minimum width.
+    pub h: Option<SizeSpec>,
+    /// Minimum width (px, `"NN%"`, or `"full"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_w: Option<f32>,
-    /// Maximum width.
+    pub min_w: Option<SizeSpec>,
+    /// Maximum width (px, `"NN%"`, or `"full"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_w: Option<f32>,
-    /// Minimum height.
+    pub max_w: Option<SizeSpec>,
+    /// Minimum height (px, `"NN%"`, or `"full"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub min_h: Option<f32>,
-    /// Maximum height.
+    pub min_h: Option<SizeSpec>,
+    /// Maximum height (px, `"NN%"`, or `"full"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_h: Option<f32>,
+    pub max_h: Option<SizeSpec>,
+    /// Let the element grow into spare main-axis space: `true` (factor 1)
+    /// or a numeric flex-grow factor.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grow: Option<GrowSpec>,
+    /// Flex-shrink factor (the layout default is 1; `0` pins the element at
+    /// its content size).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shrink: Option<f32>,
+    /// Allow flex children to wrap onto new lines.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wrap: Option<bool>,
+    /// Overflow behavior: `"x"` | `"y"` | `"both"` scroll that axis;
+    /// `"hidden"` clips without scrolling.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scroll: Option<String>,
     /// Background fill.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub bg: Option<ColorSpec>,
@@ -1788,6 +1841,146 @@ pub struct VirtualListNode {
     /// Reserved fallback trace.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fallback: Option<String>,
+}
+
+/// A sparkline: a tiny inline trend line.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SparklineNode {
+    /// Data points, oldest first. Non-finite values are dropped; more than
+    /// the documented point cap is truncated with a path-pointed error.
+    pub values: Vec<f32>,
+    /// Layout and appearance.
+    #[serde(default)]
+    pub style: Style,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// One named series of a multi-series line chart.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct SeriesSpec {
+    /// Legend label for the series.
+    pub label: String,
+    /// The series' data points, oldest first.
+    pub values: Vec<f32>,
+}
+
+/// A line chart panel. Exactly one of `values` (single series) or `series`
+/// (multi-series) must be present.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct LineChartNode {
+    /// Single-series data points, oldest first.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub values: Option<Vec<f32>>,
+    /// Multi-series data: every series shares one normalized range (so the
+    /// lines are comparable) and takes its categorical palette color; a
+    /// legend renders below. Capped at the palette size (10 series).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub series: Vec<SeriesSpec>,
+    /// Turn on axis decorations (y-axis ticks, gridlines, tick labels).
+    /// Implied by any of the axis fields below.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub axes: bool,
+    /// Draw a filled dot at each data point (implies `axes`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub markers: bool,
+    /// Category labels along the x-axis (single-series only; implies `axes`).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub x_labels: Vec<String>,
+    /// X-axis title, centered below the tick labels (implies `axes`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_title: Option<String>,
+    /// Y-axis title, rotated along the left edge (implies `axes`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y_title: Option<String>,
+    /// Target number of y-axis ticks (default 5; implies `axes`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticks: Option<usize>,
+    /// Chart width in logical px (default 320). Size charts with `w`/`h`,
+    /// not `style` — axis layout is computed from these.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<f32>,
+    /// Chart height in logical px (default 160; multi-series adds legend
+    /// height).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<f32>,
+    /// Layout and appearance (margins, alignment — not the chart size).
+    #[serde(default)]
+    pub style: Style,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// One bar of a bar chart.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BarSpec {
+    /// The label rendered underneath the bar.
+    pub label: String,
+    /// The bar's value. Non-finite bars are dropped.
+    pub value: f32,
+}
+
+/// A labeled bar chart.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct BarChartNode {
+    /// The bars, in order.
+    pub bars: Vec<BarSpec>,
+    /// Turn on axis decorations (y-axis ticks, gridlines, tick labels).
+    /// Implied by any of the axis fields below.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub axes: bool,
+    /// Show the numeric value above each bar (implies `axes`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub show_values: bool,
+    /// X-axis title (implies `axes`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x_title: Option<String>,
+    /// Y-axis title (implies `axes`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y_title: Option<String>,
+    /// Target number of y-axis ticks (default 5; implies `axes`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ticks: Option<usize>,
+    /// Chart width in logical px (default 320); see [`LineChartNode::w`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<f32>,
+    /// Chart height in logical px (default 160).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<f32>,
+    /// Layout and appearance (margins, alignment — not the chart size).
+    #[serde(default)]
+    pub style: Style,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// A markdown document rendered as native elements.
+#[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct MarkdownNode {
+    /// CommonMark + GFM source (tables, task lists, strikethrough,
+    /// footnotes). Nested block structure flattens, so depth is bounded
+    /// regardless of input.
+    pub source: String,
+    /// Intent emitted when any link is clicked. Inert like every handler:
+    /// the URL itself does not ride along — bind distinct intents by
+    /// splitting content if links must be distinguished.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on_link: Option<String>,
+    /// Layout and appearance.
+    #[serde(default)]
+    pub style: Style,
+    /// Stable key.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
 }
 
 /// One dropdown/popover-menu item: a label and the intent it emits when

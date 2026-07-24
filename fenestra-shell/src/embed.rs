@@ -57,6 +57,11 @@ pub struct Embedded<A: App> {
     target: Option<(wgpu::Texture, wgpu::TextureView, u32, u32)>,
     last: Option<(Element<A::Msg>, Frame)>,
     pending: Arc<Mutex<Vec<A::Msg>>>,
+    /// Effect results and subscription ticks are delivered through this
+    /// (into `pending`); the host sees them at its next [`Self::pump`].
+    proxy: Proxy<A::Msg>,
+    /// Running subscription timers, reconciled after every applied batch.
+    subs: std::collections::HashMap<String, crate::window::SubHandle>,
     cursor: Point,
     /// Cursor icon requested by the last dispatch, applied by
     /// [`Self::handle_window_event`].
@@ -97,15 +102,16 @@ where
             .build();
         let pending: Arc<Mutex<Vec<A::Msg>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&pending);
-        app.init(Proxy::new(move |msg| {
+        let proxy = Proxy::new(move |msg| {
             sink.lock()
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(msg);
-        }));
+        });
+        app.init(proxy.clone());
         let mut state = FrameState::new();
         state.set_clipboard(Box::new(crate::OsClipboard::default()));
         let clear = theme.bg;
-        Self {
+        let mut this = Self {
             app,
             theme,
             fonts: Fonts::with_system(),
@@ -115,12 +121,47 @@ where
             target: None,
             last: None,
             pending,
+            proxy,
+            subs: std::collections::HashMap::new(),
             cursor: Point::ORIGIN,
             cursor_icon: None,
             modifiers: winit::keyboard::ModifiersState::default(),
             started: Instant::now(),
             clear,
-        }
+        };
+        let cmd = this.app.init_cmd();
+        this.run_cmd(cmd);
+        this.reconcile_subs();
+        this
+    }
+
+    /// Applies one message through [`App::update_with`] and executes the
+    /// returned effect (worker threads report back through the proxy; the
+    /// host sees results at its next [`Self::pump`]).
+    fn apply(&mut self, msg: A::Msg) {
+        let cmd = self.app.update_with(msg);
+        self.run_cmd(cmd);
+    }
+
+    fn run_cmd(&mut self, cmd: fenestra_core::Cmd<A::Msg>) {
+        let proxy = self.proxy.clone();
+        fenestra_core::apply_cmd(&mut self.app, cmd, &mut |unit| {
+            let proxy = proxy.clone();
+            if std::thread::Builder::new()
+                .name("fenestra-cmd".into())
+                .spawn(move || proxy.send(unit.block()))
+                .is_err()
+            {
+                eprintln!("fenestra: failed to spawn an effect worker thread");
+            }
+        });
+    }
+
+    /// Reconciles subscription timers against [`App::subscriptions`] —
+    /// the same semantics as the built-in runner; ticks land in the proxy
+    /// queue and surface at the host's next [`Self::pump`].
+    fn reconcile_subs(&mut self) {
+        crate::window::reconcile_subs_into(&mut self.subs, self.app.subscriptions(), &self.proxy);
     }
 
     /// The base color behind the UI. Defaults to the theme background;
@@ -151,7 +192,10 @@ where
             std::mem::take(&mut *self.pending.lock().unwrap_or_else(PoisonError::into_inner));
         let any = !msgs.is_empty();
         for msg in msgs {
-            self.app.update(msg);
+            self.apply(msg);
+        }
+        if any {
+            self.reconcile_subs();
         }
         any
     }
@@ -193,7 +237,10 @@ where
         self.cursor_icon = result.cursor;
         let had_msgs = !result.msgs.is_empty();
         for msg in result.msgs {
-            self.app.update(msg);
+            self.apply(msg);
+        }
+        if had_msgs {
+            self.reconcile_subs();
         }
         EventResponse {
             consumed,

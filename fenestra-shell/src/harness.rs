@@ -75,6 +75,12 @@ pub struct Harness<A: App> {
     reduced_motion: bool,
     /// The window verbs and queries currently target.
     active: String,
+    /// Deferred effect units queued by `update_with` returns; executed
+    /// synchronously (FIFO) by [`Self::run_effects`].
+    effects: Vec<fenestra_core::CmdUnit<A::Msg>>,
+    /// Subscription schedule against the deterministic clock: key →
+    /// (period, next due in clock seconds).
+    sub_due: HashMap<String, (std::time::Duration, f64)>,
 }
 
 impl<A: App> Harness<A>
@@ -86,10 +92,24 @@ where
     /// input, [`Self::pump`], or [`Self::update`]).
     ///
     /// # Panics
-    /// If no compute-capable GPU adapter exists.
-    pub fn new(mut app: A, theme: Theme, size: (u32, u32)) -> Self {
-        let size =
-            with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
+    /// If no compute-capable GPU adapter exists — use [`Self::try_new`] to
+    /// handle that as a value.
+    pub fn new(app: A, theme: Theme, size: (u32, u32)) -> Self {
+        Self::try_new(app, theme, size)
+            .unwrap_or_else(|e| panic!("headless test harness unavailable: {e}"))
+    }
+
+    /// Fallible twin of [`Self::new`]: a missing GPU adapter comes back as
+    /// a [`crate::ShellError`] with an actionable message instead of a
+    /// panic. Once construction succeeds, the shared headless renderer
+    /// exists for the process lifetime, so later harness operations cannot
+    /// hit the no-device case again.
+    ///
+    /// # Errors
+    /// [`crate::ShellError::NoDevice`] when no compute-capable wgpu adapter
+    /// exists.
+    pub fn try_new(mut app: A, theme: Theme, size: (u32, u32)) -> Result<Self, crate::ShellError> {
+        let size = with_headless(|h| h.clamp_size(size.0, size.1))?;
         let pending: Arc<Mutex<Vec<A::Msg>>> = Arc::new(Mutex::new(Vec::new()));
         let sink = Arc::clone(&pending);
         app.init(Proxy::new(move |msg| {
@@ -97,7 +117,11 @@ where
                 .unwrap_or_else(PoisonError::into_inner)
                 .push(msg);
         }));
-        Self::drain(&mut app, &pending);
+        let mut startup = Self::drain(&mut app, &pending);
+        // The startup effect queues like any other; tests decide when it
+        // runs (`run_effects`), keeping initial data loads deterministic.
+        let init = app.init_cmd();
+        fenestra_core::apply_cmd(&mut app, init, &mut |u| startup.push(u));
         let mut harness = Self {
             app,
             theme,
@@ -107,13 +131,15 @@ where
             slots: HashMap::new(),
             active: MAIN_WINDOW.to_owned(),
             reduced_motion: true,
+            effects: startup,
+            sub_due: HashMap::new(),
         };
         harness.slots.insert(
             MAIN_WINDOW.to_owned(),
             Self::new_slot(&harness.app, &harness.theme, MAIN_WINDOW, size, 0.0, true),
         );
         harness.rebuild();
-        harness
+        Ok(harness)
     }
 
     fn new_slot(
@@ -142,11 +168,25 @@ where
         }
     }
 
-    fn drain(app: &mut A, pending: &Mutex<Vec<A::Msg>>) {
+    /// Applies one message through [`App::update_with`], running immediate
+    /// follow-up messages to quiescence via the shared
+    /// [`fenestra_core::apply_cmd`] semantics (FIFO — identical to the live
+    /// runners by construction); deferred units come back for the caller to
+    /// queue on the harness.
+    fn apply(app: &mut A, msg: A::Msg) -> Vec<fenestra_core::CmdUnit<A::Msg>> {
+        let mut units = Vec::new();
+        let cmd = app.update_with(msg);
+        fenestra_core::apply_cmd(app, cmd, &mut |u| units.push(u));
+        units
+    }
+
+    fn drain(app: &mut A, pending: &Mutex<Vec<A::Msg>>) -> Vec<fenestra_core::CmdUnit<A::Msg>> {
         let msgs = std::mem::take(&mut *pending.lock().unwrap_or_else(PoisonError::into_inner));
+        let mut units = Vec::new();
         for msg in msgs {
-            app.update(msg);
+            units.extend(Self::apply(app, msg));
         }
+        units
     }
 
     /// Rebuilds every window from current app state (proxied messages
@@ -155,7 +195,11 @@ where
     /// Runs automatically after every input; call it yourself only
     /// after mutating via [`Self::app_mut`].
     pub fn rebuild(&mut self) {
-        Self::drain(&mut self.app, &self.pending);
+        let units = Self::drain(&mut self.app, &self.pending);
+        self.effects.extend(units);
+        // Subscriptions reconcile at update time, so a sub first declared
+        // now schedules its first tick one period from the *current* clock.
+        self.schedule_subs();
         let descs = self.app.windows();
         self.slots
             .retain(|key, _| key == MAIN_WINDOW || descs.iter().any(|d| &d.key == key));
@@ -284,7 +328,8 @@ where
             with_fonts(|fonts| dispatch(&slot.view, &slot.frame, &mut slot.state, fonts, event));
         for msg in result.msgs {
             self.msgs.push(msg.clone());
-            self.app.update(msg);
+            let units = Self::apply(&mut self.app, msg);
+            self.effects.extend(units);
         }
         self.rebuild();
     }
@@ -447,13 +492,94 @@ where
     /// rebuilds — animations and timers move exactly this far.
     pub fn pump(&mut self, ms: f64) {
         self.clock += ms / 1000.0;
+        self.deliver_due_subs();
         self.rebuild();
+    }
+
+    /// Reconciles the subscription schedule against
+    /// [`App::subscriptions`]: new keys are due one period from the
+    /// current clock, missing keys drop, changed periods reschedule.
+    fn schedule_subs(&mut self) {
+        let desired = self.app.subscriptions();
+        self.sub_due.retain(|key, (period, _)| {
+            desired
+                .iter()
+                .any(|s| s.key() == key && s.period() == *period)
+        });
+        for sub in &desired {
+            self.sub_due
+                .entry(sub.key().to_owned())
+                .or_insert((sub.period(), self.clock + sub.period().as_secs_f64()));
+        }
+    }
+
+    /// Fires every subscription tick due at the current clock, oldest
+    /// first (ties break by key), feeding each through `update_with` like
+    /// the live runner would — deterministically, on this thread.
+    fn deliver_due_subs(&mut self) {
+        loop {
+            self.schedule_subs();
+            let next = self
+                .sub_due
+                .iter()
+                .filter(|(_, (_, due))| *due <= self.clock)
+                .min_by(|a, b| {
+                    a.1.1
+                        .partial_cmp(&b.1.1)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.0.cmp(b.0))
+                })
+                .map(|(k, _)| k.clone());
+            let Some(key) = next else { break };
+            let Some(msg) = self
+                .app
+                .subscriptions()
+                .iter()
+                .find(|s| s.key() == key)
+                .map(fenestra_core::Sub::tick)
+            else {
+                break;
+            };
+            if let Some((period, due)) = self.sub_due.get_mut(&key) {
+                *due += period.as_secs_f64();
+            }
+            let units = Self::apply(&mut self.app, msg);
+            self.effects.extend(units);
+        }
+    }
+
+    /// How many deferred effect units (tasks/futures) are queued.
+    #[must_use]
+    pub fn pending_effects(&self) -> usize {
+        self.effects.len()
+    }
+
+    /// Executes every pending deferred effect synchronously in FIFO order,
+    /// feeding results back through `update_with` (which may queue more)
+    /// until none remain, then rebuilds. Returns how many effect messages
+    /// were delivered. This is the deterministic counterpart of the live
+    /// runner's worker threads: same values, same order, no clock, no
+    /// races.
+    pub fn run_effects(&mut self) -> usize {
+        let mut delivered = 0;
+        while !self.effects.is_empty() {
+            let batch: Vec<_> = std::mem::take(&mut self.effects);
+            for unit in batch {
+                let msg = unit.block();
+                delivered += 1;
+                let units = Self::apply(&mut self.app, msg);
+                self.effects.extend(units);
+            }
+        }
+        self.rebuild();
+        delivered
     }
 
     /// Applies one message directly (as a proxy or window event would)
     /// and rebuilds. Not logged in [`Self::take_messages`].
     pub fn update(&mut self, msg: A::Msg) {
-        self.app.update(msg);
+        let units = Self::apply(&mut self.app, msg);
+        self.effects.extend(units);
         self.rebuild();
     }
 

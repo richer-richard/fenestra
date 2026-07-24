@@ -14,6 +14,7 @@ workspace = true
 
 [dependencies]
 fenestra-core.workspace = true
+fenestra-a2ui.workspace = true
 fenestra-describe.workspace = true
 fenestra-shell.workspace = true
 # fenestra-kit: only for `preview_app`'s error callout, so the live-reload

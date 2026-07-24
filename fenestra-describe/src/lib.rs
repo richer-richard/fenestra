@@ -9,6 +9,7 @@
 
 pub mod color;
 pub mod dto;
+pub mod emit;
 pub mod error;
 pub mod format;
 pub mod inspect;

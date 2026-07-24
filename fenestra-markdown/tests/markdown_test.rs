@@ -278,14 +278,15 @@ impl App for TaskListViewer {
 #[test]
 fn task_list_shows_checkboxes() {
     let h = Harness::new(TaskListViewer, Theme::light(), (440, 150));
-    // ☑ (U+2611) for checked, ☐ (U+2610) for unchecked.
+    // Bracket forms, not ☑/☐: the ballot-box glyphs are outside the
+    // embedded Inter coverage and rendered as tofu headlessly.
     assert!(
-        h.query(&by::label("\u{2611}")).is_some(),
-        "checked checkbox \u{2611} not found"
+        h.query(&by::label("[x]")).is_some(),
+        "checked checkbox [x] not found"
     );
     assert!(
-        h.query(&by::label("\u{2610}")).is_some(),
-        "unchecked checkbox \u{2610} not found"
+        h.query(&by::label("[ ]")).is_some(),
+        "unchecked checkbox [ ] not found"
     );
     // Item text should also be present.
     assert!(

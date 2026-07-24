@@ -3447,3 +3447,306 @@ version (it isn't in `workspace.dependencies`), so decoupling it is isolated
 and doesn't ripple. Future workspace releases (core/kit/shell/describe/
 render/charts/facade, still lockstepped at `0.40.x` → `0.41.0` and beyond)
 do not need to touch `fenestra-mcp`'s version, and vice versa.
+
+## Closing the two remaining crash classes (2026-07-24)
+
+The 2026-07-24 adversarial review left exactly two reproducible crash
+classes; both are now closed. Decisions of record:
+
+**Tree depth is a documented contract, not an accident of stack size.**
+`MAX_TREE_DEPTH = 48`, chosen from measurement, not estimation: with the
+worst realistic profile (opt-level 0, 2 MiB thread stack — the
+`std::thread` spawn and tokio blocking-pool default), the full
+build/layout/paint pipeline survives depth 60 and dies past it; 48 keeps
+≥1.25× margin there and ~4× on 8 MiB main threads. Real UIs measure ~30
+levels; serde_json's own 128-level recursion limit means a fenestra/1
+document can express ~63 nested nodes, so a pathological document parses
+and is then rejected by the same pointed panic. Enforcement is three-fold:
+an *iterative* pre-scan in `build_frame` (detection can never itself
+overflow), a `path.len()` check inside the recursive `build` for content
+generated mid-walk (virtual rows, container queries), and the same check
+in `Element::map` (which runs on view trees before `build_frame` sees
+them). `Element` child storage (`Children`, a `Vec` newtype) drops
+iteratively so the guard's own unwind — or a user dropping a 100k-deep
+tree they never rendered — cannot abort. A regression test builds an
+at-cap tree on an exactly-2-MiB thread in CI: if the build/layout frames
+ever fatten enough to break the contract, that test aborts loudly instead
+of a user's render thread. Alternative considered and rejected for now:
+rewriting build/layout/paint as explicit-stack traversals (large, touches
+the hottest code; the cap + pointed panic buys the same safety for a
+fraction of the risk — revisit only if a real ≥48-deep UI shows up).
+
+**The live window's error discipline now matches the rest of the shell.**
+`WindowShell` gains a `fatal: Option<ShellError>` slot and a `fail()` that
+records the first unrecoverable error and exits the event loop; the runner
+entry functions return it from `run_app`/`run_static`/`run_scene`. Every
+former `expect`/`panic!` in window.rs (window create, surface create,
+renderer create, `render_to_texture`, surface-texture `Validation`,
+`device.poll`) maps to typed `ShellError` variants whose Display text says
+how to fix the environment. Secondary-window failures funnel into the main
+shell's slot — device-level errors are app-fatal, not per-window. The web
+runner can't return (winit's `spawn_app`), so `fail()` logs to the browser
+console there (`web-sys/console`, a dependency the tree already carried
+transitively). The one surviving `expect` is a true internal invariant
+(renderer existence for an active surface, established by `activate`).
+The headless twins (`try_render_element*`, `Harness::try_new`) complete
+the channel; `fenestra-render` gained `EngineError::Render(ShellError)` so
+the MCP server reports "this machine can't render, here's the fix" as a
+typed internal error rather than relying on `spawn_blocking` panic-catch
+(which remains as defense in depth). The no-adapter path is regression
+tested for real: on macOS, `WGPU_BACKEND=gl` deterministically enumerates
+zero adapters (wgpu never compiles GL there), so a child-process test
+exercises the genuine `NoDevice` route end to end.
+
+## CPU rendering: `FENESTRA_CPU` and the vello_cpu decision (2026-07-24)
+
+The "GPU-or-die" gap has two distinct halves, and they get different
+answers.
+
+**Software adapters (shipped).** vello 0.9 already routes adapter selection
+through `wgpu::util::initialize_adapter_from_env_or_default`, so
+`WGPU_BACKEND` / `WGPU_ADAPTER_NAME` steer fenestra end to end — nothing to
+build there. What was missing was surviving *broken software compute*: CI's
+WARP (Windows) dies with `STATUS_ACCESS_VIOLATION` inside vello's GPU
+compute stages. The new `FENESTRA_CPU` env switch (honored by `Headless`
+and both live-window renderer constructions; `CPU_ENV` in the public API)
+sets vello's `use_cpu: true`, running the compute stages as native Rust and
+leaving the adapter only upload/copy work. Measured on the reference
+platform: the CPU pipeline reproduces the Metal goldens within the default
+0.2% budget (glass, type, gallery suites). The Windows CI job gains an
+informational full-suite render step under `FENESTRA_CPU=1` +
+`WGPU_BACKEND=dx12` at the lavapipe budget; once it proves stable across a
+few runs it becomes the required Windows-pixels gate (closing "the largest
+desktop platform has never had a golden verified in CI").
+
+**vello_cpu (evaluated, deferred with evidence).** vello_cpu 0.0.9
+(2026-05) is the sparse-strips family with its own paint API and no bridge
+to classic vello's `Encoding`-based `Scene` — adopting it means writing and
+maintaining a second full paint backend against a pre-0.1 API, and forking
+the golden story per backend. That is a renderer port, not a fallback flag.
+Decision: stay on classic vello + `FENESTRA_CPU` for GPU-less compute;
+revisit when linebender's next-gen vello unifies the scene model (their
+stated direction), at which point a true no-wgpu-at-all path becomes a
+dependency upgrade instead of a rewrite. Until then, machines with zero
+adapters get the actionable `NoDevice` error (install mesa; Windows always
+has WARP).
+
+## Charts/markdown nodes, layout parity, and the emitter (2026-07-24)
+
+Three related moves close the "one-way, narrow JSON boundary" critique.
+
+**Chart + markdown nodes.** `sparkline` / `line_chart` / `bar_chart` map
+onto fenestra-charts' plain panels or axes builders (axis decorations turn
+on with `axes: true` or any axis field — one rule, documented in the node
+docs and vocabulary); `markdown` maps onto fenestra-markdown. Handlers stay
+inert: `on_link` fires one fixed intent for any link, the URL does not ride
+along — consistent with the format's no-data-across-the-boundary rule.
+Caps follow the house clamp-and-point pattern (10k points/series, 10 series
+= the categorical palette size, bars at MAX_LIST_ITEMS, ticks 1..=50).
+fenestra-describe now depends on fenestra-charts + fenestra-markdown; the
+dependency direction stays acyclic (both are leaves over core/kit).
+
+**Layout parity.** The style grammar gained the flex vocabulary real UIs
+use: percent/"full" sizes (`SizeSpec`, an untagged number|string union —
+additive, old documents unchanged), `grow` (bool-or-factor union),
+`shrink`, `wrap`, `scroll` ("x"/"y"/"both"/"hidden"). Without these, no
+builder-authored UI could round-trip through JSON — every real layout uses
+grow/full/scroll. Deliberately still builder-only: `align_self`,
+`align_content`, `flex_basis`, sticky offsets, ch-units, per-side borders.
+
+**The emitter (deferred #9).** `emit::{emit_description, emit_element}` is
+the inverse of `parse` with a fidelity-or-report contract: zero warnings
+⇒ the emitted JSON re-parses to byte-identical pixels (round-trip tests
+pin this, including the builder-import case); anything without a JSON
+projection warns path-pointed. Design notes: colors emit as concrete OKLCH
+(builder trees hold resolved colors — role names are gone by then; same
+theme ⇒ exact pixels), kit widgets emit as their lowered primitives with
+their theme-closure styling *reported* (closures cannot serialize), the
+emitter enforces MAX_TREE_DEPTH itself (an emitter must not be the one
+traversal that can still blow the stack), and `Element` gained read-only
+accessors rather than exposing fields. Library-only by design: there is
+nothing for the CLI/MCP to emit — the input is a live Rust tree, which
+only library callers have.
+
+## The effect layer: Cmd/Sub with a deterministic harness story (2026-07-24)
+
+The single largest adoption blocker in the API was the missing async story
+("spawn a thread and clone a proxy"). Decisions of record:
+
+**Effects are values in core; execution lives in the runners.** `Cmd<Msg>`
+(none/msg/task/future/batch/map) and `Sub<Msg>` (every) are plain
+descriptions in fenestra-core with zero runtime dependencies — core stays
+windowless and async-runtime-free. Runners execute them: `Cmd::run` is a
+visitor handing immediate messages and deferred units (`CmdUnit`) to the
+caller; the windowed runner moves units onto named worker threads
+(`CmdUnit::block` drives futures with a ~15-line park-based waker — no
+tokio, no pollster in core), the web runner rides
+`wasm_bindgen_futures::spawn_local` for futures and runs tasks inline
+(no threads there — documented), and `Embedded` shares the same shape with
+results surfacing at the host's next `pump()`. Futures must therefore be
+runtime-agnostic; tokio-bound IO keeps using its own runtime + `Proxy` —
+documented on `Cmd::future` rather than smuggling a runtime dependency
+into every fenestra app.
+
+**Trait evolution is non-breaking.** `update_with` defaults to
+`update + Cmd::none()`; `init_cmd` and `subscriptions` default empty.
+Every runner and the harness call `update_with` exclusively, so overriding
+either method works. The cost is that effectful apps carry an empty
+`fn update` body — accepted over a breaking signature change at 0.x
+because the entire existing example/test corpus stays valid.
+
+**Subscriptions reconcile like windows.** Keyed declarations, diffed after
+every update: new keys spawn a timer thread, missing keys cancel (their
+flag checks after each sleep, so within one period), a changed period
+restarts. The same `reconcile_subs_into` serves the runner and `Embedded`.
+
+**Determinism is the product feature.** The harness queues deferred units
+instead of spawning them: `run_effects()` resolves them FIFO on the test
+thread (a task whose message queues a future resolves in one call), and
+subscription ticks fire from the explicit `pump` clock — scheduled from
+the clock at declaration time, so `subscribe; pump(1000)` with a 300ms
+period is exactly three ticks. No other Rust GUI framework's async layer
+is CI-deterministic; this extends the verification wedge from pixels to
+effects.
+
+## Hi-DPI headless rendering; CJK subsets deferred with evidence (2026-07-24)
+
+**Hi-DPI (shipped).** `render_plan` is now scale-aware: paint still
+produces logical-space scenes, and the plan scales them onto the physical
+texture (`at_scale` returns the scene untouched at 1.0, so every existing
+golden stays byte-identical — verified by running the full suite against
+unchanged goldens). `process_specs` already mapped spec rects
+logical→physical, and injected images are physical-resolution cuts drawn
+into logical rects, so the two-pass glass pipeline is consistent at any
+scale. Public API: `render_element_scaled` / `try_render_element_scaled`
+(hostile scales sanitize to 1.0); `render_element_over`'s scaled path now
+routes through the same plan, upgrading fenestra-motion's scaled sampling
+from tint-only glass to the real backdrop blur. A 2× golden
+(`hidpi_2x.png`) pins the retina rendering. This closes the "agents can't
+see retina-only regressions" blind spot.
+
+**Markdown task markers.** The GFM ballot-box glyphs (U+2610/U+2611) are
+outside embedded Inter's coverage and rendered as tofu in every
+deterministic headless capture — discovered by looking at the new
+chart/markdown golden. Task lists now render `[x]` / `[ ]`.
+
+**CJK/emoji subsets (deferred, with the plan).** Shipping deterministic
+CJK headlessly means embedding a subset font (full Noto Sans CJK is tens
+of MB). Generating a reproducible subset needs fontTools/pyftsubset,
+which this environment does not have — and an asset CI cannot reproduce
+is a liability, not a feature. What exists today and is documented:
+`Fonts::register` accepts any TTF/OTF, so users who need deterministic
+CJK/emoji headless output register their own face (the same mechanism
+fenestra-looks uses for its design languages). The follow-up, when
+tooling is available: a `cjk` feature in fenestra-core embedding an
+OFL-licensed Noto Sans SC subset over a pinned codepoint list, generated
+by a committed script, plus a CJK/RTL golden row.
+
+## fenestra-a2ui: the native Rust renderer for A2UI v0.9 (2026-07-24)
+
+The strategic bet from the adversarial review: Google's A2UI
+(<https://a2ui.org>, Apache-2.0) standardizes exactly fenestra/1's shape —
+agents send declarative JSON surfaces, clients render them with their own
+component library — with official Flutter/Lit/Angular/React renderers and
+a designated slot for community ones. No native Rust renderer existed.
+`fenestra-a2ui` is one, and the differentiator is the rest of this
+repository: it is the A2UI client whose output an agent can verify
+headlessly, deterministically, in CI.
+
+Decisions of record:
+
+- **Coverage**: the whole v0.9 basic catalog (18 components), the four
+  server→client messages folded through a `Client`/`Surface` state
+  machine, JSON Pointer data bindings (absolute + template-relative
+  collection scopes), templated children (capped at 1000 with a note),
+  two-way input binding (bound inputs write the data model; literal ones
+  keep local edits), actions with context resolution, and the
+  `formatString`/`formatNumber`/`formatCurrency`/`formatDate`/`pluralize`
+  function library (deterministic, no locale data — documented as
+  approximate; `formatDate` implements a CLDR-ish token subset over a
+  hand-rolled ISO parse with Zeller's weekday, keeping the crate
+  dependency-free beyond serde).
+- **Fidelity-or-report**: same contract as the emitter. Remote
+  images/video/audio render as labeled placeholders (deterministic
+  renders never fetch the network), unknown components and icons degrade
+  to placeholders, `DateTimeInput` is an ISO text field for now, obscured
+  text renders unmasked, `checks` parse but don't yet gate — every one of
+  these records a note on the render; empty notes mean full fidelity.
+- **Hostile input**: id-linked trees can express reference cycles; the
+  renderer keeps an explicit render-path stack, so `a → b → a` trips on
+  re-entry as a note + placeholder (the naive depth-counter version
+  overflowed the stack in debug — caught by the conformance test before
+  it ever shipped). Non-cycle nesting caps at 16 components, keeping the
+  lowered element tree inside core's MAX_TREE_DEPTH.
+- **Conformance corpus**: eleven official gallery examples vendored
+  (Apache-2.0, NOTICE file) — all parse, fold, and render; the login form
+  and product card are pinned as goldens; bindings/templates/actions/
+  updateDataModel each have behavioral tests.
+- **Integration**: `fenestra a2ui <stream>` in the CLI (typed access tree
+  + notes JSON, `--out` PNG) and a `render_a2ui` MCP tool with the same
+  typed tree shape as `render_ui` (via `inspect::frame_access_tree`), so
+  agents get one uniform verification loop across both formats.
+
+## Declarative native menus, macOS-attached (2026-07-24)
+
+`App::menu()` describes the menu bar from state — `MenuSpec` /
+`MenuDesc` / `MenuItemDesc` in core, message-emitting items, accelerators
+in muda's grammar, nesting, enabled flags — and the runner reconciles it
+after every update by *structural fingerprint* (titles/separators/
+enabled/accelerators; messages excluded), rebuilding the native menu only
+on real change. Chosen items arrive as a `RunnerEvent::Menu(id)` and
+dispatch through the ordinary `update_with` path.
+
+The platform story, recorded honestly: **macOS attaches** via muda's safe
+`init_for_nsapp` (the runner prepends the app menu with Quit). **Windows
+does not yet** — muda's `init_for_hwnd` is an `unsafe fn` and the
+workspace forbids `unsafe`; attaching there is a deliberate decision to
+revisit (a scoped `#[expect]`-style exception or an out-of-workspace
+shim), not an oversight. **Linux cannot** — muda's menubar is GTK-hosted
+and a winit window has no GTK container; the kit's in-window `menubar`
+widget remains the answer there (and works everywhere). muda is therefore
+a macOS-only target dependency, keeping Linux CI free of GTK.
+
+Accelerator caveat documented on the type: macOS menus consume their
+chords before the window sees them — desired for app commands, wrong for
+text-editing chords; don't shadow those.
+
+**Tray icons: deferred with the design.** `tray-icon` (same tauri family)
+follows the identical shape — declarative spec, reconcile-by-fingerprint,
+`TrayIconEvent` → message — plus one new concern: icon pixel plumbing
+(RGBA assets, template-icon treatment on macOS). Same platform reality as
+menus (GTK on Linux). It slots in next to `App::menu` as `App::tray`
+when picked up; nothing in today's design blocks it.
+
+Live-window behavior verified by building the `native_menu` example
+(menu reconciliation on state change: Save greys out when clean); a
+session without a human at the screen cannot click a native menu bar, so
+interactive dispatch is example-verified rather than harness-tested — the
+pure halves (spec fingerprint, id→message mapping) are unit-tested.
+
+## Web parity: what closed, what's blocked, what was already equal (2026-07-24)
+
+Timeboxed pass over the wasm asterisks, with each one resolved by
+category rather than left as a blanket disclaimer:
+
+- **Clipboard (closed for copy-out).** The new `WebClipboard` writes
+  through the async `navigator.clipboard` API fire-and-forget and mirrors
+  reads in-app: in-app copy/paste is fully functional, copy *out* to
+  other applications works, paste *in* from other applications remains
+  the documented gap (the browser only exposes it through async
+  permission flows a synchronous `Clipboard::get` cannot block on; a
+  paste-event bridge is the follow-up if it matters).
+- **AccessKit (ecosystem-blocked).** There is no production AccessKit
+  web adapter: browser accessibility is the DOM, and a canvas-rendered
+  app needs a parallel semantic DOM projection that upstream has not
+  shipped. fenestra's access tree exists on every target (it powers the
+  headless `check_a11y`/`focus_order` tooling everywhere, web included);
+  what's missing is only the OS-bridge layer, and that is upstream's
+  frontier, not a fenestra gap to paper over. Revisit when AccessKit
+  grows a web adapter.
+- **Glass (was already equal).** The web runner is the same single-pass
+  swapchain as the native live window: glass shows its translucent tint
+  without the CPU backdrop pass on *both*; the two-pass blur is the
+  headless golden path. The honest phrasing is "live windows show
+  tint-only glass; headless shows the full effect" — web is not a
+  special case and the docs now say so.

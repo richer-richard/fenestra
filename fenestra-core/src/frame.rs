@@ -666,6 +666,12 @@ fn build<Msg>(
     // Canvas height: the materialization viewport for virtual lists.
     viewport: f32,
 ) -> BuiltNode {
+    // The depth cap `build_frame` pre-scanned for the authored tree, enforced
+    // again here for content generated during the walk (virtual rows,
+    // container queries), which the pre-scan cannot see.
+    if path.len() >= crate::element::MAX_TREE_DEPTH {
+        crate::element::depth_panic(el.source);
+    }
     // Container query: a `responsive(..)` wrapper is transparent — expand it to
     // the element its closure builds from this container's own size last frame,
     // built under the SAME `id` so next frame `prev_rects[id]` is the generated
@@ -1407,6 +1413,21 @@ pub fn build_frame<Msg>(
     size: (f32, f32),
     scale: f64,
 ) -> Frame {
+    // Depth guard (adversarial review 2026-07: deep trees used to abort in
+    // the recursive build/layout/paint passes with a raw stack overflow).
+    // This scan is iterative, so detection works at any depth — the
+    // recursive passes below then run with a bounded stack. Content
+    // generated mid-walk (virtual rows, container queries) is covered by the
+    // same check inside `build`.
+    {
+        let mut scan: Vec<(&Element<Msg>, usize)> = vec![(root, 1)];
+        while let Some((el, d)) = scan.pop() {
+            if d > crate::element::MAX_TREE_DEPTH {
+                crate::element::depth_panic(el.source);
+            }
+            scan.extend(el.children.iter().map(|c| (c, d + 1)));
+        }
+    }
     state.virtual_windows.clear();
     // Drop exit animations that finished playing on the previous frame (a
     // settled ghost is painted once more at its final, faded state, then GC'd

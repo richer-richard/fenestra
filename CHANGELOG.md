@@ -1,5 +1,180 @@
 # Changelog
 
+## Unreleased
+
+The two crash classes left open by the 2026-07-24 adversarial review are
+closed: runaway-deep element trees and GPU-environment failures now fail as
+pointed, catchable errors instead of process aborts and panics.
+
+A follow-up solo ultra-review of this branch hardened the new surfaces
+further (all regression-tested):
+
+- **A2UI correctness:** `Icon.name` is dynamic (bindings resolve — the
+  official task-card example now resolves `/priorityIcon` instead of
+  stringifying the binding); one canonical path joiner backs reads,
+  template item scopes, and write paths (absolute template paths inside a
+  collection scope no longer corrupt into `//` pointers, and values always
+  read back from where their two-way binding writes); action messages
+  carry `source_id` so hosts can populate the client→server
+  `sourceComponentId`; every literal-valued input control (CheckBox,
+  Slider, ChoicePicker) stays interactive through local edits; a
+  ChoicePicker selection accepts a bound string as well as a list.
+- **A2UI robustness:** unknown message types skip with a per-surface note
+  instead of hard-failing the stream (the envelope no longer denies
+  unknown fields); a known component with malformed fields degrades to a
+  placeholder + note while its siblings render; data-model writes support
+  RFC 6901 `-` append, and a write that cannot apply records a note;
+  present-but-mistyped bool/number bindings note the type error.
+- **Effect layer:** one shared `fenestra_core::apply_cmd` now executes
+  effects for the runner, `Embedded`, and the harness — semantics can no
+  longer fork — and follow-up commands run FIFO (sibling message chains
+  no longer invert).
+- **Emitter/CLI:** out-of-range percent sizes warn on emit (they clamp at
+  parse time, so silence would break the zero-warnings ⇒ identical
+  re-render contract); `fenestra a2ui` gained `--theme`; `render_a2ui`
+  maps the catalog once instead of twice.
+
+### Added
+
+- **`agent_dashboard`: the dogfood flagship example.** A live dashboard
+  over a Claude Code session log: the agent's tool-call feed
+  (virtualized), output-token sparkline, per-tool bar chart, and summary
+  stats, tailing the newest session every two seconds while it runs. One
+  app exercises the new effect layer (`Cmd::task` parse off-thread,
+  `Sub::every` live tail, `init_cmd`), the native menu bar, fenestra-charts,
+  and virtualization — and `-- shot` renders both themes headlessly from a
+  bundled fixture (the README hero pipeline).
+- **Declarative native menus.** `App::menu()` returns a `MenuSpec` —
+  message-emitting items, accelerators, separators, nested submenus,
+  enabled flags — reconciled after every update by structural fingerprint
+  and dispatched through the ordinary update path. Attaches natively on
+  macOS (muda's safe path, app menu + Quit provided); Windows/Linux keep
+  the kit's in-window `menubar` (the honest platform story is in
+  ARCHITECTURE.md). New `native_menu` example. Tray icons are designed
+  and deferred (same reconcile pattern; see ARCHITECTURE.md).
+- **`fenestra-a2ui`: a native Rust renderer for A2UI v0.9** — the open
+  Agent-to-UI standard (a2ui.org) where agents send declarative JSON
+  surfaces and clients render them natively. Full basic-catalog coverage
+  (18 components), the protocol's message fold, JSON Pointer bindings with
+  template scopes, two-way input binding, action events (with
+  `sendDataModel`), and the client-side function library — with a
+  fidelity-or-report contract (placeholders + notes for network media,
+  unknown components, and the documented gaps) and hostile-input
+  hardening (exact reference-cycle detection, template caps). Verified
+  against eleven vendored official gallery examples, two pinned goldens,
+  and behavioral tests. Integrated end to end: `fenestra a2ui <stream>`
+  in the CLI and a `render_a2ui` MCP tool returning the same typed access
+  tree as `render_ui` — fenestra is the A2UI client whose output an agent
+  can verify headlessly, deterministically, in CI.
+- **Hi-DPI headless rendering.** `render_element_scaled` /
+  `try_render_element_scaled` render at a device scale factor through the
+  same two-pass pipeline — text rasterizes at physical resolution and
+  frosted glass keeps its real backdrop blur (scaled renders used to fall
+  back to the flat tint; `render_element_over` and fenestra-motion's
+  sampling inherit the upgrade). Scale-1.0 output stays byte-identical to
+  every existing golden; a 2× golden pins retina rendering. Agents can now
+  see retina-only regressions headlessly.
+- **The effect layer: fenestra finally has an async story.**
+  `App::update_with` optionally returns a `Cmd<Msg>` — `Cmd::task`
+  (blocking work on a worker thread), `Cmd::future` (runtime-agnostic
+  futures), `Cmd::msg`, `Cmd::batch`, and `Cmd::map` for Elm-style
+  component composition — executed by every runner (windowed, web,
+  `Embedded`) and delivered back as messages. `App::subscriptions`
+  declares recurring effects (`Sub::every` timers) reconciled by key after
+  every update, exactly like secondary windows; `App::init_cmd` covers
+  startup loads. Fully non-breaking: existing apps implement `update` and
+  never see any of it. The differentiated half: **effects are
+  deterministic under the test harness** — `Harness::run_effects()`
+  resolves queued tasks/futures synchronously in FIFO order, and
+  `Sub::every` ticks fire on the harness's explicit clock
+  (`pump(1000ms)` with a 300ms timer delivers exactly the ticks at
+  300/600/900), so effectful apps stay pixel- and message-verifiable in
+  CI with no races and no wall clock. New `http_fetch` example shows the
+  blessed pattern (blocking `ureq` GET inside `Cmd::task`); the `clock`
+  example now uses a subscription instead of a hand-rolled thread.
+- **Charts and markdown are now authorable in fenestra/1.** Four new nodes:
+  `sparkline` (inline trend line), `line_chart` (single- or multi-series
+  with optional axes, markers, labels, titles), `bar_chart` (optional axes
+  and printed values), and `markdown` (CommonMark + GFM as native
+  elements; `on_link` fires one inert intent). Hostile inputs degrade with
+  path-pointed errors: series truncate at 10k points, multi-series at the
+  10-color palette, bars at the item cap, tick requests clamp. The JSON
+  Schema and vocabulary gained the nodes automatically (the drift guard
+  enforces all three stay in lockstep), and a golden pins the rendering.
+- **The JSON grammar reaches layout parity with the builders.** `w`/`h`/
+  `min_*`/`max_*` accept `"NN%"` and `"full"` beside px numbers, and new
+  `grow` (bool or factor), `shrink`, `wrap`, and `scroll`
+  (`"x"|"y"|"both"|"hidden"`) style fields cover the flex vocabulary real
+  UIs are built from. (`Element` gained matching `grow_by`/`shrink`
+  builders.)
+- **The Element→JSON emitter closes the round-trip** (deferred #9):
+  `fenestra_describe::emit::{emit_description, emit_element}` serialize a
+  builder-authored tree back to fenestra/1. The contract is
+  fidelity-or-report: for the JSON-expressible subset (layout, text,
+  literal styles, click intents) the emitted document re-parses and
+  renders byte-identical pixels with zero warnings — pinned by round-trip
+  tests — and every feature with no JSON projection (theme/hover style
+  closures, vector paths, virtual rows, exotic style fields) is reported
+  path-pointed, never dropped silently. Colors emit as concrete OKLCH;
+  `Element` gained read accessors (`kind`, `children_ref`, `key`,
+  `click_msg`, `access_label`, `is_stack`, `has_dynamic_style`,
+  `has_generated_content`) for tooling.
+- **`FENESTRA_CPU`: vello's CPU compute pipeline as a first-class switch**
+  (`fenestra_shell::CPU_ENV`). The renderer's compute stages run as native
+  Rust, leaving the adapter only upload/copy work — the key to software
+  adapters whose compute rasterization crashes (Windows WARP) or diverges.
+  Honored by headless rendering and the live window alike; adapter
+  *selection* was already env-steerable end to end via wgpu's
+  `WGPU_BACKEND`/`WGPU_ADAPTER_NAME`. On the reference platform the CPU
+  pipeline reproduces the Metal goldens within the default 0.2% budget.
+  Windows CI gains an informational full-suite render step on WARP under
+  this switch — the path to Windows pixels becoming a required gate.
+  (vello_cpu itself was evaluated and deferred with evidence — see
+  ARCHITECTURE.md: it is a second paint backend today, not a fallback
+  flag.)
+
+### Fixed
+
+- The web runner now installs a real clipboard: in-app copy/paste works
+  and copy-out reaches the system clipboard via `navigator.clipboard`
+  (paste-in from other apps remains the documented gap — see
+  ARCHITECTURE.md's web-parity entry, which also settles the AccessKit
+  and glass asterisks precisely).
+- Markdown task-list checkboxes rendered as tofu in deterministic headless
+  output (the U+2610/U+2611 ballot boxes are outside embedded Inter's
+  coverage); they now render as `[x]` / `[ ]`.
+
+- **Deep element trees no longer abort the process.** Recursion in
+  build/layout/paint used to hit a raw stack overflow (an uncatchable abort)
+  a few hundred levels deep — data-dependent for any recursive component
+  (file trees, comment threads). The tree contract is now the documented
+  `MAX_TREE_DEPTH` (48): `build_frame` pre-scans iteratively (detection
+  works at any depth), content generated mid-walk (virtual rows, container
+  queries) is checked during the walk, `Element::map` enforces the same cap,
+  and the panic message points at the offending builder call site. Dropping
+  is depth-unlimited: `Element` child storage now drops iteratively, so even
+  a 100k-deep tree unwinds safely. The cap is measured, not estimated: an
+  at-cap tree builds within a 2 MiB thread stack (the `std::thread`/tokio
+  blocking default) in unoptimized debug builds, pinned by a regression test
+  on exactly that stack size.
+- **The live window reports GPU failures instead of panicking.** Window
+  creation, surface creation, vello renderer construction, mid-run render
+  errors, surface-texture validation, and device polls all funnel into new
+  `ShellError` variants with actionable messages (what to install in a
+  VM/CI); `run_app`/`run_static`/`run_scene` return them. The recoverable
+  surface states (lost/outdated/occluded/timeout) keep their in-place
+  recovery. On the web, where `run_app` has already returned, fatal shell
+  errors log to the browser console instead of throwing an opaque exception.
+- **The headless API promises — and now has — an error channel.**
+  `try_render_element`, `try_render_element_with`,
+  `try_render_element_with_state`, and `Harness::try_new` return
+  `ShellError` values; the panicking wrappers delegate to them and carry the
+  same actionable message ("install mesa-vulkan-drivers…"). The
+  render/verify engine (`fenestra-render`) and the MCP server surface
+  GPU-environment failures as typed errors by design, not by
+  `spawn_blocking` panic-catch. Regression-tested against a real
+  zero-adapter environment.
+
 ## 0.40.0 — 2026-07-10
 
 A hardening + correctness pass from an adversarial self-review — agent-reachable DoS

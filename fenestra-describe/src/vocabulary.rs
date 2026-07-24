@@ -278,6 +278,26 @@ const NODE_REGISTRY: &[(&str, &str, &str)] = &[
         "Fixed-row-height virtualized list of literal child `items` (never a code closure) — only rows scrolled into view materialize.",
         r#"{"items":[{"text":{"content":"Item 0"}}],"row_height":32}"#,
     ),
+    (
+        "sparkline",
+        "Tiny inline trend line (96x24): `values` stroked in the accent, described for assistive tech automatically. Non-finite values are dropped.",
+        r#"{"values":[3,5,4,8,7,9]}"#,
+    ),
+    (
+        "line_chart",
+        "Line chart panel. Exactly one of `values` (single series) or `series` (multi-series with legend, up to 10). Axis decorations (ticks, gridlines, titles, `markers`, `x_labels`) turn on with `axes:true` or any axis field. Size with `w`/`h`, not `style`.",
+        r#"{"values":[2,5,3,8],"markers":true,"x_labels":["Mon","Tue","Wed","Thu"]}"#,
+    ),
+    (
+        "bar_chart",
+        "Labeled bar chart: accent bars, labels underneath. `show_values` prints each value; axis decorations turn on with `axes:true` or any axis field. Size with `w`/`h`, not `style`.",
+        r#"{"bars":[{"label":"Q1","value":40},{"label":"Q2","value":65}]}"#,
+    ),
+    (
+        "markdown",
+        "CommonMark + GFM rendered as native elements (headings, lists, tables, code blocks, task lists; inline emphasis/code as rich-text spans). `on_link` fires one inert intent for any link click — the URL does not ride along.",
+        r##"{"source":"# Release notes\n\n- **Faster** rendering\n- Fixed the `meter` node"}"##,
+    ),
     // ── Overlays ──────────────────────────────────────────────────────────
     (
         "modal",
@@ -334,10 +354,30 @@ const STYLE_REGISTRY: &[(&str, &str, &str)] = &[
     ("gap", "Gap between flex / grid children.", "8"),
     (
         "w",
-        "Fixed width (also h, min_w, max_w, min_h, max_h).",
+        "Fixed width: px number, \"NN%\" of the parent, or \"full\" (also h, min_w, max_w, min_h, max_h).",
         "200",
     ),
-    ("h", "Fixed height.", "40"),
+    ("h", "Fixed height (px number, \"NN%\", or \"full\").", "40"),
+    (
+        "grow",
+        "Grow into spare main-axis space: true (factor 1) or a numeric flex-grow factor.",
+        "true",
+    ),
+    (
+        "shrink",
+        "Flex-shrink factor (layout default 1; 0 pins the element at its content size).",
+        "0",
+    ),
+    (
+        "wrap",
+        "Allow flex children to wrap onto new lines.",
+        "true",
+    ),
+    (
+        "scroll",
+        "Overflow behavior: \"x\" | \"y\" | \"both\" scroll that axis; \"hidden\" clips without scrolling.",
+        r#""y""#,
+    ),
     // ── Paint ─────────────────────────────────────────────────────────────
     (
         "bg",

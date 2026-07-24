@@ -887,7 +887,10 @@ impl<Msg: Clone + 'static> From<Markdown<Msg>> for Element<Msg> {
                 }
                 // Task list checkboxes: override the bullet with a glyph.
                 Event::TaskListMarker(checked) => {
-                    pending_marker = Some(if checked { "\u{2611}" } else { "\u{2610}" }.to_owned()); // ☑ / ☐
+                    // Bracket forms, not ☑/☐: the ballot-box glyphs are
+                    // outside the embedded Inter coverage and render as
+                    // tofu in deterministic headless output.
+                    pending_marker = Some(if checked { "[x]" } else { "[ ]" }.to_owned());
                 }
                 // Footnote references: inline [N] marker.
                 Event::FootnoteReference(label) => {

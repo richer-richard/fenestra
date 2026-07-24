@@ -45,11 +45,28 @@ pub fn with_headless<R>(f: impl FnOnce(&mut Headless) -> R) -> Result<R, ShellEr
 /// returned image's dimensions when the input may be out of range.
 ///
 /// # Panics
-/// If no compute-capable GPU adapter exists or rendering fails.
+/// If no compute-capable GPU adapter exists or rendering fails — use
+/// [`try_render_element`] to handle those as values (embedding hosts, MCP
+/// servers, CI without a software rasterizer installed).
 pub fn render_element<Msg>(el: Element<Msg>, theme: &Theme, size: (u32, u32)) -> RgbaImage {
+    try_render_element(el, theme, size).unwrap_or_else(|e| panic!("headless render failed: {e}"))
+}
+
+/// Fallible twin of [`render_element`]: a missing GPU adapter or a render
+/// failure comes back as a [`ShellError`] with an actionable message
+/// instead of a panic.
+///
+/// # Errors
+/// [`ShellError::NoDevice`] when no compute-capable wgpu adapter exists;
+/// other [`ShellError`]s when the render itself fails.
+pub fn try_render_element<Msg>(
+    el: Element<Msg>,
+    theme: &Theme,
+    size: (u32, u32),
+) -> Result<RgbaImage, ShellError> {
     let mut state = FrameState::new();
     state.reduced_motion = true;
-    render_element_with_state(el, theme, size, &mut state)
+    try_render_element_with_state(el, theme, size, &mut state)
 }
 
 /// Like [`render_element`], but with caller-provided [`Fonts`], so design
@@ -58,15 +75,30 @@ pub fn render_element<Msg>(el: Element<Msg>, theme: &Theme, size: (u32, u32)) ->
 /// [`render_element`]'s.
 ///
 /// # Panics
-/// If no compute-capable GPU adapter exists or rendering fails.
+/// If no compute-capable GPU adapter exists or rendering fails — use
+/// [`try_render_element_with`] to handle those as values.
 pub fn render_element_with<Msg>(
     el: Element<Msg>,
     theme: &Theme,
     size: (u32, u32),
     fonts: &mut Fonts,
 ) -> RgbaImage {
-    let size =
-        with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
+    try_render_element_with(el, theme, size, fonts)
+        .unwrap_or_else(|e| panic!("headless render failed: {e}"))
+}
+
+/// Fallible twin of [`render_element_with`].
+///
+/// # Errors
+/// [`ShellError::NoDevice`] when no compute-capable wgpu adapter exists;
+/// other [`ShellError`]s when the render itself fails.
+pub fn try_render_element_with<Msg>(
+    el: Element<Msg>,
+    theme: &Theme,
+    size: (u32, u32),
+    fonts: &mut Fonts,
+) -> Result<RgbaImage, ShellError> {
+    let size = with_headless(|h| h.clamp_size(size.0, size.1))?;
     let mut state = FrameState::new();
     state.reduced_motion = true;
     #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
@@ -82,9 +114,7 @@ pub fn render_element_with<Msg>(
     // blur; frames with no glass / filter fast-path to a single pass.
     with_headless(|headless| {
         headless.render_plan(&frame, fonts, &mut state, size.0, size.1, theme.bg)
-    })
-    .expect("headless renderer unavailable")
-    .expect("headless render failed")
+    })?
 }
 
 /// Renders an element tree over a caller-supplied base color at a scale
@@ -94,11 +124,9 @@ pub fn render_element_with<Msg>(
 /// before writing straight-alpha formats).
 ///
 /// `size` is logical px; the texture is `size × scale` (clamped to the
-/// device limit). At `scale == 1.0` this is the same two-pass pipeline as
-/// [`render_element`] (frosted glass gets its backdrop pass); other scales
-/// render single-pass — glass falls back to its translucent tint, exactly
-/// like the live window — which is fine for the cheap-preview use these
-/// scaled renders exist for.
+/// device limit). Every scale renders through the same two-pass pipeline
+/// as [`render_element`], so frosted glass keeps its real backdrop blur in
+/// hi-DPI renders too.
 ///
 /// Caller-provided [`Fonts`] and [`FrameState`] keep this path lock-free up
 /// to the shared GPU: parallel callers build layouts concurrently and
@@ -134,13 +162,10 @@ pub fn render_element_over<Msg>(
     #[expect(clippy::cast_precision_loss, reason = "window sizes fit in f32")]
     let logical = (size.0 as f32, size.1 as f32);
     let frame = build_frame(&el, theme, fonts, state, logical, scale);
-    if (scale - 1.0).abs() < f64::EPSILON {
-        return with_headless(|headless| headless.render_plan(&frame, fonts, state, pw, ph, bg))?;
-    }
-    let logical_scene = frame.paint(fonts, state);
-    let mut scene = vello::Scene::new();
-    scene.append(&logical_scene, Some(vello::kurbo::Affine::scale(scale)));
-    with_headless(|headless| headless.render(&scene, pw, ph, bg))?
+    // `render_plan` is scale-aware: every scale goes through the same
+    // two-pass pipeline, so frosted glass keeps its real backdrop blur in
+    // scaled renders too (this path used to fall back to the flat tint).
+    with_headless(|headless| headless.render_plan(&frame, fonts, state, pw, ph, bg))?
 }
 
 /// Like [`render_element`], but with caller-provided retained state, so
@@ -148,16 +173,69 @@ pub fn render_element_over<Msg>(
 /// The requested size is clamped like [`render_element`]'s.
 ///
 /// # Panics
-/// If no compute-capable GPU adapter exists or rendering fails.
+/// If no compute-capable GPU adapter exists or rendering fails — use
+/// [`try_render_element_with_state`] to handle those as values.
 pub fn render_element_with_state<Msg>(
     el: Element<Msg>,
     theme: &Theme,
     size: (u32, u32),
     state: &mut FrameState,
 ) -> RgbaImage {
+    try_render_element_with_state(el, theme, size, state)
+        .unwrap_or_else(|e| panic!("headless render failed: {e}"))
+}
+
+/// Renders an element tree headlessly at a device scale factor: layout at
+/// `size` logical px, output `size × scale` physical px (clamped to the
+/// device limit), through the same two-pass pipeline as
+/// [`render_element`] — frosted glass keeps its real backdrop blur, text
+/// rasterizes at the physical resolution. This is how agents verify
+/// retina-only regressions (hairlines, blur radii) headlessly.
+///
+/// Non-finite or non-positive `scale` values fall back to 1.0.
+///
+/// # Panics
+/// If no compute-capable GPU adapter exists or rendering fails — use
+/// [`try_render_element_scaled`] to handle those as values.
+pub fn render_element_scaled<Msg>(
+    el: Element<Msg>,
+    theme: &Theme,
+    size: (u32, u32),
+    scale: f64,
+) -> RgbaImage {
+    try_render_element_scaled(el, theme, size, scale)
+        .unwrap_or_else(|e| panic!("headless render failed: {e}"))
+}
+
+/// Fallible twin of [`render_element_scaled`].
+///
+/// # Errors
+/// [`ShellError::NoDevice`] when no compute-capable wgpu adapter exists;
+/// other [`ShellError`]s when the render itself fails.
+pub fn try_render_element_scaled<Msg>(
+    el: Element<Msg>,
+    theme: &Theme,
+    size: (u32, u32),
+    scale: f64,
+) -> Result<RgbaImage, ShellError> {
+    let mut state = FrameState::new();
+    state.reduced_motion = true;
+    with_fonts(|fonts| render_element_over(el, theme, size, scale, theme.bg, fonts, &mut state))
+}
+
+/// Fallible twin of [`render_element_with_state`].
+///
+/// # Errors
+/// [`ShellError::NoDevice`] when no compute-capable wgpu adapter exists;
+/// other [`ShellError`]s when the render itself fails.
+pub fn try_render_element_with_state<Msg>(
+    el: Element<Msg>,
+    theme: &Theme,
+    size: (u32, u32),
+    state: &mut FrameState,
+) -> Result<RgbaImage, ShellError> {
     // Clamp before layout so the frame and the texture agree on the size.
-    let size =
-        with_headless(|h| h.clamp_size(size.0, size.1)).expect("headless renderer unavailable");
+    let size = with_headless(|h| h.clamp_size(size.0, size.1))?;
     // Hold the font lock across both passes, then nest the headless lock for the
     // render (fonts → headless ordering, matching every other render site).
     with_fonts(|fonts| {
@@ -172,8 +250,6 @@ pub fn render_element_with_state<Msg>(
         );
         with_headless(|headless| {
             headless.render_plan(&frame, fonts, state, size.0, size.1, theme.bg)
-        })
-        .expect("headless renderer unavailable")
+        })?
     })
-    .expect("headless render failed")
 }

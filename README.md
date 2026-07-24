@@ -5,15 +5,29 @@
 [![docs.rs](https://img.shields.io/docsrs/fenestra)](https://docs.rs/fenestra)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
-A pure-Rust native GUI framework with web-grade aesthetics — and first-class
-headless rendering, so both humans and AI coding agents can *see* what they
-build.
+**The UI stack built for the agent loop**: describe a UI as JSON, render
+it natively, verify it in CI — no compile step, no screenshot flakiness.
+fenestra is a pure-Rust GUI framework whose headless renderer is
+deterministic, so both humans and AI coding agents can *see* — and prove —
+what they build. It also speaks [A2UI](https://a2ui.org), the open
+Agent-to-UI standard, as its first native Rust renderer
+([`fenestra-a2ui`](fenestra-a2ui)). The web-grade widget kit and design
+system below are the proof of what that loop can produce.
 
 **[▶ Try the live demo](https://richer-richard.github.io/fenestra/)** — the
 dashboard and widget galleries running in your browser via WebGPU. No DOM,
 no CSS: every pixel is vello on wgpu, the same code as the native window.
 **[Read the book](https://richer-richard.github.io/fenestra/book/)** for
 the guided tour.
+
+| Light | Dark |
+| --- | --- |
+| ![agent-session dashboard, light theme](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/agent_dashboard_light.png) | ![agent-session dashboard, dark theme](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/agent_dashboard_dark.png) |
+
+*The hero is a real tool — `examples/agent_dashboard.rs`, a live dashboard
+over an AI coding session (virtualized feed, charts, live tail via the
+effect layer). The SaaS-style widget showcase lives on as
+`examples/dashboard.rs`:*
 
 | Light | Dark |
 | --- | --- |
@@ -105,7 +119,7 @@ trees, popovers, command palettes, the OKLCH color picker, and more) — and
 `Element` tree the builders above produce. `fenestra render` renders it,
 `fenestra preview <file>` opens a live-reload window that re-renders on
 every save, and the [`fenestra-mcp`](fenestra-mcp) server exposes the whole
-loop — render, query, interact, verify — as thirteen MCP tools. Motion is
+loop — render, query, interact, verify — as fourteen MCP tools (including `render_a2ui`). Motion is
 watchable too, not just single frames: `Harness::film` (or `fenestra film`,
 or the MCP `film_ui` tool) captures a sequence with real motion turned on and
 composes it into one captioned filmstrip.
@@ -119,10 +133,15 @@ referenced against one GPU backend (macOS/Metal; Linux/lavapipe within a
 wider tolerance). The full Liquid-Glass optics — backdrop blur, edge lensing,
 adaptive vibrancy — render only in the headless/golden path; the live
 single-pass window shows the translucent tint plus the specular rim and
-sheen. So headless is the right oracle for layout, semantics, color, and the
-large majority of pixels — but confirm non-Latin/monospace text and full
-glass in a window. On the web target, AccessKit, the OS clipboard, and the
-glass passes are compiled out.
+sheen. Scale is no longer pinned: `render_element_scaled` runs the same two-pass
+pipeline at any device scale, so retina-only regressions (hairlines, blur
+radii) are verifiable headlessly too. So headless is the right oracle for
+layout, semantics, color, and the large majority of pixels — but confirm
+non-Latin/monospace text and full glass in a window. On the web target,
+copy-out reaches the system clipboard (paste-in from other apps stays
+in-app), the glass story equals the native live window (tint-only, like
+every single-pass swapchain), and AccessKit awaits an upstream web
+adapter — the precise ledger is in ARCHITECTURE.md.
 
 **Working with an AI agent?** [AGENTS.md](AGENTS.md) is the manual for the
 build → render → look → verify loop (and [llms.txt](llms.txt) for
