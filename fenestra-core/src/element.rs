@@ -407,6 +407,13 @@ pub struct Span {
     pub(crate) italic: bool,
 }
 
+impl Span {
+    /// The run's text (read access for tooling/emitters).
+    pub fn content(&self) -> &str {
+        &self.text
+    }
+}
+
 /// A styled run for [`rich_text`].
 pub fn span(text: impl Into<String>) -> Span {
     Span {
@@ -719,6 +726,54 @@ impl<Msg> Element<Msg> {
     /// The element's style (read access for tests and tooling).
     pub fn style(&self) -> &Style {
         &self.style
+    }
+
+    /// The element's paint kind (read access for tooling/emitters).
+    pub fn kind(&self) -> &Kind {
+        &self.kind
+    }
+
+    /// The child list, in order (read access; `children(..)` is the builder).
+    pub fn children_ref(&self) -> &[Element<Msg>] {
+        &self.children
+    }
+
+    /// The stable key set by [`Self::id`], if any.
+    pub fn key(&self) -> Option<&str> {
+        self.key.as_deref()
+    }
+
+    /// The message a plain click emits, if any (read access; `on_click(..)`
+    /// is the builder).
+    pub fn click_msg(&self) -> Option<&Msg> {
+        self.on_click.as_ref()
+    }
+
+    /// The accessible name set by [`Self::label`], if any.
+    pub fn access_label(&self) -> Option<&str> {
+        self.label.as_deref()
+    }
+
+    /// Whether this container is a z-stack (children share one cell).
+    pub fn is_stack(&self) -> bool {
+        self.stack
+    }
+
+    /// Whether any theme-, hover-, focus-, or press-dependent style closure
+    /// is attached — state an emitter cannot serialize to static data.
+    pub fn has_dynamic_style(&self) -> bool {
+        self.themed.is_some()
+            || self.hover_style.is_some()
+            || self.active_style.is_some()
+            || self.focus_style.is_some()
+            || self.state_layer.is_some()
+    }
+
+    /// Whether this element generates content during the frame walk
+    /// (virtualized rows or a container query) — builders an emitter cannot
+    /// serialize to static data.
+    pub fn has_generated_content(&self) -> bool {
+        self.virtual_rows.is_some() || self.responsive.is_some()
     }
 
     /// Appends children. Anything convertible to an element works, so kit
@@ -1329,9 +1384,22 @@ impl<Msg> Element<Msg> {
         self
     }
 
+    /// Flex grow with an explicit factor (`grow()` is factor 1).
+    pub fn grow_by(mut self, factor: f32) -> Self {
+        self.style.flex_grow = factor.max(0.0);
+        self
+    }
+
     /// Flex shrink 0.
     pub fn shrink0(mut self) -> Self {
         self.style = self.style.shrink0();
+        self
+    }
+
+    /// Flex shrink with an explicit factor (the default is 1; `shrink0()`
+    /// is factor 0).
+    pub fn shrink(mut self, factor: f32) -> Self {
+        self.style.flex_shrink = factor.max(0.0);
         self
     }
 

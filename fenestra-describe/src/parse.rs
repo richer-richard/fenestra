@@ -15,11 +15,15 @@ use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
+use fenestra_charts::{
+    BarChartAxes, LineChartBuilder, MultiSeriesChart, bar_chart, line_chart, multi_line_chart,
+    sparkline,
+};
 use fenestra_core::{
-    AdaptiveTint, Color, DrawerSide, Element, ElementFilter, GridTemplate, Material, Repeat,
-    ShadowToken, Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin, Weight,
-    col, div, divider, frame_epoch, image_from_data, image_payload, linear_gradient, row, spacer,
-    stack, text,
+    AdaptiveTint, Color, DrawerSide, Element, ElementFilter, GridTemplate, Length, Material,
+    Repeat, ShadowToken, Sheen, SpecularEdge, Surface, TextAlign, Theme, Track, TrackMax, TrackMin,
+    Weight, col, div, divider, frame_epoch, image_from_data, image_payload, linear_gradient, row,
+    spacer, stack, text,
 };
 use fenestra_kit::{
     ButtonVariant, Status as KitStatus, TreeNode as KitTreeNode, accordion, accordion_item, avatar,
@@ -31,17 +35,19 @@ use fenestra_kit::{
     status as kit_status, stepper, switch, tabs, tag_input, text_area, text_input, toast_stack,
     toolbar, tooltip, tree_view, virtual_list,
 };
+use fenestra_markdown::markdown;
 use image::{ImageFormat, ImageReader, Limits};
 
 use crate::color::resolve_color;
 use crate::error::DescribeError;
 use crate::format::{
-    AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BreadcrumbsNode, CalloutNode,
+    AccordionNode, AdaptiveSpec, AvatarNode, BadgeNode, BarChartNode, BreadcrumbsNode, CalloutNode,
     ColorPickerNode, ComboboxNode, CommandPaletteNode, Container, DataTableNode, DatePickerNode,
-    DateSpec, Description, DrawerNode, DropdownMenuNode, EdgeSpec, FieldNode, FilterSpec, IconNode,
-    ImageNode, InputNode, KbdNode, Leaf, MenubarNode, MeterNode, ModalNode, MultiSelectNode, Node,
-    PaginationNode, PopoverNode, ProgressNode, RadioNode, RepeatCount, SCHEMA_V1, SegmentedNode,
-    SelectNode, SheenSpec, SkeletonNode, SpinButtonNode, SplitPaneNode, StatCardNode, StatusNode,
+    DateSpec, Description, DrawerNode, DropdownMenuNode, EdgeSpec, FieldNode, FilterSpec, GrowSpec,
+    IconNode, ImageNode, InputNode, KbdNode, Leaf, LineChartNode, MarkdownNode, MenubarNode,
+    MeterNode, ModalNode, MultiSelectNode, Node, PaginationNode, PopoverNode, ProgressNode,
+    RadioNode, RepeatCount, SCHEMA_V1, SegmentedNode, SelectNode, SheenSpec, SizeSpec,
+    SkeletonNode, SparklineNode, SpinButtonNode, SplitPaneNode, StatCardNode, StatusNode,
     StepperNode, Style, TabsNode, TagInputNode, TextNode, ToastStackNode, ToolbarNode, TooltipNode,
     TrackSpec, TreeItemDto, TreeViewNode, VirtualListNode,
 };
@@ -66,6 +72,20 @@ pub const MAX_LIST_ITEMS: usize = 1000;
 /// grid tracks, so this stays well under `fenestra-core`'s own
 /// `MAX_GRID_TRACKS` (1024) ceiling.
 const MAX_TABLE_COLUMNS: usize = 128;
+
+/// The largest number of data points one chart series may carry. Each point
+/// becomes a path vertex, so this bounds parse- and paint-time work; excess
+/// truncates with a path-pointed error rather than failing the screen.
+const MAX_CHART_POINTS: usize = 10_000;
+
+/// The largest number of series a multi-series line chart may carry — the
+/// categorical palette has exactly ten colors, so an eleventh series would
+/// alias a color anyway.
+const MAX_CHART_SERIES: usize = 10;
+
+/// The largest y-axis tick request a chart may make (each tick renders a
+/// gridline and a label).
+const MAX_CHART_TICKS: usize = 50;
 
 /// The largest base64-encoded `image` payload (characters), checked before
 /// any decode work starts.
@@ -364,6 +384,10 @@ fn node_to_element(
         // ── Data ──────────────────────────────────────────────────────────────
         Node::DataTable(d) => data_table_node(d, path, errors),
         Node::VirtualList(v) => virtual_list_node(v, theme, state, path, budget, errors),
+        Node::Sparkline(s) => sparkline_node(s, theme, path, errors),
+        Node::LineChart(c) => line_chart_node(c, theme, path, errors),
+        Node::BarChart(b) => bar_chart_node(b, theme, path, errors),
+        Node::Markdown(m) => markdown_node(m, theme, path, errors),
         // ── Overlays ──────────────────────────────────────────────────────────
         Node::Modal(m) => modal_node(m, theme, state, path, budget, errors),
         Node::Tooltip(t) => tooltip_node(t, theme, state, path, budget, errors),
@@ -2176,6 +2200,297 @@ fn leaf(
     el
 }
 
+// ── Charts and markdown ───────────────────────────────────────────────────────
+
+/// Sanitizes one chart series: truncated to [`MAX_CHART_POINTS`] with a
+/// path-pointed error (degrade, never fail the screen). Non-finite values
+/// are left in — the chart crate drops them uniformly and its accessible
+/// descriptions account for that.
+fn chart_values(values: &[f32], path: &str, errors: &mut Vec<DescribeError>) -> Vec<f32> {
+    if values.len() > MAX_CHART_POINTS {
+        errors.push(DescribeError::new(
+            path,
+            format!(
+                "{} data points exceed the chart cap ({MAX_CHART_POINTS}); extra points dropped",
+                values.len()
+            ),
+        ));
+    }
+    values.iter().copied().take(MAX_CHART_POINTS).collect()
+}
+
+/// Validates a chart node's explicit `w`/`h`: positive and finite, or a
+/// path-pointed error and the chart's own default.
+fn chart_dim(
+    v: Option<f32>,
+    path: &str,
+    field: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Option<f32> {
+    let v = v?;
+    if v.is_finite() && v > 0.0 {
+        Some(v)
+    } else {
+        errors.push(DescribeError::new(
+            format!("{path}/{field}"),
+            format!("{field} must be a positive finite number; got {v}"),
+        ));
+        None
+    }
+}
+
+/// Clamps a requested y-axis tick count to `1..=`[`MAX_CHART_TICKS`],
+/// path-pointing an out-of-range request.
+fn chart_ticks(ticks: Option<usize>, path: &str, errors: &mut Vec<DescribeError>) -> Option<usize> {
+    let n = ticks?;
+    if !(1..=MAX_CHART_TICKS).contains(&n) {
+        errors.push(DescribeError::new(
+            format!("{path}/ticks"),
+            format!("ticks must be 1..={MAX_CHART_TICKS}; got {n}"),
+        ));
+    }
+    Some(n.clamp(1, MAX_CHART_TICKS))
+}
+
+fn sparkline_node(
+    s: &SparklineNode,
+    theme: &Theme,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let el = sparkline(chart_values(&s.values, &format!("{path}/values"), errors));
+    let mut el = apply_style(el, &s.style, theme, path, errors);
+    if let Some(id) = &s.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn line_chart_node(
+    c: &LineChartNode,
+    theme: &Theme,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let axes = c.axes
+        || c.markers
+        || !c.x_labels.is_empty()
+        || c.x_title.is_some()
+        || c.y_title.is_some()
+        || c.ticks.is_some();
+    let w = chart_dim(c.w, path, "w", errors);
+    let h = chart_dim(c.h, path, "h", errors);
+    let ticks = chart_ticks(c.ticks, path, errors);
+    if c.values.is_some() && !c.series.is_empty() {
+        errors.push(DescribeError::new(
+            path,
+            "line_chart takes exactly one of `values` or `series`, not both; using `values`",
+        ));
+    }
+    let el: Element<Action> = if let Some(values) = &c.values {
+        let values = chart_values(values, &format!("{path}/values"), errors);
+        if axes {
+            let mut b = LineChartBuilder::new(values);
+            if c.markers {
+                b = b.show_markers();
+            }
+            if !c.x_labels.is_empty() {
+                if c.x_labels.len() > MAX_CHART_POINTS {
+                    errors.push(DescribeError::new(
+                        format!("{path}/x_labels"),
+                        format!(
+                            "{} labels exceed the chart cap ({MAX_CHART_POINTS}); extra labels dropped",
+                            c.x_labels.len()
+                        ),
+                    ));
+                }
+                b = b.x_labels(c.x_labels.iter().take(MAX_CHART_POINTS).cloned());
+            }
+            if let Some(t) = &c.x_title {
+                b = b.x_title(t.clone());
+            }
+            if let Some(t) = &c.y_title {
+                b = b.y_title(t.clone());
+            }
+            if let Some(n) = ticks {
+                b = b.target_ticks(n);
+            }
+            if let Some(w) = w {
+                b = b.w(w);
+            }
+            if let Some(h) = h {
+                b = b.h(h);
+            }
+            b.build()
+        } else {
+            // The plain panel scales its polyline to the element box, so the
+            // size overrides compose without axis-layout concerns.
+            let mut el = line_chart(values);
+            if let Some(w) = w {
+                el = el.w(w);
+            }
+            if let Some(h) = h {
+                el = el.h(h);
+            }
+            el
+        }
+    } else if !c.series.is_empty() {
+        if !c.x_labels.is_empty() {
+            errors.push(DescribeError::new(
+                format!("{path}/x_labels"),
+                "x_labels apply to single-series line charts only; ignored",
+            ));
+        }
+        if c.series.len() > MAX_CHART_SERIES {
+            errors.push(DescribeError::new(
+                format!("{path}/series"),
+                format!(
+                    "{} series exceed the palette cap ({MAX_CHART_SERIES}); extra series dropped",
+                    c.series.len()
+                ),
+            ));
+        }
+        let series: Vec<(String, Vec<f32>)> = c
+            .series
+            .iter()
+            .take(MAX_CHART_SERIES)
+            .enumerate()
+            .map(|(i, s)| {
+                (
+                    s.label.clone(),
+                    chart_values(&s.values, &format!("{path}/series/{i}/values"), errors),
+                )
+            })
+            .collect();
+        if axes {
+            let mut b = MultiSeriesChart::new(series);
+            if c.markers {
+                b = b.show_markers();
+            }
+            if let Some(t) = &c.x_title {
+                b = b.x_title(t.clone());
+            }
+            if let Some(t) = &c.y_title {
+                b = b.y_title(t.clone());
+            }
+            if let Some(n) = ticks {
+                b = b.target_ticks(n);
+            }
+            if let Some(w) = w {
+                b = b.w(w);
+            }
+            if let Some(h) = h {
+                b = b.h(h);
+            }
+            b.build()
+        } else {
+            let mut el = multi_line_chart(series);
+            if let Some(w) = w {
+                el = el.w(w);
+            }
+            if let Some(h) = h {
+                el = el.h(h);
+            }
+            el
+        }
+    } else {
+        errors.push(DescribeError::new(
+            path,
+            "line_chart requires `values` or `series`",
+        ));
+        line_chart(Vec::new())
+    };
+    let mut el = apply_style(el, &c.style, theme, path, errors);
+    if let Some(id) = &c.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn bar_chart_node(
+    b: &BarChartNode,
+    theme: &Theme,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    if b.bars.len() > MAX_LIST_ITEMS {
+        errors.push(DescribeError::new(
+            format!("{path}/bars"),
+            format!(
+                "{} bars exceed the item cap ({MAX_LIST_ITEMS}); extra bars dropped",
+                b.bars.len()
+            ),
+        ));
+    }
+    let bars: Vec<(String, f32)> = b
+        .bars
+        .iter()
+        .take(MAX_LIST_ITEMS)
+        .map(|bar| (bar.label.clone(), bar.value))
+        .collect();
+    let axes =
+        b.axes || b.show_values || b.x_title.is_some() || b.y_title.is_some() || b.ticks.is_some();
+    let w = chart_dim(b.w, path, "w", errors);
+    let h = chart_dim(b.h, path, "h", errors);
+    let ticks = chart_ticks(b.ticks, path, errors);
+    let el: Element<Action> = if axes {
+        let mut c = BarChartAxes::new(bars);
+        if b.show_values {
+            c = c.show_values();
+        }
+        if let Some(t) = &b.x_title {
+            c = c.x_title(t.clone());
+        }
+        if let Some(t) = &b.y_title {
+            c = c.y_title(t.clone());
+        }
+        if let Some(n) = ticks {
+            c = c.target_ticks(n);
+        }
+        if let Some(w) = w {
+            c = c.w(w);
+        }
+        if let Some(h) = h {
+            c = c.h(h);
+        }
+        c.build()
+    } else {
+        let mut el = bar_chart(bars);
+        if let Some(w) = w {
+            el = el.w(w);
+        }
+        if let Some(h) = h {
+            el = el.h(h);
+        }
+        el
+    };
+    let mut el = apply_style(el, &b.style, theme, path, errors);
+    if let Some(id) = &b.id {
+        el = el.id(id);
+    }
+    el
+}
+
+fn markdown_node(
+    m: &MarkdownNode,
+    theme: &Theme,
+    path: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Element<Action> {
+    let mut md = markdown(m.source.clone());
+    if let Some(intent) = &m.on_link {
+        // Inert like every handler: the fixed intent fires for any link; the
+        // URL does not ride along (no data crosses the boundary).
+        let intent = intent.clone();
+        md = md.on_link(move |_| Action::Intent(intent.clone()));
+    }
+    let mut el = apply_style(md.into(), &m.style, theme, path, errors);
+    if let Some(id) = &m.id {
+        el = el.id(id);
+    }
+    el
+}
+
 // ── Style application ─────────────────────────────────────────────────────────
 
 /// Applies a style block to an element. Unresolvable colors, unknown alignment
@@ -2275,35 +2590,77 @@ fn apply_style(
     {
         el = el.gap(v);
     }
-    if let Some(v) = style.w
-        && finite_num(v, path, "w", errors)
+    if let Some(v) = &style.w
+        && let Some(len) = size_len(v, path, "w", errors)
     {
-        el = el.w(v);
+        el = el.w(len);
     }
-    if let Some(v) = style.h
-        && finite_num(v, path, "h", errors)
+    if let Some(v) = &style.h
+        && let Some(len) = size_len(v, path, "h", errors)
     {
-        el = el.h(v);
+        el = el.h(len);
     }
-    if let Some(v) = style.min_w
-        && finite_num(v, path, "min_w", errors)
+    if let Some(v) = &style.min_w
+        && let Some(len) = size_len(v, path, "min_w", errors)
     {
-        el = el.min_w(v);
+        el = el.min_w(len);
     }
-    if let Some(v) = style.max_w
-        && finite_num(v, path, "max_w", errors)
+    if let Some(v) = &style.max_w
+        && let Some(len) = size_len(v, path, "max_w", errors)
     {
-        el = el.max_w(v);
+        el = el.max_w(len);
     }
-    if let Some(v) = style.min_h
-        && finite_num(v, path, "min_h", errors)
+    if let Some(v) = &style.min_h
+        && let Some(len) = size_len(v, path, "min_h", errors)
     {
-        el = el.min_h(v);
+        el = el.min_h(len);
     }
-    if let Some(v) = style.max_h
-        && finite_num(v, path, "max_h", errors)
+    if let Some(v) = &style.max_h
+        && let Some(len) = size_len(v, path, "max_h", errors)
     {
-        el = el.max_h(v);
+        el = el.max_h(len);
+    }
+    // ── Flex behavior / overflow ──────────────────────────────────────────────
+    if let Some(g) = &style.grow {
+        match g {
+            GrowSpec::Flag(true) => el = el.grow(),
+            GrowSpec::Flag(false) => {}
+            GrowSpec::Factor(f) => {
+                if f.is_finite() && *f >= 0.0 {
+                    el = el.grow_by(*f);
+                } else {
+                    errors.push(DescribeError::new(
+                        format!("{path}/style/grow"),
+                        format!("grow factor must be a finite number >= 0; got {f}"),
+                    ));
+                }
+            }
+        }
+    }
+    if let Some(f) = style.shrink {
+        if f.is_finite() && f >= 0.0 {
+            el = el.shrink(f);
+        } else {
+            errors.push(DescribeError::new(
+                format!("{path}/style/shrink"),
+                format!("shrink factor must be a finite number >= 0; got {f}"),
+            ));
+        }
+    }
+    if style.wrap == Some(true) {
+        el = el.wrap();
+    }
+    if let Some(s) = &style.scroll {
+        match s.as_str() {
+            "x" => el = el.scroll_x(),
+            "y" => el = el.scroll_y(),
+            "both" => el = el.scroll_xy(),
+            "hidden" => el = el.overflow_hidden(),
+            other => errors.push(DescribeError::new(
+                format!("{path}/style/scroll"),
+                format!(r#"scroll must be "x", "y", "both", or "hidden"; got {other:?}"#),
+            )),
+        }
     }
     // ── Grid templates ────────────────────────────────────────────────────────
     if let Some(specs) = &style.grid_cols {
@@ -2605,6 +2962,42 @@ const MAX_FONT_PX: f32 = 4096.0;
 /// Accepts a finite style length; a non-finite (`NaN`/`±∞`) value is an authoring
 /// error, so it records a path-pointed error and returns `false` (the caller
 /// skips applying it, degrading rather than rendering nonsense).
+/// Resolves a [`SizeSpec`] to a core [`Length`]: px numbers must be finite,
+/// `"full"` is 100%, `"NN%"` clamps to `0..=100` with a path-pointed error
+/// when out of range. Unresolvable specs record an error and apply nothing.
+fn size_len(
+    spec: &SizeSpec,
+    path: &str,
+    field: &str,
+    errors: &mut Vec<DescribeError>,
+) -> Option<Length> {
+    match spec {
+        SizeSpec::Px(v) => finite_num(*v, path, field, errors).then_some(Length::Px(*v)),
+        SizeSpec::Keyword(s) => {
+            if s == "full" {
+                return Some(Length::Pct(100.0));
+            }
+            if let Some(pct) = s.strip_suffix('%')
+                && let Ok(v) = pct.trim().parse::<f32>()
+                && v.is_finite()
+            {
+                if !(0.0..=100.0).contains(&v) {
+                    errors.push(DescribeError::new(
+                        format!("{path}/style/{field}"),
+                        format!("percent sizes clamp to 0..=100; got {v}%"),
+                    ));
+                }
+                return Some(Length::Pct(v.clamp(0.0, 100.0)));
+            }
+            errors.push(DescribeError::new(
+                format!("{path}/style/{field}"),
+                format!(r#"expected a px number, "NN%", or "full"; got {s:?}"#),
+            ));
+            None
+        }
+    }
+}
+
 fn finite_num(v: f32, path: &str, field: &str, errors: &mut Vec<DescribeError>) -> bool {
     if v.is_finite() {
         true

@@ -110,3 +110,35 @@ fn glass_authored_in_json_golden() {
     let image = render_element(el, &theme, (560, 360));
     assert_png_snapshot(snapshot_dir(), "glass_authored", &image);
 }
+
+/// The chart + markdown nodes render through the same boundary: a dashboard
+/// slice with a sparkline, an axes line chart, a bar chart, and a markdown
+/// block, all authored as JSON.
+#[test]
+fn described_charts_markdown_golden() {
+    let doc = r##"{
+  "schema": "fenestra/1",
+  "root": { "col": {
+    "style": { "p": 24, "gap": 16, "bg": "surface" },
+    "children": [
+      { "row": { "style": { "gap": 8, "align": "center" }, "children": [
+        { "text": { "content": "Throughput", "style": { "weight": 600 } } },
+        { "sparkline": { "values": [3, 5, 4, 8, 7, 9, 6, 10] } }
+      ] } },
+      { "line_chart": { "values": [2, 5, 3, 8, 6, 9], "markers": true,
+                        "x_labels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"],
+                        "y_title": "req/s", "w": 432, "h": 180 } },
+      { "bar_chart": { "bars": [
+          { "label": "Q1", "value": 40 }, { "label": "Q2", "value": 65 },
+          { "label": "Q3", "value": 52 }, { "label": "Q4", "value": 78 }
+        ], "show_values": true, "w": 432, "h": 160 } },
+      { "markdown": { "source": "Q4 **exceeded target** — see the `pipeline` dashboard.\n\n- [x] capacity plan\n- [ ] cost review" } }
+    ]
+  } }
+}"##;
+    let desc: Description = serde_json::from_str(doc).expect("valid description");
+    let theme = Theme::light();
+    let el = to_element(&desc, &theme).expect("parses cleanly");
+    let image = render_element(el, &theme, (480, 640));
+    assert_png_snapshot(snapshot_dir(), "described_charts_markdown", &image);
+}

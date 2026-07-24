@@ -3530,3 +3530,40 @@ stated direction), at which point a true no-wgpu-at-all path becomes a
 dependency upgrade instead of a rewrite. Until then, machines with zero
 adapters get the actionable `NoDevice` error (install mesa; Windows always
 has WARP).
+
+## Charts/markdown nodes, layout parity, and the emitter (2026-07-24)
+
+Three related moves close the "one-way, narrow JSON boundary" critique.
+
+**Chart + markdown nodes.** `sparkline` / `line_chart` / `bar_chart` map
+onto fenestra-charts' plain panels or axes builders (axis decorations turn
+on with `axes: true` or any axis field — one rule, documented in the node
+docs and vocabulary); `markdown` maps onto fenestra-markdown. Handlers stay
+inert: `on_link` fires one fixed intent for any link, the URL does not ride
+along — consistent with the format's no-data-across-the-boundary rule.
+Caps follow the house clamp-and-point pattern (10k points/series, 10 series
+= the categorical palette size, bars at MAX_LIST_ITEMS, ticks 1..=50).
+fenestra-describe now depends on fenestra-charts + fenestra-markdown; the
+dependency direction stays acyclic (both are leaves over core/kit).
+
+**Layout parity.** The style grammar gained the flex vocabulary real UIs
+use: percent/"full" sizes (`SizeSpec`, an untagged number|string union —
+additive, old documents unchanged), `grow` (bool-or-factor union),
+`shrink`, `wrap`, `scroll` ("x"/"y"/"both"/"hidden"). Without these, no
+builder-authored UI could round-trip through JSON — every real layout uses
+grow/full/scroll. Deliberately still builder-only: `align_self`,
+`align_content`, `flex_basis`, sticky offsets, ch-units, per-side borders.
+
+**The emitter (deferred #9).** `emit::{emit_description, emit_element}` is
+the inverse of `parse` with a fidelity-or-report contract: zero warnings
+⇒ the emitted JSON re-parses to byte-identical pixels (round-trip tests
+pin this, including the builder-import case); anything without a JSON
+projection warns path-pointed. Design notes: colors emit as concrete OKLCH
+(builder trees hold resolved colors — role names are gone by then; same
+theme ⇒ exact pixels), kit widgets emit as their lowered primitives with
+their theme-closure styling *reported* (closures cannot serialize), the
+emitter enforces MAX_TREE_DEPTH itself (an emitter must not be the one
+traversal that can still blow the stack), and `Element` gained read-only
+accessors rather than exposing fields. Library-only by design: there is
+nothing for the CLI/MCP to emit — the input is a live Rust tree, which
+only library callers have.

@@ -8,6 +8,33 @@ pointed, catchable errors instead of process aborts and panics.
 
 ### Added
 
+- **Charts and markdown are now authorable in fenestra/1.** Four new nodes:
+  `sparkline` (inline trend line), `line_chart` (single- or multi-series
+  with optional axes, markers, labels, titles), `bar_chart` (optional axes
+  and printed values), and `markdown` (CommonMark + GFM as native
+  elements; `on_link` fires one inert intent). Hostile inputs degrade with
+  path-pointed errors: series truncate at 10k points, multi-series at the
+  10-color palette, bars at the item cap, tick requests clamp. The JSON
+  Schema and vocabulary gained the nodes automatically (the drift guard
+  enforces all three stay in lockstep), and a golden pins the rendering.
+- **The JSON grammar reaches layout parity with the builders.** `w`/`h`/
+  `min_*`/`max_*` accept `"NN%"` and `"full"` beside px numbers, and new
+  `grow` (bool or factor), `shrink`, `wrap`, and `scroll`
+  (`"x"|"y"|"both"|"hidden"`) style fields cover the flex vocabulary real
+  UIs are built from. (`Element` gained matching `grow_by`/`shrink`
+  builders.)
+- **The Element→JSON emitter closes the round-trip** (deferred #9):
+  `fenestra_describe::emit::{emit_description, emit_element}` serialize a
+  builder-authored tree back to fenestra/1. The contract is
+  fidelity-or-report: for the JSON-expressible subset (layout, text,
+  literal styles, click intents) the emitted document re-parses and
+  renders byte-identical pixels with zero warnings — pinned by round-trip
+  tests — and every feature with no JSON projection (theme/hover style
+  closures, vector paths, virtual rows, exotic style fields) is reported
+  path-pointed, never dropped silently. Colors emit as concrete OKLCH;
+  `Element` gained read accessors (`kind`, `children_ref`, `key`,
+  `click_msg`, `access_label`, `is_stack`, `has_dynamic_style`,
+  `has_generated_content`) for tooling.
 - **`FENESTRA_CPU`: vello's CPU compute pipeline as a first-class switch**
   (`fenestra_shell::CPU_ENV`). The renderer's compute stages run as native
   Rust, leaving the adapter only upload/copy work — the key to software

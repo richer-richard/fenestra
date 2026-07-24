@@ -1114,8 +1114,10 @@ dependencies = [
 name = "fenestra-describe"
 version = "0.40.0"
 dependencies = [
+ "fenestra-charts",
  "fenestra-core",
  "fenestra-kit",
+ "fenestra-markdown",
  "fenestra-shell",
  "image",
  "insta",

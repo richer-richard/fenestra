@@ -96,6 +96,10 @@ fn vocabulary_covers_every_node_variant() {
         // Data
         "data_table",
         "virtual_list",
+        "sparkline",
+        "line_chart",
+        "bar_chart",
+        "markdown",
         // Overlays
         "modal",
         "tooltip",
@@ -169,6 +173,10 @@ fn tag_of(n: &Node) -> &'static str {
         // Data
         Node::DataTable(_) => "data_table",
         Node::VirtualList(_) => "virtual_list",
+        Node::Sparkline(_) => "sparkline",
+        Node::LineChart(_) => "line_chart",
+        Node::BarChart(_) => "bar_chart",
+        Node::Markdown(_) => "markdown",
         // Overlays
         Node::Modal(_) => "modal",
         Node::Tooltip(_) => "tooltip",
