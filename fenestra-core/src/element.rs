@@ -497,12 +497,93 @@ pub struct ExitAnim {
     pub translate_to: (f32, f32),
 }
 
+/// Maximum element-tree depth the framework accepts: [`crate::build_frame`]
+/// and [`Element::map`] reject deeper trees with a pointed, catchable panic
+/// instead of letting their recursion overflow the stack (an uncatchable
+/// process abort).
+///
+/// 48 is comfortably beyond real UIs (heavily composed views measure around
+/// 30 levels), and — measured, not estimated — an at-cap tree builds within
+/// a 2 MiB thread stack (the `std::thread` spawn and tokio blocking-pool
+/// default) even in unoptimized debug builds, with margin: the measured
+/// cliff on that worst-case profile is past depth 60. serde_json's own
+/// 128-level recursion limit would admit ~63 nested fenestra/1 nodes, so a
+/// pathological document can parse and still be rejected here — by the same
+/// pointed panic. Trees whose depth is data-dependent (file trees, comment
+/// threads) should flatten levels into indented rows rather than nest
+/// containers.
+pub const MAX_TREE_DEPTH: usize = 48;
+
+/// The one message for a tree over [`MAX_TREE_DEPTH`], pointing at the
+/// builder call site of the offending node.
+#[cold]
+#[inline(never)]
+pub(crate) fn depth_panic(source: &'static std::panic::Location<'static>) -> ! {
+    panic!(
+        "element tree exceeds MAX_TREE_DEPTH ({MAX_TREE_DEPTH}) at {source} — a recursive \
+         component nesting unbounded data? Flatten the hierarchy (indent rows instead of \
+         nesting containers) or virtualize the list"
+    )
+}
+
+/// Child storage for [`Element`]: a `Vec` in every observable way (deref,
+/// iteration, collect), plus a `Drop` that walks the subtree iteratively —
+/// so a tree of any depth can be dropped without overflowing the stack.
+/// Dropping must never recurse: it runs during the unwind of the depth
+/// guard itself.
+pub(crate) struct Children<Msg>(pub(crate) Vec<Element<Msg>>);
+
+impl<Msg> Drop for Children<Msg> {
+    fn drop(&mut self) {
+        // Steal each popped element's children before it drops, so no drop
+        // ever descends more than one level. The worklist holds one frontier,
+        // not the whole subtree.
+        let mut stack = std::mem::take(&mut self.0);
+        while let Some(mut el) = stack.pop() {
+            stack.append(&mut el.children.0);
+        }
+    }
+}
+
+impl<Msg> Default for Children<Msg> {
+    fn default() -> Self {
+        Children(Vec::new())
+    }
+}
+
+impl<Msg> std::ops::Deref for Children<Msg> {
+    type Target = Vec<Element<Msg>>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl<Msg> std::ops::DerefMut for Children<Msg> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl<Msg> IntoIterator for Children<Msg> {
+    type Item = Element<Msg>;
+    type IntoIter = std::vec::IntoIter<Element<Msg>>;
+    fn into_iter(mut self) -> Self::IntoIter {
+        std::mem::take(&mut self.0).into_iter()
+    }
+}
+
+impl<Msg> FromIterator<Element<Msg>> for Children<Msg> {
+    fn from_iter<T: IntoIterator<Item = Element<Msg>>>(iter: T) -> Self {
+        Children(iter.into_iter().collect())
+    }
+}
+
 /// One node in the view tree. `Msg` is the app's message type; handlers
 /// carry `Msg` values, not closures over state.
 pub struct Element<Msg> {
     pub(crate) kind: Kind,
     pub(crate) style: Style,
-    pub(crate) children: Vec<Element<Msg>>,
+    pub(crate) children: Children<Msg>,
     /// User key for stable identity (`.id()`).
     pub(crate) key: Option<String>,
     /// Where this element was constructed (file:line of the builder
@@ -588,7 +669,7 @@ impl<Msg> Element<Msg> {
         Self {
             kind,
             style: Style::default(),
-            children: Vec::new(),
+            children: Children::default(),
             key: None,
             source: std::panic::Location::caller(),
             stack: false,
@@ -2016,13 +2097,28 @@ impl<Msg: 'static> Element<Msg> {
     /// let el: Element<AppMsg> = card().map(|m| AppMsg::Card(0, m));
     /// ```
     pub fn map<B: 'static>(self, f: impl Fn(Msg) -> B + Clone + 'static) -> Element<B> {
+        self.map_at(f, 1)
+    }
+
+    /// [`Self::map`] with this node's tree level threaded through, enforcing
+    /// [`MAX_TREE_DEPTH`]: `map` runs on view trees before `build_frame` ever
+    /// sees them, so it must reject runaway depth with the same pointed panic
+    /// rather than recurse into a stack overflow.
+    fn map_at<B: 'static>(
+        self,
+        f: impl Fn(Msg) -> B + Clone + 'static,
+        depth: usize,
+    ) -> Element<B> {
+        if depth > MAX_TREE_DEPTH {
+            depth_panic(self.source);
+        }
         Element {
             kind: self.kind,
             style: self.style,
             children: self
                 .children
                 .into_iter()
-                .map(|c| c.map(f.clone()))
+                .map(|c| c.map_at(f.clone(), depth + 1))
                 .collect(),
             key: self.key,
             source: self.source,

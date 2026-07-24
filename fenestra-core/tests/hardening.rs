@@ -327,3 +327,126 @@ fn access_tree_bounds_follow_paint_time_transforms() {
         "accessibility bounds should follow the +100 translate: layout {layout_rect:?}, reported {reported_rect:?}"
     );
 }
+
+// ---- Deep-tree crash class (adversarial review 2026-07-24, finding A) ----
+// Recursion in build/layout/paint/drop used to hit a raw stack overflow —
+// an uncatchable process abort — once nesting passed a few hundred levels
+// (data-dependent for any recursive component). The contract is now
+// `MAX_TREE_DEPTH`: at-cap trees build on default thread stacks, over-cap
+// trees are rejected with one pointed panic, and trees of ANY depth can be
+// dropped safely.
+
+/// A parent chain exactly `depth` levels deep.
+fn chain(depth: usize) -> Element<()> {
+    let mut el: Element<()> = text("bottom");
+    for _ in 1..depth {
+        el = div().child(el);
+    }
+    el
+}
+
+/// An at-cap tree must build within a 2 MiB stack (the `std::thread` spawn
+/// default) — pinned on an explicit 2 MiB thread so any future fattening of
+/// the build/layout frames fails this test instead of a user's render thread.
+#[test]
+fn tree_at_depth_cap_builds_on_a_default_thread_stack() {
+    std::thread::Builder::new()
+        .stack_size(2 * 1024 * 1024)
+        .spawn(|| {
+            let theme = Theme::light();
+            let mut fonts = Fonts::embedded();
+            let mut state = FrameState::new();
+            let view = chain(fenestra_core::MAX_TREE_DEPTH);
+            let _ = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 100.0), 1.0);
+        })
+        .expect("spawn")
+        .join()
+        .expect("an at-cap tree must build within a 2 MiB stack");
+}
+
+/// One level past the cap is rejected with the pointed message, not an abort.
+#[test]
+fn tree_over_depth_cap_panics_with_a_pointed_message() {
+    let err = std::panic::catch_unwind(|| {
+        let theme = Theme::light();
+        let mut fonts = Fonts::embedded();
+        let mut state = FrameState::new();
+        let view = chain(fenestra_core::MAX_TREE_DEPTH + 1);
+        let _ = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 100.0), 1.0);
+    })
+    .expect_err("an over-cap tree must be rejected");
+    let msg = err
+        .downcast_ref::<String>()
+        .cloned()
+        .unwrap_or_else(|| (*err.downcast_ref::<&str>().unwrap_or(&"")).to_string());
+    assert!(
+        msg.contains("MAX_TREE_DEPTH"),
+        "rejection must name the cap and the call site, got: {msg}"
+    );
+}
+
+/// Runaway-recursion depths (the original crash repro was 512+; this is 100k)
+/// must hit the same pointed panic — the detection scan is iterative, so it
+/// works at depths where one recursive step per level would already abort.
+#[test]
+fn hugely_deep_tree_is_rejected_not_aborted() {
+    let err = std::panic::catch_unwind(|| {
+        let theme = Theme::light();
+        let mut fonts = Fonts::embedded();
+        let mut state = FrameState::new();
+        let view = chain(100_000);
+        let _ = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 100.0), 1.0);
+    })
+    .expect_err("a 100k-deep tree must be rejected");
+    let msg = err.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(msg.contains("MAX_TREE_DEPTH"), "got: {msg}");
+}
+
+/// Dropping is the one traversal that must work at ANY depth — it runs
+/// during the unwind of the depth guard itself. 100k levels would overflow
+/// a recursive drop several times over.
+#[test]
+fn deep_tree_drops_without_stack_overflow() {
+    let el = chain(100_000);
+    drop(el);
+}
+
+/// `Element::map` recurses per level too (it runs on view trees before
+/// `build_frame` ever sees them), so it enforces the same cap.
+#[test]
+fn map_over_depth_cap_panics_with_a_pointed_message() {
+    let err = std::panic::catch_unwind(|| {
+        let _ = chain(100_000).map(|m: ()| m);
+    })
+    .expect_err("mapping an over-cap tree must be rejected");
+    let msg = err.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(msg.contains("MAX_TREE_DEPTH"), "got: {msg}");
+}
+
+/// Mapping an at-cap tree is fine.
+#[test]
+fn map_at_depth_cap_works() {
+    let mapped = chain(fenestra_core::MAX_TREE_DEPTH).map(|m: ()| m);
+    drop(mapped);
+}
+
+/// Content generated *during* the walk (virtual rows, container queries)
+/// can't be seen by the up-front scan; the in-recursion check must catch a
+/// row builder whose subtree pushes total depth over the cap.
+#[test]
+fn virtual_rows_generating_over_cap_content_panic_pointedly() {
+    let err = std::panic::catch_unwind(|| {
+        let theme = Theme::light();
+        let mut fonts = Fonts::embedded();
+        let mut state = FrameState::new();
+        let view: Element<()> = col()
+            .h(100.0)
+            .scroll_y()
+            .id("vl")
+            .virtual_rows(10, 20.0, |_| chain(fenestra_core::MAX_TREE_DEPTH));
+        let _ = build_frame(&view, &theme, &mut fonts, &mut state, (200.0, 100.0), 1.0);
+    })
+    .expect_err("generated over-cap content must be rejected");
+    let msg = err.downcast_ref::<String>().cloned().unwrap_or_default();
+    assert!(msg.contains("MAX_TREE_DEPTH"), "got: {msg}");
+}
