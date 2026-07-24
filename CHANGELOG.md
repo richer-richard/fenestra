@@ -6,6 +6,22 @@ The two crash classes left open by the 2026-07-24 adversarial review are
 closed: runaway-deep element trees and GPU-environment failures now fail as
 pointed, catchable errors instead of process aborts and panics.
 
+### Added
+
+- **`FENESTRA_CPU`: vello's CPU compute pipeline as a first-class switch**
+  (`fenestra_shell::CPU_ENV`). The renderer's compute stages run as native
+  Rust, leaving the adapter only upload/copy work — the key to software
+  adapters whose compute rasterization crashes (Windows WARP) or diverges.
+  Honored by headless rendering and the live window alike; adapter
+  *selection* was already env-steerable end to end via wgpu's
+  `WGPU_BACKEND`/`WGPU_ADAPTER_NAME`. On the reference platform the CPU
+  pipeline reproduces the Metal goldens within the default 0.2% budget.
+  Windows CI gains an informational full-suite render step on WARP under
+  this switch — the path to Windows pixels becoming a required gate.
+  (vello_cpu itself was evaluated and deferred with evidence — see
+  ARCHITECTURE.md: it is a second paint backend today, not a fallback
+  flag.)
+
 ### Fixed
 
 - **Deep element trees no longer abort the process.** Recursion in

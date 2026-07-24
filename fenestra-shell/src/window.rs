@@ -291,7 +291,10 @@ impl WindowShell {
                 Renderer::new(
                     &self.context.devices[surface.dev_id].device,
                     RendererOptions {
-                        use_cpu: false,
+                        // `FENESTRA_CPU` runs vello's compute stages on the
+                        // CPU — the live-window switch for software adapters
+                        // (see `CPU_ENV`).
+                        use_cpu: crate::headless::cpu_compute_requested(),
                         antialiasing_support: AaSupport::area_only(),
                         ..Default::default()
                     },
@@ -354,6 +357,8 @@ impl WindowShell {
                     Renderer::new(
                         &self.context.devices[surface.dev_id].device,
                         RendererOptions {
+                            // No env vars on the web; WebGPU implies a real
+                            // adapter, so the CPU pipeline has no use here.
                             use_cpu: false,
                             antialiasing_support: AaSupport::area_only(),
                             ..Default::default()

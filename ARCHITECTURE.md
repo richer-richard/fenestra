@@ -3497,3 +3497,36 @@ typed internal error rather than relying on `spawn_blocking` panic-catch
 tested for real: on macOS, `WGPU_BACKEND=gl` deterministically enumerates
 zero adapters (wgpu never compiles GL there), so a child-process test
 exercises the genuine `NoDevice` route end to end.
+
+## CPU rendering: `FENESTRA_CPU` and the vello_cpu decision (2026-07-24)
+
+The "GPU-or-die" gap has two distinct halves, and they get different
+answers.
+
+**Software adapters (shipped).** vello 0.9 already routes adapter selection
+through `wgpu::util::initialize_adapter_from_env_or_default`, so
+`WGPU_BACKEND` / `WGPU_ADAPTER_NAME` steer fenestra end to end — nothing to
+build there. What was missing was surviving *broken software compute*: CI's
+WARP (Windows) dies with `STATUS_ACCESS_VIOLATION` inside vello's GPU
+compute stages. The new `FENESTRA_CPU` env switch (honored by `Headless`
+and both live-window renderer constructions; `CPU_ENV` in the public API)
+sets vello's `use_cpu: true`, running the compute stages as native Rust and
+leaving the adapter only upload/copy work. Measured on the reference
+platform: the CPU pipeline reproduces the Metal goldens within the default
+0.2% budget (glass, type, gallery suites). The Windows CI job gains an
+informational full-suite render step under `FENESTRA_CPU=1` +
+`WGPU_BACKEND=dx12` at the lavapipe budget; once it proves stable across a
+few runs it becomes the required Windows-pixels gate (closing "the largest
+desktop platform has never had a golden verified in CI").
+
+**vello_cpu (evaluated, deferred with evidence).** vello_cpu 0.0.9
+(2026-05) is the sparse-strips family with its own paint API and no bridge
+to classic vello's `Encoding`-based `Scene` — adopting it means writing and
+maintaining a second full paint backend against a pre-0.1 API, and forking
+the golden story per backend. That is a renderer port, not a fallback flag.
+Decision: stay on classic vello + `FENESTRA_CPU` for GPU-less compute;
+revisit when linebender's next-gen vello unifies the scene model (their
+stated direction), at which point a true no-wgpu-at-all path becomes a
+dependency upgrade instead of a rewrite. Until then, machines with zero
+adapters get the actionable `NoDevice` error (install mesa; Windows always
+has WARP).

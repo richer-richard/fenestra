@@ -46,7 +46,7 @@ pub use embed::{Embedded, EventResponse};
 #[cfg(not(target_arch = "wasm32"))]
 pub use harness::{Harness, MAX_FILM_FRAMES, MAX_FILM_INTERVAL_MS};
 #[cfg(not(target_arch = "wasm32"))]
-pub use headless::Headless;
+pub use headless::{CPU_ENV, Headless};
 #[cfg(not(target_arch = "wasm32"))]
 pub use multi_pass::process_specs;
 #[cfg(not(target_arch = "wasm32"))]

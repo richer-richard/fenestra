@@ -15,6 +15,28 @@ use vello::{AaConfig, AaSupport, RenderParams, Renderer, RendererOptions, Scene}
 
 use crate::ShellError;
 
+/// Env var selecting vello's CPU compute pipeline (any value but `0` or
+/// empty): the renderer's shader stages run as native Rust instead of GPU
+/// compute, leaving the adapter only upload/copy work. This is the switch
+/// that makes software adapters viable where their compute rasterization
+/// crashes or diverges — Windows' built-in WARP hits
+/// `STATUS_ACCESS_VIOLATION` under vello's GPU compute but is fine as a
+/// copy engine. Applies to headless rendering and the live window alike;
+/// adapter *selection* itself is steered by wgpu's own `WGPU_BACKEND` /
+/// `WGPU_ADAPTER_NAME`, which fenestra honors end to end.
+pub const CPU_ENV: &str = "FENESTRA_CPU";
+
+/// Reads [`CPU_ENV`] from the process environment.
+pub(crate) fn cpu_compute_requested() -> bool {
+    cpu_flag(std::env::var_os(CPU_ENV).as_deref())
+}
+
+/// `FENESTRA_CPU` semantics: set-and-not-`0` enables (empty disables, so
+/// `FENESTRA_CPU= cargo test` behaves like unset).
+fn cpu_flag(v: Option<&std::ffi::OsStr>) -> bool {
+    v.is_some_and(|v| !v.is_empty() && v != "0")
+}
+
 /// A reusable offscreen renderer. Creating one compiles vello's shaders, so
 /// tests should create it once and render many scenes through it.
 pub struct Headless {
@@ -26,7 +48,8 @@ pub struct Headless {
 
 impl Headless {
     /// Acquires a compute-capable adapter (no surface required) and builds a
-    /// vello renderer on it.
+    /// vello renderer on it. Set [`CPU_ENV`] to run vello's compute stages
+    /// on the CPU (software-adapter environments).
     pub fn new() -> Result<Self, ShellError> {
         let mut context = RenderContext::new();
         let dev_id = pollster::block_on(context.device(None)).ok_or(ShellError::NoDevice)?;
@@ -35,7 +58,7 @@ impl Headless {
         let renderer = Renderer::new(
             device,
             RendererOptions {
-                use_cpu: false,
+                use_cpu: cpu_compute_requested(),
                 antialiasing_support: AaSupport::area_only(),
                 num_init_threads: NonZeroUsize::new(1),
                 pipeline_cache: None,
@@ -187,5 +210,21 @@ impl Headless {
         let injected = crate::multi_pass::process_specs(&backdrop, &specs, frame.scale());
         let final_scene = frame.paint_final(fonts, state, &injected);
         self.render(&final_scene, width, height, base_color)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::OsStr;
+
+    use super::cpu_flag;
+
+    #[test]
+    fn cpu_flag_semantics() {
+        assert!(!cpu_flag(None));
+        assert!(!cpu_flag(Some(OsStr::new(""))));
+        assert!(!cpu_flag(Some(OsStr::new("0"))));
+        assert!(cpu_flag(Some(OsStr::new("1"))));
+        assert!(cpu_flag(Some(OsStr::new("true"))));
     }
 }
