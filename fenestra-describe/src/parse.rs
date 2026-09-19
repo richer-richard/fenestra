@@ -1508,7 +1508,7 @@ fn decode_base64(input: &str) -> Result<Vec<u8>, String> {
     }
     let groups = s.len() / 4;
     let mut out = Vec::with_capacity(groups * 3);
-    for (i, group) in s.chunks_exact(4).enumerate() {
+    for (i, group) in s.as_chunks::<4>().0.iter().enumerate() {
         let is_last = i + 1 == groups;
         let pad = group.iter().rev().take_while(|&&b| b == b'=').count();
         if pad > 0 && !is_last {

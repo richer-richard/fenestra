@@ -997,11 +997,11 @@ mod tests {
         let b = lc_field(30.0, 8);
         assert_eq!(a, b, "same inputs ⇒ same texture");
         assert_eq!(a.len(), 8 * 8 * 4);
-        assert!(a.chunks_exact(4).all(|px| px[3] == 255), "opaque");
+        assert!(a.as_chunks::<4>().0.iter().all(|px| px[3] == 255), "opaque");
 
         let hue_tex = hue_field(12, 4, 0.7, 0.15);
         assert_eq!(hue_tex.len(), 12 * 4 * 4);
-        assert!(hue_tex.chunks_exact(4).all(|px| px[3] == 255));
+        assert!(hue_tex.as_chunks::<4>().0.iter().all(|px| px[3] == 255));
     }
 
     #[test]
