@@ -1,5 +1,7 @@
 # Introduction
 
+![One dashboard rendered twice: the dark theme around the word fenestra, the light theme showing through its letters](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/cover.png)
+
 fenestra is a pure-Rust native GUI framework: winit windowing, wgpu GPU
 access, vello vector rendering, parley text shaping, taffy flexbox/grid
 layout. No browser, no webview, no HTML/CSS parser — and two commitments

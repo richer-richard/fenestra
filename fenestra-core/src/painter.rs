@@ -716,7 +716,7 @@ fn mean_luma(image: &peniko::ImageData) -> f32 {
         return 0.0;
     }
     let (mut sum_r, mut sum_g, mut sum_b) = (0u64, 0u64, 0u64);
-    for px in data.chunks_exact(4) {
+    for px in data.as_chunks::<4>().0 {
         sum_r += u64::from(px[0]);
         sum_g += u64::from(px[1]);
         sum_b += u64::from(px[2]);

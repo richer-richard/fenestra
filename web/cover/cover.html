@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>fenestra cover</title>
+<link rel="stylesheet" href="app.css">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { width: 2400px; height: 1200px; overflow: hidden; background: var(--d-bg); }
+body { font-family: "Inter", system-ui, sans-serif; -webkit-font-smoothing: antialiased; }
+.stage { position: relative; width: 2400px; height: 1200px; overflow: hidden; background: var(--d-bg); }
+
+/* The wall: the dark render, dimmed a little more at the top and bottom
+   than around the word, so the word stays the brightest thing on the page. */
+.ui.dark::after { content:""; position:absolute; inset:0; pointer-events:none;
+  background: linear-gradient(to bottom,
+    rgba(18,19,20,.74) 0px, rgba(18,19,20,.66) 300px, rgba(18,19,20,.52) 460px,
+    rgba(18,19,20,.48) 580px, rgba(18,19,20,.48) 720px, rgba(18,19,20,.58) 880px,
+    rgba(18,19,20,.70) 1050px, rgba(18,19,20,.76) 1200px); }
+
+/* The windows: the light render (light.png, made by render.sh from
+   light.html) painted through the letters. The two renders share app.css
+   and app.js, so every card edge lines up across a letter boundary. */
+.word, .glow {
+  position: absolute; inset: 0; margin: 0; padding: 348px 0 0 112px;
+  font-family: "Unbounded", sans-serif; font-weight: 800; font-size: 396px; line-height: 1;
+  letter-spacing: -0.02em; white-space: nowrap;
+}
+.word { background: url("light.png") 0 0 / 2400px 1200px no-repeat; -webkit-background-clip: text; background-clip: text; color: transparent; }
+.glow { color: #cfe0ff; opacity: .18; filter: blur(42px); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="ui dark"><div class="app"></div></div>
+  <div class="glow" aria-hidden="true">fenestra</div>
+  <div class="word">fenestra</div>
+</div>
+<script src="app.js"></script>
+</body>
+</html>

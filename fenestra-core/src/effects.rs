@@ -119,7 +119,7 @@ pub fn grain(width: u32, height: u32, seed: u64, intensity: f32) -> Vec<u8> {
     let alpha = channel(intensity.clamp(0.0, 1.0));
     // xorshift64* — a tiny deterministic PRNG (no `rand` dep, no clock/random).
     let mut state = seed ^ 0x9E37_79B9_7F4A_7C15;
-    for px in out.chunks_exact_mut(4) {
+    for px in out.as_chunks_mut::<4>().0 {
         state ^= state >> 12;
         state ^= state << 25;
         state ^= state >> 27;
@@ -151,7 +151,7 @@ mod tests {
         }];
         let buf = mesh(8, 8, &p);
         assert_eq!(buf.len(), 8 * 8 * 4);
-        assert!(buf.chunks_exact(4).all(|c| c[3] == 255), "opaque");
+        assert!(buf.as_chunks::<4>().0.iter().all(|c| c[3] == 255), "opaque");
     }
 
     #[test]
@@ -188,13 +188,21 @@ mod tests {
         assert_ne!(a, grain(16, 16, 43, 0.5), "different seed ⇒ different");
         // Alpha is the intensity; the noise lives in the gray channels.
         assert!(
-            a.chunks_exact(4)
+            a.as_chunks::<4>()
+                .0
+                .iter()
                 .all(|c| c[3] == 128 && c[0] == c[1] && c[1] == c[2])
         );
     }
 
     #[test]
     fn grain_zero_intensity_is_transparent() {
-        assert!(grain(8, 8, 1, 0.0).chunks_exact(4).all(|c| c[3] == 0));
+        assert!(
+            grain(8, 8, 1, 0.0)
+                .as_chunks::<4>()
+                .0
+                .iter()
+                .all(|c| c[3] == 0)
+        );
     }
 }

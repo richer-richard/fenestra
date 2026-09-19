@@ -13,3 +13,6 @@ CLAUDE.local.md
 # mdBook build output.
 /book/book/
 __pycache__/
+
+# The cover's intermediate light pass (web/cover/render.sh rebuilds it).
+/web/cover/light.png
