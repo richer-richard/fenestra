@@ -5,6 +5,8 @@
 [![docs.rs](https://img.shields.io/docsrs/fenestra)](https://docs.rs/fenestra)
 [![License: MIT OR Apache-2.0](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
 
+![One dashboard rendered twice: the dark theme around the word fenestra, the light theme showing through its letters](https://raw.githubusercontent.com/richer-richard/fenestra/main/gallery/cover.png)
+
 **A UI stack built for the agent loop.** Describe a UI as JSON, render it
 natively, and check it in CI. There's no compile step in that loop, and no
 flaky screenshots.
