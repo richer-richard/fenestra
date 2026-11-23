@@ -45,13 +45,6 @@ ignore = [
   # because cargo-deny's graph keeps every cfg-gated edge of every
   # resolved crate. Revisit when muda moves its Linux backend off gtk3
   # (upstream is tracking gtk4) or grows a feature to opt out of it.
-  "RUSTSEC-2024-0412", # gdk: gtk3-rs unmaintained
-  "RUSTSEC-2024-0413", # atk: gtk3-rs unmaintained
-  "RUSTSEC-2024-0415", # gtk: gtk3-rs unmaintained
-  "RUSTSEC-2024-0416", # atk-sys: gtk3-rs unmaintained
-  "RUSTSEC-2024-0418", # gdk-sys: gtk3-rs unmaintained
-  "RUSTSEC-2024-0419", # gtk3-macros: gtk3-rs unmaintained
-  "RUSTSEC-2024-0420", # gtk-sys: gtk3-rs unmaintained
   "RUSTSEC-2024-0370", # proc-macro-error: unmaintained, only via gtk3-macros/muda
 ]
 
